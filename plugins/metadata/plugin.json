@@ -1,0 +1,22 @@
+{
+  "api": 1,
+  "id": "ember.metadata",
+  "name": "文件信息",
+  "version": "0.1.0",
+  "icon": "info",
+  "executable": "bin/ember-metadata-plugin.exe",
+  "entry": "ui/index.html",
+  "capabilities": [
+    "overlay",
+    "controls"
+  ],
+  "permissions": [],
+  "activation": {
+    "mode": "auto",
+    "priority": 0
+  },
+  "overlay": {
+    "width": 290,
+    "height": 176
+  }
+}

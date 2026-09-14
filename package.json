@@ -1,0 +1,45 @@
+{
+  "name": "ember-peek",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tauri dev",
+    "dev:services": "node scripts/dev-services.mjs",
+    "dev:web": "vite --host 127.0.0.1",
+    "tauri": "tauri",
+    "desktop": "tauri dev",
+    "build": "tsc --noEmit && vite build",
+    "build:desktop": "tauri build",
+    "plugins:build": "node scripts/build-plugins.mjs",
+    "plugins:watch": "node scripts/build-plugins.mjs --watch",
+    "version:check": "node scripts/sync-version.mjs --check",
+    "version:set": "node scripts/sync-version.mjs --set",
+    "check": "npm run build && npm run plugins:build && cargo check --workspace",
+    "test": "node --test tests/*.test.mjs && cargo test -p ember-runtime -p ember-plugin-sdk -p ember-text-editor-plugin -p ember-text-plugin --features ember-runtime/test-worker"
+  },
+  "dependencies": {
+    "@codemirror/commands": "^6.11.0",
+    "@codemirror/language": "^6.12.4",
+    "@codemirror/language-data": "^6.5.2",
+    "@codemirror/state": "^6.7.4",
+    "@codemirror/view": "^6.43.11",
+    "@lezer/highlight": "^1.2.3",
+    "@tauri-apps/api": "^2.10.0",
+    "dompurify": "^3.4.15",
+    "lucide-react": "^0.577.0",
+    "markdown-it": "^15.0.2",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.10.0",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^5.1.0",
+    "esbuild": "^0.28.2",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.0"
+  }
+}

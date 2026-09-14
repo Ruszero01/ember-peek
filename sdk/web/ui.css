@@ -1,0 +1,238 @@
+/* Shared plugin UI kit, copied into each package next to sdk.js.
+ *
+ * Rules of the kit:
+ *   1. Everything here is built from the host's tokens, so a skin change reaches every
+ *      plugin without touching plugin code. Only host tokens are used, and every colour
+ *      fallback stays neutral — a hardcoded colour shows up as a foreign block in the other
+ *      theme (that is exactly how the editor's hover turned black in light mode once).
+ *   2. Prefer these components. A plugin that needs something the kit does not have should
+ *      build it from the same tokens rather than invent new values, so it still moves with
+ *      the skin.
+ *   3. The kit never decides behaviour; it styles markup the plugin owns.
+ *
+ * Ship it by linking it in the plugin's document:
+ *   <link rel="stylesheet" href="./sdk-ui.css">
+ * It also carries the scrollbar treatment, which every plugin document needs because a
+ * plugin page is its own document and does not inherit the host's scrollbars.
+ */
+
+/* --- tokens --------------------------------------------------------------- */
+/* The host injects these; the fallbacks keep the kit usable on an older host. */
+.ui-button,
+.ui-input,
+.ui-fields,
+.search-bar {
+  --ui-radius: var(--radius-control, 7px);
+  --ui-radius-sm: var(--radius-pill, 10px);
+  --ui-h: var(--control-h, 30px);
+  --ui-h-sm: var(--control-h-sm, 26px);
+  --ui-gap: var(--space-2, 8px);
+}
+
+/* --- buttons -------------------------------------------------------------- */
+/* A plain button, a primary one, and an icon-only one. Toggle state is expressed with the
+   `on` class, the same word the host's own toolbar buttons use. */
+.ui-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1, 4px);
+  height: var(--ui-h);
+  padding: 0 var(--space-3, 12px);
+  border: 1px solid var(--border, #303137);
+  border-radius: var(--ui-radius);
+  background: transparent;
+  color: var(--text, #e5e5e6);
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    color 0.15s;
+}
+.ui-button:hover {
+  background: var(--hover, var(--raised, transparent));
+}
+.ui-button.primary {
+  border-color: transparent;
+  background: var(--accent, #f4a477);
+  color: var(--canvas, #141519);
+  font-weight: 600;
+}
+.ui-button.primary:hover {
+  background: color-mix(in srgb, var(--accent, #f4a477) 88%, var(--text, #fff));
+}
+.ui-button.on {
+  border-color: color-mix(in srgb, var(--accent, #f4a477) 40%, transparent);
+  background: var(--accent-bg, #352920);
+  color: var(--accent, #f4a477);
+}
+.ui-button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.ui-icon-button {
+  display: grid;
+  place-items: center;
+  width: var(--ui-h-sm);
+  height: var(--ui-h-sm);
+  padding: 0;
+  border: 0;
+  border-radius: calc(var(--ui-radius) - 1px);
+  background: transparent;
+  color: var(--muted, #9a9aa2);
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    color 0.15s;
+}
+.ui-icon-button:hover {
+  background: var(--hover, var(--raised, transparent));
+  color: var(--text, #e5e5e6);
+}
+.ui-icon-button.on {
+  background: var(--accent-bg, #352920);
+  color: var(--accent, #f4a477);
+}
+
+/* --- inputs --------------------------------------------------------------- */
+.ui-input {
+  height: var(--ui-h);
+  padding: 0 var(--space-3, 12px);
+  border: 1px solid var(--border, #303137);
+  border-radius: var(--ui-radius);
+  background: var(--panel, #1d1e22);
+  color: var(--text, #e5e5e6);
+  font: inherit;
+  font-size: 12px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.ui-input::placeholder {
+  color: var(--faint, #666975);
+}
+.ui-input:focus {
+  border-color: color-mix(
+    in srgb,
+    var(--accent, #f4a477) 45%,
+    var(--border, #303137)
+  );
+}
+
+/* --- label/value list ----------------------------------------------------- */
+/* The file-information panel's shape, and the one any plugin showing "a few facts about
+   this file" needs. Rows are dl/dt/dd so the markup stays semantic. */
+.ui-fields {
+  display: grid;
+  grid-template-columns: var(--field-label-w, 58px) minmax(0, 1fr);
+  column-gap: var(--space-3, 12px);
+  margin: 0;
+}
+.ui-fields dt,
+.ui-fields dd {
+  margin: 0;
+  padding: var(--space-2, 8px) 0;
+  border-bottom: 1px solid
+    color-mix(in srgb, var(--muted, #9a9aa2) 12%, transparent);
+}
+.ui-fields dt {
+  color: var(--muted, #9a9aa2);
+  font-size: 11px;
+}
+.ui-fields dd {
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+  user-select: text;
+}
+.ui-fields dt:last-of-type,
+.ui-fields dd:last-child {
+  border-bottom: 0;
+}
+
+/* --- search bar ----------------------------------------------------------- */
+.search-bar {
+  /* Fixed rather than height:100%: the root element does not stretch to a panel iframe's
+     viewport, so a percentage height would collapse to the content. */
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1, 4px);
+  padding: 0 6px 0 11px;
+  color: var(--muted, #9a9aa2);
+}
+.search-bar[hidden] {
+  display: none;
+}
+.search-icon {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+.search-bar input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--text, #e5e5e6);
+  font: inherit;
+  font-size: 12px;
+  outline: none;
+  caret-color: var(--accent, #f4a477);
+}
+.search-bar input::placeholder {
+  color: var(--faint, #666975);
+}
+.search-count {
+  flex-shrink: 0;
+  min-width: 32px;
+  font-size: 10px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--faint, #666975);
+}
+.search-bar button {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: var(--ui-h-sm);
+  height: var(--ui-h-sm);
+  padding: 0;
+  border: 0;
+  border-radius: calc(var(--ui-radius) - 1px);
+  background: transparent;
+  color: var(--muted, #9a9aa2);
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    color 0.15s;
+}
+.search-bar button:hover {
+  background: var(--hover, var(--raised, transparent));
+  color: var(--text, #e5e5e6);
+}
+
+/* --- scrollbars ----------------------------------------------------------- */
+/* One treatment for every plugin document: the platform default is light, arrowed and
+   theme-blind, which is glaring inside a dark panel. */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border, #303137);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  border-radius: 8px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--muted, #9a9aa2);
+  background-clip: padding-box;
+}

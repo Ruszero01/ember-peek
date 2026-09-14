@@ -1,0 +1,8 @@
+plugins/
+sdk/
+.plugins/
+.marketplace/
+tests/
+scripts/
+
+crates/text-document/**

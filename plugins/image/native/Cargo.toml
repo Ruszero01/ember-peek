@@ -1,0 +1,8 @@
+[package]
+name = "ember-image-plugin"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+ember-plugin-sdk = { path = "../../../sdk/native" }
+serde_json.workspace = true

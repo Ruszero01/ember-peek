@@ -1,0 +1,41 @@
+{
+  "api": 1,
+  "id": "ember.image",
+  "name": "图片预览",
+  "version": "0.1.0",
+  "extensions": [
+    "png",
+    "jpg",
+    "jpeg",
+    "gif",
+    "webp",
+    "bmp",
+    "avif",
+    "svg"
+  ],
+  "icon": "image",
+  "settings": [
+    {
+      "key": "fitWindow",
+      "type": "bool",
+      "label": "默认适应窗口",
+      "help": "开启后自动缩放到视口内；关闭后按 100% 原始尺寸显示。",
+      "default": true
+    }
+  ],
+  "executable": "bin/ember-image-plugin.exe",
+  "entry": "ui/index.html",
+  "capabilities": [
+    "view",
+    "controls"
+  ],
+  "permissions": [
+    "readFile",
+    "clipboard"
+  ],
+  "provides": "ember.image/1",
+  "activation": {
+    "mode": "auto",
+    "priority": 100
+  }
+}

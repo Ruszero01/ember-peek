@@ -1,0 +1,14 @@
+/target/
+/node_modules/
+/dist/
+/.plugins/
+/.marketplace/
+/src-tauri/gen/
+*.log
+*.tmp
+.env
+.env.*
+!.env.example
+.DS_Store
+Thumbs.db
+Desktop.ini

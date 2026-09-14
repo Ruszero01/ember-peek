@@ -1,0 +1,9 @@
+[package]
+name = "ember-code-plugin"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+ember-text-document = { path = "../../../crates/text-document" }
+ember-plugin-sdk = { path = "../../../sdk/native" }
+serde_json.workspace = true

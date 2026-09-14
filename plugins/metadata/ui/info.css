@@ -1,0 +1,19 @@
+/* The field list itself comes from the shared kit (.ui-fields in sdk-ui.css); this file only
+   carries what is specific to this panel. */
+* {
+  box-sizing: border-box;
+}
+body {
+  /* Fixed rather than height:100%: the root element does not stretch to a panel iframe's
+     viewport, so a percentage height collapses. This keeps the content inside the card and
+     scrolls it there instead of scrolling the whole document. */
+  position: fixed;
+  inset: 0;
+  overflow: auto;
+  margin: 0;
+  padding: var(--space-2, 8px) 14px;
+  background: var(--panel);
+  color: var(--text);
+  font:
+    12px/1.5 var(--font-ui, "Segoe UI", system-ui, sans-serif);
+}

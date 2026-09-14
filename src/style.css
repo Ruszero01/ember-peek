@@ -1,0 +1,1584 @@
+:root {
+  font-family:
+    Inter, "Segoe UI Variable", "Segoe UI", "Microsoft YaHei", sans-serif;
+  color: #e5e5e6;
+  background: #17181b;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  --bg: #17181b;
+  --panel: #1d1e22;
+  --card: #202126;
+  --raised: #27282e;
+  --border: #303137;
+  --text: #e5e5e6;
+  --muted: #8e909b;
+  --faint: #666975;
+  --accent: #f4a477;
+  --accent-bg: #352920;
+  --hover: #2c2d34;
+  --canvas: #141519;
+  --shadow: 0 14px 40px #0003;
+  /* Shape and type tokens, injected into every plugin next to the colours. Keeping them
+     here is what makes a skin more than a palette swap: radius, control height, spacing and
+     fonts all move together for every plugin that uses the shared kit. */
+  --radius-control: 7px;
+  --radius-pill: 10px;
+  --radius-card: 12px;
+  --control-h: 30px;
+  --control-h-sm: 26px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --font-ui:
+    Inter, "Segoe UI Variable", "Segoe UI", "Microsoft YaHei", sans-serif;
+  --font-mono: "Cascadia Code", Consolas, "Microsoft YaHei UI", monospace;
+  --mono-size: 13px;
+  --mono-leading: 1.65;
+  --field-label-w: 58px;
+}
+:root[data-theme="light"] {
+  color: #292b31;
+  background: #f7f7f9;
+  --bg: #f7f7f9;
+  --panel: #f0f1f4;
+  --card: #fff;
+  --raised: #f3f4f6;
+  --border: #e5e6eb;
+  --text: #292b31;
+  --muted: #767a86;
+  --faint: #969aa4;
+  --accent: #ba6338;
+  --accent-bg: #fbeee5;
+  --hover: #e9eaef;
+  --canvas: #f0f1f4;
+  --shadow: 0 14px 40px #3030400d;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  overflow: hidden;
+}
+button,
+input {
+  font: inherit;
+}
+button {
+  cursor: pointer;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+button:hover:not(:disabled) {
+  background: var(--hover);
+}
+button:focus-visible,
+input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+svg {
+  flex-shrink: 0;
+}
+button.busy:disabled {
+  opacity: 1;
+  cursor: progress;
+}
+.app {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  overflow: hidden;
+  position: relative;
+  /* How much room the viewport keeps from the chrome bars, and how far the floating bars
+     keep from the window edge. Counted once per use, never as a rounded number in two places.
+     Declared here, not on :root, because it is host chrome and a plugin has no business
+     reading it. */
+  --chrome-gap: 24px;
+  --chrome-pad: 11px;
+  /* Depth of the viewport's bottom fade. A token rather than a number in the rule, because it
+     is the one piece of the viewport treatment a plugin author may want to reason about. */
+  --viewport-fade: 44px;
+}
+.titlebar {
+  height: 56px;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
+  user-select: none;
+  background: var(--bg);
+  z-index: 30;
+}
+.brand {
+  grid-area: 1/1/2/2;
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 20px;
+  font-size: 15px;
+  letter-spacing: -0.5px;
+  font-weight: 700;
+  height: 100%;
+}
+.brand-light {
+  font-weight: 400;
+  color: var(--muted);
+  margin-left: 2px;
+}
+.version {
+  font-size: 9px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--muted);
+  padding: 2px 4px;
+  letter-spacing: 1px;
+  margin-left: 3px;
+}
+.drag-zone {
+  grid-area: 1/1/2/4;
+  height: 100%;
+}
+.window-buttons {
+  grid-area: 1/3/2/4;
+  position: relative;
+  z-index: 1;
+  display: flex;
+  height: 100%;
+  align-items: stretch;
+}
+.window-buttons button {
+  width: 46px;
+  border-radius: 0;
+  color: var(--muted);
+}
+.window-buttons .window-close:hover {
+  background: #bd4949;
+  color: white;
+}
+.settings-layout {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  z-index: 1;
+  background: var(--bg);
+}
+.sidebar {
+  width: 238px;
+  background: var(--panel);
+  padding: 24px 14px 20px;
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+}
+/* Navigation stays fixed; only the plugin section scrolls. */
+.sidebar-content {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.sidebar-heading {
+  font-size: 10px;
+  color: var(--faint);
+  letter-spacing: 1.8px;
+  margin: 15px 14px;
+}
+.nav-item {
+  width: 100%;
+  justify-content: flex-start;
+  border-radius: 9px;
+  padding: 13px 12px;
+  margin-bottom: 5px;
+  color: var(--muted);
+  gap: 12px;
+  text-align: left;
+  min-height: 46px;
+  flex-shrink: 0;
+}
+.nav-item.active {
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+.nav-item strong {
+  font-size: 13px;
+  font-weight: 550;
+}
+.nav-note {
+  font-size: 10px;
+  color: var(--faint);
+  margin-left: 6px;
+  font-weight: 400;
+}
+.nav-item.active .nav-note {
+  color: var(--accent);
+  opacity: 0.7;
+}
+.nav-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  margin-left: auto;
+}
+.sidebar-bottom {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: auto;
+  padding: 0 13px;
+}
+.settings-main {
+  flex: 1;
+  overflow: auto;
+  padding: 34px 40px 26px;
+  min-width: 0;
+}
+.page-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+h1 {
+  font-size: 22px;
+  letter-spacing: -0.8px;
+  font-weight: 600;
+  margin: 0;
+}
+h2 {
+  font-size: 13px;
+  font-weight: 550;
+  margin: 0;
+}
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 21px 23px;
+  margin-bottom: 16px;
+}
+.section-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.section-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  background: var(--raised);
+  color: var(--muted);
+}
+.section-heading p {
+  font-size: 11px;
+  margin: 5px 0 0;
+  color: var(--muted);
+}
+.theme-options {
+  display: flex;
+  gap: 13px;
+}
+.theme-option {
+  display: flex;
+  flex-direction: column;
+  padding: 7px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  flex: 1;
+  min-width: 0;
+  gap: 9px;
+}
+.theme-option.selected {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+}
+.theme-option > span {
+  width: 100%;
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 4px 3px;
+}
+.theme-option > span > svg:last-child:not(:first-child) {
+  margin-left: auto;
+}
+.theme-preview {
+  display: flex;
+  width: 100%;
+  height: 72px;
+  background: #e4e6ea;
+  border-radius: 5px;
+  overflow: hidden;
+  border: 1px solid #0001;
+}
+.mock-sidebar {
+  width: 25%;
+  background: #d2d5dd;
+}
+.mock-content {
+  flex: 1;
+  padding: 13px 12px;
+}
+.mock-content i {
+  height: 3px;
+  background: #b7bbc5;
+  display: block;
+  margin-bottom: 5px;
+  width: 80%;
+  border-radius: 2px;
+}
+.mock-content i:first-child {
+  width: 40%;
+  background: #9da4b3;
+}
+.mock-content i:nth-child(3) {
+  width: 65%;
+}
+.mock-content > div {
+  height: 14px;
+  border-radius: 3px;
+  margin-top: 9px;
+  background: #cbd0d9;
+}
+.theme-dark {
+  background: #292b33;
+}
+.theme-dark .mock-sidebar {
+  background: #202127;
+}
+.theme-dark .mock-content i {
+  background: #494c58;
+}
+.theme-dark .mock-content i:first-child {
+  background: #777e8c;
+}
+.theme-dark .mock-content > div {
+  background: #363944;
+}
+.theme-system {
+  background: linear-gradient(110deg, #e4e6ea 50%, #292b33 50%);
+}
+.theme-system .mock-content {
+  background: linear-gradient(110deg, transparent 40%, #292b33 40%);
+}
+.theme-system .mock-content > div {
+  background: linear-gradient(110deg, #cbd0d9 35%, #363944 35%);
+}
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 67px;
+  border-top: 1px solid var(--border);
+  gap: 20px;
+}
+.setting-row strong {
+  font-size: 12px;
+  font-weight: 450;
+}
+.setting-row p {
+  font-size: 10px;
+  color: var(--muted);
+  margin: 5px 0 0;
+}
+.list-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 14px;
+}
+.list-toolbar > div {
+  display: flex;
+  gap: 8px;
+}
+.text-button {
+  color: var(--muted);
+  font-size: 11px;
+  padding: 7px;
+  border-radius: 5px;
+}
+.secondary-button {
+  font-size: 11px;
+  padding: 8px 11px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--muted);
+}
+.search-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  padding: 0 11px;
+  height: 34px;
+  color: var(--muted);
+  margin-bottom: 18px;
+}
+.search-box input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+  height: 100%;
+  outline: none;
+}
+.search-box input::placeholder {
+  color: var(--faint);
+}
+.market-card {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--card);
+  padding: 19px 20px;
+  display: flex;
+  align-items: flex-start;
+  gap: 15px;
+  margin-bottom: 12px;
+}
+.plugin-icon {
+  width: 46px;
+  height: 46px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  color: #a0acc8;
+  background: #a0acc80b;
+}
+.plugin-detail {
+  flex: 1;
+  min-width: 0;
+}
+.plugin-detail h2 {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 3px 0 7px;
+}
+.plugin-version {
+  font-size: 10px;
+  color: var(--faint);
+  font-weight: 400;
+}
+.plugin-detail p {
+  font-size: 10px;
+  color: var(--muted);
+  margin: 0 0 12px;
+}
+.extensions {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+.extensions > span {
+  font-size: 9px;
+  background: var(--raised);
+  border: 1px solid var(--border);
+  padding: 3px 6px;
+  border-radius: 4px;
+  color: var(--muted);
+  font-family: Consolas, monospace;
+}
+.plugin-enable {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+/* Declared settings, on the plugin's own page. */
+.plugin-head {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding-bottom: 16px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+.plugin-head h2 {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 15px;
+}
+.plugin-head p {
+  font-size: 11px;
+  color: var(--muted);
+  margin: 5px 0 0;
+}
+.setting-list {
+  display: flex;
+  flex-direction: column;
+}
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 22px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+.setting-row:last-child {
+  border-bottom: 0;
+  padding-bottom: 2px;
+}
+.setting-label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.setting-label strong {
+  font-size: 12px;
+  font-weight: 500;
+}
+.setting-label small {
+  font-size: 10px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+.setting-control {
+  flex-shrink: 0;
+}
+.setting-input {
+  position: relative;
+  display: inline-flex;
+  border-radius: 9px;
+}
+.setting-input.has-suffix input[type="number"] {
+  width: 112px;
+  padding-left: 13px;
+  padding-right: 49px;
+}
+.setting-input-suffix {
+  position: absolute;
+  top: 50%;
+  right: 31px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1;
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+.setting-number-stepper {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  bottom: 4px;
+  display: grid;
+  width: 22px;
+  overflow: hidden;
+  border-left: 1px solid var(--border);
+  border-radius: 0 5px 5px 0;
+  background: color-mix(in srgb, var(--raised) 72%, transparent);
+}
+.setting-number-stepper button {
+  width: 100%;
+  min-height: 0;
+  padding: 0;
+  color: var(--faint);
+  border-radius: 0;
+}
+.setting-number-stepper button:first-child {
+  border-bottom: 1px solid var(--border);
+}
+.setting-number-stepper button:hover:not(:disabled) {
+  color: var(--accent);
+  background: var(--hover);
+}
+.setting-number-stepper button:disabled {
+  cursor: default;
+  opacity: 0.3;
+}
+/* One control language for the whole settings surface, matching `.search-box`:
+   1px border on a card surface, 8px radius, 12px label text. Native form chrome
+   (spinners, the select arrow, autofill) is redrawn so nothing falls back to the
+   browser's light defaults on a dark theme. */
+.setting-control input,
+.setting-control select {
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--text);
+  font-size: 12px;
+  font-family: inherit;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+.setting-control input {
+  width: 132px;
+}
+/* The spinner is rebuilt from the row background so it reads as part of the field. */
+.setting-control input[type="number"] {
+  width: 104px;
+  padding-right: 32px;
+}
+.setting-control input[type="number"]::-webkit-inner-spin-button {
+  appearance: none;
+  display: none;
+}
+/* A dropdown needs an arrow of its own once the native one is removed. */
+.setting-control select {
+  appearance: none;
+  min-width: 132px;
+  padding-right: 32px;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6' fill='none' stroke='%23777e8c' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1 1l4 4 4-4'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 11px center;
+  background-size: 10px 6px;
+}
+.setting-control select option {
+  background: var(--raised);
+  color: var(--text);
+}
+.setting-control input::placeholder {
+  color: var(--faint);
+}
+.setting-control input:focus,
+.setting-control select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-bg);
+}
+.setting-input:focus-within {
+  box-shadow: 0 0 0 3px var(--accent-bg);
+}
+.setting-input:focus-within input {
+  box-shadow: none;
+}
+.setting-control input:disabled,
+.setting-control select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.setting-control input:disabled[type="number"]::-webkit-inner-spin-button {
+  cursor: not-allowed;
+}
+/* Chrome paints autofilled fields light; keep them on the control surface. */
+.setting-control input:-webkit-autofill,
+.setting-control input:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--text);
+  box-shadow: 0 0 0 40px var(--card) inset;
+}
+.quiet-note,
+.warning {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.8;
+}
+.warning {
+  color: var(--accent);
+}
+.empty-plugins {
+  text-align: center;
+  padding: 45px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  color: var(--muted);
+}
+.empty-plugins p {
+  font-size: 12px;
+  margin: 0;
+}
+.about {
+  text-align: center;
+  padding: 42px;
+}
+.about > h1 {
+  margin: 20px 0 12px;
+}
+.about > p {
+  font-size: 12px;
+  color: var(--muted);
+}
+.about-details {
+  margin-top: 35px;
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+}
+.about-details > span {
+  border-top: 1px solid var(--border);
+  padding: 16px 0;
+  display: flex;
+  justify-content: space-between;
+  gap: 25px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.about-details code {
+  max-width: 75%;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+/* The plugin's world: one rectangle, sized by the host. The settings window keeps a hidden
+   copy of this element around, so the base rule carries no geometry at all and everything
+   below is scoped to the preview page — a viewport mode can never reach another window's
+   layout. In normal mode the rectangle is the band the flex column leaves between the two
+   chrome rows, so the bars are outside it by construction. In immersive mode the bars cover
+   the whole window instead and this fills it, the one case where they float over content. */
+.preview-canvas {
+  overflow: clip;
+  background: var(--canvas);
+}
+.preview-app[data-viewport="band"] .preview-canvas {
+  --viewport-fade: 12px;
+  position: relative;
+  order: 2;
+  flex: 1;
+  min-height: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+}
+.preview-app[data-viewport="window"] .preview-canvas {
+  position: absolute;
+  inset: 0;
+}
+/* Host-owned edge fades do not intercept content selection or scrolling. */
+.preview-canvas::before,
+.preview-canvas::after {
+  content: "";
+  position: absolute;
+  z-index: 3;
+  left: 0;
+  right: 0;
+  height: var(--viewport-fade);
+  pointer-events: none;
+  background: var(--canvas);
+}
+.preview-canvas::before {
+  top: 0;
+  mask-image: linear-gradient(to bottom, #000, transparent);
+  -webkit-mask-image: linear-gradient(to bottom, #000, transparent);
+}
+.preview-canvas::after {
+  bottom: 0;
+  mask-image: linear-gradient(to top, #000, transparent);
+  -webkit-mask-image: linear-gradient(to top, #000, transparent);
+}
+.plugin-view {
+  /* All plugin surfaces share this iframe. Exclude the replaced element from
+     host selection without disabling text selection inside its own document. */
+  user-select: none;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: transparent;
+  visibility: hidden;
+  pointer-events: none;
+}
+.plugin-view.selected {
+  visibility: visible;
+  pointer-events: auto;
+}
+.empty-state,
+.surface-state {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 35px;
+  text-align: center;
+  gap: 12px;
+}
+.surface-state {
+  background: var(--canvas);
+  z-index: 2;
+}
+.empty-state h1 {
+  font-size: 25px;
+  margin: 4px 0 0;
+}
+.empty-state p,
+.surface-state p {
+  font-size: 12px;
+  color: var(--muted);
+  max-width: 470px;
+  line-height: 1.8;
+  margin: 0 0 10px;
+  overflow-wrap: anywhere;
+}
+.surface-state strong {
+  font-size: 14px;
+  font-weight: 500;
+}
+.empty-art {
+  width: 74px;
+  height: 74px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  margin-bottom: 15px;
+  box-shadow: var(--shadow);
+}
+.primary-button {
+  background: var(--accent);
+  color: var(--bg);
+  border-radius: 7px;
+  padding: 11px 17px;
+  font-size: 12px;
+  font-weight: 550;
+}
+.primary-button:hover:not(:disabled) {
+  background: var(--accent);
+  filter: brightness(1.1);
+}
+kbd {
+  border: 1px solid currentColor;
+  padding: 2px 4px;
+  border-radius: 4px;
+  font-size: 9px;
+  opacity: 0.65;
+  margin-left: 15px;
+}
+.format-hints {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 9px;
+  font-size: 10px;
+  color: var(--faint);
+}
+.preview-app .titlebar {
+  height: 56px;
+  border: 0;
+  background: transparent;
+}
+.preview-app .brand,
+.preview-app .window-buttons,
+.toolbar-actions,
+.toolbar-host-actions,
+.floating-file-info {
+  border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--card) 80%, transparent);
+  box-shadow: 0 2px 8px #00000026;
+  backdrop-filter: blur(18px) saturate(130%);
+}
+.preview-app .brand {
+  height: 38px;
+  margin: 9px 0 9px 11px;
+  padding: 0 12px;
+  gap: 8px;
+  font-size: 13px;
+  letter-spacing: -0.3px;
+}
+.preview-app .window-buttons {
+  height: auto;
+  gap: 1px;
+  padding: 4px;
+  margin: 9px 11px 9px 0;
+}
+.preview-app .window-buttons button {
+  width: 30px;
+  height: 30px;
+  border-radius: 7px;
+}
+/* The two chrome bars are the window's own chrome. In normal mode they are flex items in the
+   column, so their height is what shrinks the plugin's rectangle — the host never has to
+   guess a number and the bars physically cannot overlap the content. In immersive mode they
+   leave the flow and float over it instead, hidden until the pointer nears an edge. */
+.title-layer {
+  position: relative;
+  order: 1;
+  flex-shrink: 0;
+  z-index: 30;
+  left: 0;
+  right: 0;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-12px);
+  transition:
+    opacity 0.18s,
+    transform 0.2s;
+}
+.title-layer.shown {
+  opacity: 1;
+  pointer-events: auto;
+  transform: none;
+}
+/* Floating bars must not own the content's pixels: a bar catches the pointer on its pills
+   only, never on the gaps between them or the transparent rest of its row. */
+.preview-app[data-viewport="window"] .title-layer.shown,
+.preview-app[data-viewport="window"] .preview-overlays.shown {
+  pointer-events: none;
+}
+.preview-app[data-viewport="window"] .title-layer .brand,
+.preview-app[data-viewport="window"] .title-layer .window-buttons,
+.preview-app[data-viewport="window"] .preview-overlays .floating-file-info,
+.preview-app[data-viewport="window"] .preview-overlays .preview-action-groups {
+  pointer-events: auto;
+}
+/* The window's whole title row is a drag handle; over the content that would swallow every
+   click in the top 56px. Only the two pills keep it, and the brand already drags. */
+.preview-app[data-viewport="window"] .title-layer .drag-zone {
+  pointer-events: none;
+}
+/* Sensors for the auto-hiding bars. The bottom one is only 6px of the window's true edge, so
+   the plugin keeps the scrollbar lane and everything above it; the top stays 8px, where a
+   plugin has nothing to hit anyway. */
+.preview-app[data-viewport="window"] .edge {
+  pointer-events: auto;
+}
+.preview-app[data-viewport="window"] .edge.top {
+  height: 8px;
+}
+.preview-app[data-viewport="window"] .edge.bottom {
+  height: 6px;
+}
+/* Both sensors would sit at the wrong edge once the viewport is the band; the bars are
+   always shown there, so they are not sensing anything anyway. */
+.preview-app[data-viewport="band"] .edge {
+  pointer-events: none;
+}
+.edge {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 10px;
+  z-index: 25;
+}
+.edge.top {
+  top: 0;
+}
+.edge.bottom {
+  bottom: 0;
+}
+.preview-overlays {
+  position: relative;
+  order: 3;
+  flex-shrink: 0;
+  z-index: 30;
+  left: 0;
+  right: 0;
+  /* Same row as always, with one addition: the viewport needs as much room below it as the
+     title row gives it above (that row is 56px around 38px of content, so 24px above the
+     viewport). The bar keeps its bottom padding and its content position; the extra height
+     comes out of the viewport, not out of the toolbar's look. */
+  padding: 0 var(--chrome-pad) var(--chrome-pad);
+  height: calc(50px + var(--chrome-gap) - var(--chrome-pad));
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(12px);
+  transition:
+    opacity 0.18s,
+    transform 0.2s;
+}
+.preview-overlays.shown {
+  opacity: 1;
+  pointer-events: auto;
+  transform: none;
+}
+/* Over the content both bars are taken out of the column so the viewport can be the window.
+   They pin to the window rather than to any box, because the whole point is that they are
+   outside every box the plugin draws in. */
+.preview-app[data-viewport="window"] .title-layer,
+.preview-app[data-viewport="window"] .preview-overlays {
+  position: fixed;
+  left: 0;
+  right: 0;
+}
+.preview-app[data-viewport="window"] .preview-overlays {
+  bottom: var(--chrome-pad);
+  /* The row keeps its own padding as the gap, so the reveal animation no longer has to
+     stand in for it and can start from the bar's real place. */
+  padding-bottom: 0;
+}
+.preview-app[data-viewport="window"] .preview-overlays:not(.shown) {
+  transform: translateY(12px);
+}
+.floating-file-info {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  max-width: 55%;
+  padding: 5px 8px 5px 5px;
+  /* Read-only host chrome: the name and size can be looked at, never selected. */
+  user-select: none;
+}
+.file-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  background: var(--raised);
+  border-radius: 7px;
+  color: var(--accent);
+}
+.floating-file-info > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+.floating-file-info strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  font-weight: 560;
+}
+.floating-file-info div span {
+  font-size: 8px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.preview-action-groups {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.toolbar-actions,
+.toolbar-host-actions {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding: 4px;
+}
+.toolbar-actions button,
+.toolbar-host-actions button {
+  height: 30px;
+  min-width: 30px;
+  border-radius: 7px;
+  color: var(--muted);
+  padding: 5px;
+  gap: 3px;
+}
+/* A toggle control stays lit while its state is on, the same treatment as the
+   settings sidebar's selected item. */
+.toolbar-actions button.on {
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+.error-toast {
+  position: absolute;
+  z-index: 100;
+  left: 50%;
+  top: 64px;
+  transform: translateX(-50%);
+  max-width: 80%;
+  background: var(--card);
+  box-shadow: var(--shadow);
+  border: 1px solid #bd7250;
+  padding: 12px 14px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.error-toast button {
+  margin-left: auto;
+  padding: 3px;
+}
+.browser-banner {
+  position: absolute;
+  z-index: 45;
+  top: 56px;
+  left: 0;
+  right: 0;
+  font-size: 10px;
+  color: var(--accent);
+  background: var(--accent-bg);
+  padding: 6px 20px;
+  pointer-events: none;
+}
+.spinner {
+  animation: spin 1s linear infinite;
+  color: var(--accent);
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 6px;
+  border: 2px solid var(--canvas);
+}
+::-webkit-scrollbar-corner {
+  background: var(--canvas);
+}
+@media (max-width: 800px) {
+  .sidebar {
+    width: 178px;
+    padding-left: 9px;
+    padding-right: 9px;
+  }
+  .settings-main {
+    padding: 27px 24px 20px;
+  }
+  .theme-preview {
+    height: 60px;
+  }
+  .floating-file-info {
+    max-width: 40%;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+.plugin-tabs {
+  display: inline-flex;
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  margin-bottom: 20px;
+}
+.plugin-tabs button {
+  padding: 7px 13px;
+  border-radius: 5px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.plugin-tabs button.selected {
+  color: var(--accent);
+  background: var(--accent-bg);
+}
+
+/* Slot placement belongs to the host; each plugin only renders inside its iframe. */
+.contribution-frame {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+/* The panel layer spans the whole window and paints above everything the host or a plugin
+   draws, so a plugin's functional area can never be occluded by other content, faded by a
+   plugin's own edge mask, or clipped by the view's box. Only the panels themselves take
+   pointer events. */
+.overlay-stack {
+  position: absolute;
+  z-index: 40;
+  inset: 0;
+  pointer-events: none;
+}
+.overlay-stack.dragging {
+  pointer-events: auto;
+  cursor: grabbing;
+}
+.overlay-stack.dragging iframe {
+  pointer-events: none;
+}
+.overlay-slot {
+  /* The host must not select the iframe as one replaced element: Chromium paints
+     a blue (inactive: gray) selection over its entire surface. Selection inside
+     the plugin document is independent and remains available for copying text. */
+  user-select: none;
+  position: absolute;
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  max-height: 100%;
+  overflow: hidden;
+  pointer-events: auto;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--panel);
+  box-shadow: 0 12px 36px #0003;
+}
+/* The host owns exactly one thing in a panel: a strip that can be dragged. It stays as
+   thin as the grip itself, so it reads as part of the content instead of an extra row.
+   Everything inside is the plugin's own markup — its title, its buttons, its search box. */
+.overlay-slot header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 12px;
+  flex-shrink: 0;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+.overlay-slot header:active {
+  cursor: grabbing;
+}
+.overlay-slot header:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.overlay-grip {
+  color: var(--muted);
+  opacity: 0.4;
+  transition: opacity 0.15s;
+}
+.overlay-slot header:hover .overlay-grip {
+  opacity: 0.85;
+}
+.overlay-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.overlay-slot p {
+  padding: 8px 14px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.preview-action-groups {
+  max-width: 76%;
+  overflow-x: auto;
+}
+.plugin-bubble {
+  flex-shrink: 0;
+}
+
+.plugin-bubble {
+  transition:
+    border-color 0.15s,
+    background 0.15s,
+    box-shadow 0.2s;
+  border: 1px solid var(--border);
+}
+.plugin-bubble:not(.current):hover {
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
+}
+.plugin-bubble .plugin-activate {
+  width: auto;
+  min-width: 0;
+  padding: 0 10px;
+  font-size: 12px;
+  white-space: nowrap;
+  color: var(--muted);
+  transition: color 0.15s;
+}
+.plugin-bubble.current .plugin-activate {
+  color: var(--accent);
+  font-weight: 600;
+}
+/* Only the plugin in front unfolds its controls, so the toolbar stays one readable row no
+   matter how many plugins match the file. Animating grid columns from 0fr to 1fr gives an
+   exact width transition: the controls slide out from under the label instead of the pill
+   snapping to its new width the way a max-width guess would. */
+.bubble-controls {
+  display: grid;
+  grid-template-columns: 0fr;
+  opacity: 0;
+  transition:
+    grid-template-columns 0.26s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.18s ease;
+}
+.bubble-controls.open {
+  grid-template-columns: 1fr;
+  opacity: 1;
+}
+.bubble-controls-inner {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  overflow: hidden;
+}
+.bubble-controls-inner button {
+  flex-shrink: 0;
+}
+
+.nav-item[draggable="true"] {
+  cursor: grab;
+}
+.nav-item.is-dragging {
+  opacity: 0.45;
+}
+.nav-item.drop-target {
+  box-shadow: inset 0 2px var(--accent);
+}
+
+.market-group {
+  margin-top: 24px;
+}
+.market-group-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.market-group-title span {
+  font-size: 11px;
+  font-weight: 400;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: var(--panel);
+}
+
+.plugin-sidebar-heading {
+  margin: 0 12px 10px;
+  padding-top: 20px;
+  flex-shrink: 0;
+}
+.plugin-sidebar-heading h2 {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+}
+.plugin-sidebar-heading p {
+  margin: 6px 0 4px;
+  color: var(--faint);
+  font-size: 10px;
+  line-height: 1.5;
+}
+.plugin-order-number {
+  margin-left: auto;
+  flex-shrink: 0;
+  min-width: 24px;
+  padding: 3px 5px;
+  border-radius: 6px;
+  color: var(--faint);
+  background: color-mix(in srgb, var(--muted) 8%, transparent);
+  font-size: 10px;
+  line-height: 1.4;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+.nav-item.active .plugin-order-number {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.plugin-sidebar-section {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  margin-top: 12px;
+  padding-bottom: 10px;
+  overflow: hidden;
+}
+.plugin-sidebar-section::before {
+  content: "";
+  margin: 0 12px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.plugin-sidebar-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior-y: contain;
+}
+.sidebar-bottom {
+  flex-shrink: 0;
+}
+
+.plugin-head .plugin-activation {
+  margin-left: auto;
+  flex-shrink: 0;
+  position: relative;
+}
+.plugin-activation .warning {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  width: 220px;
+  padding: 8px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  z-index: 2;
+}
+
+.plugin-head .plugin-activation {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+}
+.plugin-activation-label {
+  order: -1;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.nav-item.drop-after {
+  box-shadow: inset 0 -2px var(--accent);
+}
+/* Compact plugin cards: summary first, capabilities on demand. */
+.market-card { padding: 16px 18px; gap: 14px; transition: border-color .18s, box-shadow .18s; }
+.market-card:hover { border-color: color-mix(in srgb, var(--accent) 24%, var(--border)); box-shadow: 0 4px 18px #00000008; }
+.market-card .plugin-icon { flex-shrink: 0; width: 40px; height: 40px; border-radius: 12px; }
+.market-card .plugin-detail h2 { font-size: 14px; margin: 1px 0 6px; flex-wrap: wrap; }
+.market-card .plugin-detail > p { margin: 0 0 10px; font-size: 11px; line-height: 1.6; }
+.market-card > .secondary-button { flex-shrink: 0; min-width: 82px; }
+.plugin-disclosure { margin-top: 10px; }
+.plugin-disclosure summary { display: flex; align-items: center; gap: 18px; width: fit-content; cursor: pointer; list-style: none; font-size: 10px; color: var(--muted); border-radius: 5px; }
+.plugin-disclosure summary::-webkit-details-marker { display: none; }
+.disclosure-label { display: inline-flex; align-items: center; gap: 4px; color: var(--faint); }
+.plugin-disclosure summary:hover .disclosure-label { color: var(--accent); }
+.disclosure-label svg { transition: transform .18s; }
+.plugin-disclosure[open] .disclosure-label svg { transform: rotate(180deg); }
+.plugin-expanded { border-top: 1px solid var(--border); margin-top: 12px; padding-top: 12px; animation: plugin-reveal .18s ease-out; }
+.plugin-expanded p { overflow-wrap: anywhere; line-height: 1.6; }
+.plugin-enable { flex-direction: row; gap: 10px; margin-top: 3px; flex-shrink: 0; padding: 7px 0 7px 12px; }
+.enabled-label { font-size: 10px; color: var(--faint); white-space: nowrap; }
+.enabled-label.enabled { color: var(--accent); }
+.plugin-enable .text-button { border-left: 1px solid var(--border); border-radius: 0; padding-left: 12px; margin-left: 3px; font-size: 10px; }
+.plugin-enable .text-button:hover { color: #ed827d; }
+.market-source { display: flex; align-items: center; gap: 10px; padding: 13px 16px; border: 1px solid var(--border); border-radius: 10px; background: linear-gradient(110deg, var(--accent-bg), var(--card)); color: var(--accent); margin-top: 16px; }
+.market-source div { display: flex; gap: 5px; flex-direction: column; }
+.market-source strong { font-size: 11px; font-weight: 600; color: var(--text); }
+.market-source div span { font-size: 10px; color: var(--muted); }
+.source-badge { margin-left: auto; font-size: 9px; border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent); padding: 3px 7px; border-radius: 5px; }
+.plugin-nav-item { position: relative; gap: 5px; min-height: 42px; padding: 7px 8px 7px 5px; cursor: pointer; user-select: none; transition: background .18s, opacity .18s, transform .18s; }
+.plugin-drag-handle { display: inline-flex; align-items: center; justify-content: center; align-self: stretch; min-width: 17px; color: var(--faint); cursor: grab; border-radius: 5px; }
+.plugin-nav-item .plugin-drag-handle:hover:not(:disabled),
+.plugin-nav-item .plugin-drag-handle:focus-visible,
+.plugin-nav-item .plugin-drag-handle:active {
+  color: var(--accent);
+  background: transparent;
+}
+.plugin-drag-handle:active { cursor: grabbing; }
+.plugin-nav-item.is-dragging { opacity: .35; background: var(--raised); transform: scale(.97); }
+.plugin-nav-item.drop-target, .plugin-nav-item.drop-after { box-shadow: none; background: var(--accent-bg); }
+.plugin-nav-item.drop-target::before, .plugin-nav-item.drop-after::after { content: ""; position: absolute; left: 8px; right: 8px; height: 2px; border-radius: 2px; background: var(--accent); box-shadow: 0 0 7px color-mix(in srgb, var(--accent) 35%, transparent); }
+.plugin-nav-item.drop-target::before { top: -3px; }
+.plugin-nav-item.drop-after::after { bottom: -3px; }
+.plugin-confirm { width: min(440px, calc(100vw - 40px)); padding: 26px; border: 1px solid var(--border); border-radius: 18px; background: var(--card); color: var(--text); box-shadow: 0 24px 90px #0005; }
+.plugin-confirm::backdrop { background: #090b10a6; backdrop-filter: blur(5px); }
+.confirm-icon { width: 48px; height: 48px; border-radius: 14px; background: var(--accent-bg); color: var(--accent); display: grid; place-items: center; margin-bottom: 18px; }
+.plugin-confirm h2 { font-size: 18px; margin: 0 0 12px; overflow-wrap: anywhere; }
+.plugin-confirm p { color: var(--muted); font-size: 12px; line-height: 1.8; }
+.confirm-source { padding: 12px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; color: var(--muted); font-size: 11px; overflow-wrap: anywhere; max-height: 120px; overflow: auto; }
+.plugin-confirm footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px; }
+.confirm-submit { background: var(--accent); color: var(--bg); padding: 8px 16px; border-radius: 7px; font-size: 12px; font-weight: 600; }
+.confirm-submit.danger { background: #d96560; color: white; }
+.confirm-icon.danger { color: #ed827d; background: #d9656018; }
+.operation-progress { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; color: var(--accent); font-size: 11px; margin-top: 18px; }
+.indeterminate-track { width: 100%; height: 3px; background: var(--raised); overflow: hidden; border-radius: 4px; }
+.indeterminate-track::after { content: ""; display: block; width: 35%; height: 100%; background: var(--accent); animation: plugin-progress 1.3s ease-in-out infinite; }
+@keyframes plugin-progress { from { transform: translateX(-100%); } to { transform: translateX(390%); } }
+@keyframes plugin-reveal { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+@media (max-width: 850px) { .market-card { flex-wrap: wrap; } .market-card .plugin-detail { flex-basis: calc(100% - 60px); } .plugin-enable, .market-card > .secondary-button { margin-left: 54px; } }
+@media (prefers-reduced-motion: reduce) { .plugin-nav-item, .disclosure-label svg { transition: none; } .plugin-expanded, .indeterminate-track::after { animation: none; } }
+.plugin-nav-link { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; padding: 0 1px; align-self: stretch; text-align: left; justify-content: flex-start; }
+.plugin-nav-link:hover:not(:disabled) { background: transparent; }
+.plugin-nav-link > svg { flex-shrink: 0; }
+.plugin-nav-link > strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plugin-nav-item .plugin-order-number { min-width: 25px; padding: 3px 4px; text-align: center; }
+.plugin-drag-handle { padding: 0; flex-shrink: 0; }
+.plugin-nav-item { display: flex; align-items: center; }
+.plugin-nav-item:hover { background: var(--hover); }
+.plugin-nav-item.active:hover, .plugin-nav-item.drop-target:hover, .plugin-nav-item.drop-after:hover { background: var(--accent-bg); }
+.plugin-drag-handle { margin-block: -7px; padding-block: 7px; }
+
+.plugin-runtime-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 7px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--muted) 6%, transparent);
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.2;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.runtime-status-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+.plugin-runtime-badge.is-running {
+  color: #81bca0;
+  border-color: color-mix(in srgb, #81bca0 22%, var(--border));
+  background: #81bca00d;
+}
+:root[data-theme="light"] .plugin-runtime-badge.is-running {
+  color: #377d59;
+  border-color: #377d5933;
+  background: #377d590b;
+}
+
+.plugin-disclosure summary { max-width: 100%; flex-wrap: wrap; gap: 6px 14px; }
+.extension-summary { min-width: 0; overflow-wrap: anywhere; line-height: 1.6; }
+.extensions > .extension-count { font-family: inherit; color: var(--faint); background: transparent; }
+.disclosure-label { flex-shrink: 0; white-space: nowrap; }
+
+.toolbar-actions .scrub-control {
+  width: 58px;
+  min-width: 58px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  cursor: ns-resize;
+  touch-action: none;
+  user-select: none;
+}
+.scrub-control.scrubbing { background: var(--accent-bg); color: var(--accent); }
+.scrub-track { position: relative; width: 24px; height: 22px; margin: 3px 0; }
+.scrub-ticks { position: absolute; inset: 0 5px; background: repeating-linear-gradient(to top, var(--muted) 0 1px, transparent 1px 5px); opacity: .45; }
+.scrub-thumb { position: absolute; left: 1px; right: 1px; height: 3px; border-radius: 3px; background: var(--accent); transform: translateY(50%); box-shadow: 0 0 5px var(--accent-bg); }
