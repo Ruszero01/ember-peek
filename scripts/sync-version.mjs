@@ -1,6 +1,10 @@
 #!/usr/bin/env node
-// 版本号同步：把 package.json 作为唯一来源，同步到其它 3 套工具链的权威位置，
-// 再用 cargo update --workspace 让 Cargo.lock 里的 5 个工作区 crate 跟上。
+// 版本号同步：把 package.json 作为唯一来源，同步到应用侧的权威位置（Cargo.toml 的
+// workspace 版本、tauri.conf.json），再用 cargo update --workspace 让 Cargo.lock 里的
+// 宿主 crate 跟上。
+//
+// 插件不参与：每个插件自己发版，版本写在它自己的 plugin.json 里，插件 native crate 也
+// 各自声明版本（两者是否一致由打包脚本检查）。所以插件改一行代码不需要动应用版本。
 //
 //   node scripts/sync-version.mjs              以 package.json 为准同步其它位置，并刷新 Cargo.lock
 //   node scripts/sync-version.mjs --check      只校验是否漂移，有漂移退出 1（给 CI 用）
@@ -8,12 +12,13 @@
 //   node scripts/sync-version.mjs --bump patch 语义化自增（patch|minor|major）再统一
 //   node scripts/sync-version.mjs --skip-lock  跳过 Cargo.lock 刷新
 //
-// 新增插件后无需改本脚本：plugins/*/plugin.json 会被自动发现。
+// 这 3 个位置是硬编码的应用侧权威位置：宿主不会因为新增插件而多出需要同步的文件。
 
 import { spawnSync } from "node:child_process";
 import { readFile, writeFile, readdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { packageTable } from "./cargo-manifest.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const SEMVER = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/;
@@ -73,25 +78,38 @@ export function replaceJsonVersion(source, version) {
   throw new Error("顶层找不到 version 字段");
 }
 
-/** 收集所有需要与 package.json 保持一致的版本位置。 */
+/** 收集所有需要与 package.json 保持一致的版本位置。
+ *
+ *  插件不在其中：每个插件自己发版，版本写在它自己的 plugin.json 里，随应用版本一起跳会
+ *  让插件改一行代码也要连带动应用版本。插件清单与其 native crate 的一致性由打包脚本检查
+ *  （`npm run plugins:build`），不在这里重复。 */
 async function collectTargets() {
-  const targets = [
+  return [
     { label: "package.json", file: "package.json", apply: editJsonVersion, source: true },
     { label: "Cargo.toml", file: "Cargo.toml", apply: editTomlVersion },
     { label: "src-tauri/tauri.conf.json", file: "src-tauri/tauri.conf.json", apply: editJsonVersion },
   ];
+}
+
+/** 插件 native crate 的名字。它们的版本属于插件自己，不参与应用版本校验。 */
+async function pluginCrateNames() {
   const pluginsRoot = path.join(root, "plugins");
+  const names = new Set();
   for (const entry of await readdir(pluginsRoot, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
-    const relative = `plugins/${entry.name}/plugin.json`;
+    let source;
     try {
-      await readJson(path.join(root, relative));
+      source = await readFile(
+        path.join(pluginsRoot, entry.name, "native", "Cargo.toml"),
+        "utf8",
+      );
     } catch {
-      continue; // 目录下没有插件清单就跳过
+      continue; // 没有 native 目录的插件不涉及版本号
     }
-    targets.push({ label: relative, file: relative, apply: editJsonVersion });
+    const table = packageTable(source);
+    if (table?.name) names.add(table.name);
   }
-  return targets;
+  return names;
 }
 
 function parseArgs(argv) {
@@ -163,13 +181,16 @@ async function main() {
       const actual = await readVersion(target);
       if (actual !== desired) drifted.push(`${target.label}: ${actual} != ${desired}`);
     }
+    const pluginCrates = await pluginCrateNames();
     for (const [name, actual] of await readWorkspaceLockVersions()) {
+      // 插件 crate 有自己的版本，锁文件里跟着它自己的清单走，与应用版本无关。
+      if (pluginCrates.has(name)) continue;
       if (actual !== desired) drifted.push(`Cargo.lock ${name}: ${actual} != ${desired}`);
     }
     if (drifted.length) {
       console.error("版本号已漂移：");
       for (const line of drifted) console.error(`  ${line}`);
-      console.error("运行 npm run version:check 查看，npm run version:set -- <版本> 修复。");
+      console.error("运行 npm run version:set -- <版本> 修复。");
       process.exitCode = 1;
       return;
     }
@@ -224,8 +245,8 @@ const usage = `用法：node scripts/sync-version.mjs [选项]
   --check           只校验一致性，漂移则退出 1（CI 用），不写文件
   --skip-lock       跳过 Cargo.lock 刷新
 
-不加选项时：以 package.json 为准，同步 Cargo.toml、tauri.conf.json、
-plugins/*/plugin.json，并刷新 Cargo.lock。`;
+不加选项时：以 package.json 为准，同步 Cargo.toml 与 tauri.conf.json，并刷新
+Cargo.lock。插件版本不属于应用版本，各自维护。`;
 
 if (process.argv.includes("-h") || process.argv.includes("--help")) {
   console.log(usage);

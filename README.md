@@ -85,7 +85,7 @@ npm run build:desktop
 
 `npm test` 分两半：`node --test` 跑宿主前端的协议与 zip 测试（选区版本号、通用控件校验、面板越权调用、打包器与一个提交在仓库里的固定 zip），`cargo test` 用真实独立子进程跑运行时（并发加载、切换类型不重开、崩溃恢复、共享契约与浮层保留、激活优先级与持久化、引导页答案、安装/更新/卸载与目录修剪），以及 SDK 与两个文本插件的原生测试。`npm run check` 是前端生产构建 + 插件打包 + `cargo check --workspace`。以上命令都不启动开发服务器。
 
-版本号以 `package.json` 为唯一来源，脚本同步到 `Cargo.toml`、`src-tauri/tauri.conf.json`、`plugins/*/plugin.json` 和 `Cargo.lock`：`npm run version:check` 只校验（有漂移退出 1，适合放进 CI），`npm run version:set -- 0.2.0` 改并统一（不带参数运行则按 `package.json` 归位）。新增插件不用改脚本，`plugins/*/plugin.json` 会被自动发现。
+版本号以 `package.json` 为唯一来源，脚本同步到 `Cargo.toml`、`src-tauri/tauri.conf.json` 和 `Cargo.lock`：`npm run version:check` 只校验（有漂移退出 1，适合放进 CI），`npm run version:set -- 0.2.0` 改并统一（不带参数运行则按 `package.json` 归位）。**插件不在其中**：每个插件自己发版，版本写在它的 `plugin.json` 里，native crate 各自声明同一个号，打包时校验两者一致——所以插件改一行代码不需要动应用版本。
 
 ## 目录
 

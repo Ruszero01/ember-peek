@@ -15,6 +15,7 @@ import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { readTree, createZip } from "./zip.mjs";
+import { packageTable } from "./cargo-manifest.mjs";
 
 export const root = fileURLToPath(new URL("../", import.meta.url));
 const plugins = path.join(root, "plugins");
@@ -29,8 +30,86 @@ const webSdkExtras = [
   [path.join(root, "sdk", "web", "text", "surface.css"), "sdk-text.css"],
   [path.join(root, "sdk", "web", "ui.css"), "sdk-ui.css"],
 ];
+/** Shared modules esbuild bundles into a package as `sdk-<name>.js`, next to the copied ones. */
+const bundledSdk = ["view", "navigation", "markdown"];
+/** The only libraries a plugin's native crate may link: everything else in this repository is
+ *  host-side, and a plugin that linked it would stop being installable on its own. */
+const pluginLibraries = [
+  { name: "ember-plugin-sdk", directory: path.join(root, "sdk", "native") },
+  { name: "ember-text-document", directory: path.join(root, "crates", "text-document") },
+];
 let child;
 let serial = Promise.resolve();
+
+/** Names the build places next to a plugin's own ui files, so a page may reference them
+ *  without shipping them itself. */
+function providedSdkFiles() {
+  return new Set([
+    "sdk.js",
+    ...webSdkExtras.map(([, name]) => name),
+    ...bundledSdk.map((name) => `sdk-${name}.js`),
+  ]);
+}
+
+/** Files a web file references: imports for JS, attributes for HTML, imports and `url()` for
+ *  CSS. A guard rather than a parser — it only has to be right about what leaves the package. */
+function references(code, extension) {
+  const patterns = {
+    ".js": /(?:\bfrom|\bimport)\s*\(?\s*["']([^"']+)["']/g,
+    ".html": /(?:src|href)\s*=\s*["']([^"']+)["']/g,
+    ".css": /@import\s+(?:url\()?\s*["']([^"']+)["']|url\(\s*["']?([^"')]+)["']?\s*\)/g,
+  }[extension];
+  if (!patterns) return [];
+  const found = new Set();
+  for (const match of code.matchAll(patterns)) {
+    const value = (match[1] ?? match[2] ?? "").trim();
+    if (value) found.add(value);
+  }
+  return [...found];
+}
+
+/** Whether two paths name the same location, case-insensitively where the filesystem is. */
+function samePath(left, right) {
+  return process.platform === "win32"
+    ? left.toLowerCase() === right.toLowerCase()
+    : left === right;
+}
+
+/** The dependency tables of a Cargo manifest, with the `path` an entry points at if it has one. */
+function cargoDependencies(source) {
+  const tables = ["dependencies", "dev-dependencies", "build-dependencies"];
+  const dependencies = [];
+  let kind = null;
+  let nested = false;
+  for (const line of source.split("\n")) {
+    const header = line.match(/^\s*\[([^\]]+)\]\s*$/);
+    if (header) {
+      // Tables can be qualified (`[target.'cfg(windows)'.dependencies.foo]`), so the last
+      // segment decides whether this is a dependency at all.
+      const parts = header[1].split(".").map((part) => part.trim());
+      const index = parts.findLastIndex((part) => tables.includes(part));
+      kind = index === -1 ? null : parts[index];
+      nested = index !== -1 && index < parts.length - 1;
+      if (nested) dependencies.push({ name: parts.at(-1), path: null });
+      continue;
+    }
+    if (!kind) continue;
+    if (nested) {
+      const dependency = dependencies.at(-1);
+      const path = line.match(/^\s*path\s*=\s*"([^"]*)"/);
+      if (path && dependency) dependency.path = path[1];
+      continue;
+    }
+    const entry = line.match(/^\s*([A-Za-z0-9_.-]+)\s*=\s*(.+?)\s*$/);
+    if (!entry) continue;
+    dependencies.push({
+      // `serde_json.workspace = true` names the dependency before the first dot.
+      name: entry[1].split(".")[0],
+      path: entry[2].match(/path\s*=\s*"([^"]*)"/)?.[1] ?? null,
+    });
+  }
+  return dependencies;
+}
 
 /// Parse the files that go into a package verbatim.
 ///
@@ -47,6 +126,80 @@ async function checkSyntax(files) {
       );
     }
   }
+}
+
+/// Check that a plugin stands on its own before it is packaged.
+///
+/// A package is copied verbatim — the web side is not bundled and the native side is a
+/// self-contained executable — so a reference to anything the package does not carry only
+/// shows up as a plugin that loads nothing or fails to start. The host's own sources are the
+/// one thing a plugin must never reach for: the architecture says the host is a shell and
+/// plugins are independent, and while both live in one repository nothing else enforces it.
+///
+/// Three things are checked, all of them cheap and all of them things that were previously
+/// only written down in the docs: what a page loads, what a native crate links, and whether
+/// the package's version and its crate's version agree.
+async function checkPluginBoundary({ directory, manifest }) {
+  const label = `plugins/${path.basename(directory)}`;
+  const problems = [];
+  const ui = path.join(directory, "ui");
+  const provided = providedSdkFiles();
+  for (const file of await readTree(ui)) {
+    const extension = path.extname(file.name).toLowerCase();
+    for (const reference of references(file.data.toString("utf8"), extension)) {
+      if (reference.startsWith("data:")) continue; // inline assets are the point of a package
+      const resolved = path.resolve(ui, reference);
+      const outside = path.relative(ui, resolved).startsWith("..");
+      if (/^[/\\]|^[a-z][a-z0-9+.-]*:/i.test(reference) || outside) {
+        problems.push(
+          `${file.name} 引用 ${reference}：只能引用插件自己 ui/ 里的文件或随包分发的 SDK`,
+        );
+      } else if (
+        !(await stat(resolved).then(() => true, () => false)) &&
+        !provided.has(path.basename(reference))
+      ) {
+        problems.push(`${file.name} 引用 ${reference}：包里不会有这个文件`);
+      }
+    }
+  }
+  const crate = await readFile(path.join(directory, "native", "Cargo.toml"), "utf8").catch(
+    () => null,
+  );
+  if (crate) {
+    const table = packageTable(crate);
+    if (table?.inheritsVersion) {
+      problems.push(
+        "native/Cargo.toml 用 version.workspace 继承了应用版本：插件要自己声明 version",
+      );
+    } else if (table?.version !== manifest.version) {
+      problems.push(
+        `版本不一致：plugin.json 是 ${manifest.version}，native/Cargo.toml 是 ${table?.version}`,
+      );
+    }
+    const libraryNames = pluginLibraries.map((library) => library.name);
+    for (const dependency of cargoDependencies(crate)) {
+      if (dependency.name.startsWith("ember-") && !libraryNames.includes(dependency.name)) {
+        problems.push(
+          `native 依赖了宿主的 ${dependency.name}：插件只能依赖 ${libraryNames.join("、")}`,
+        );
+      }
+      if (!dependency.path) continue;
+      const resolved = path.resolve(path.join(directory, "native"), dependency.path);
+      const allowed = pluginLibraries.some((library) =>
+        samePath(library.directory, resolved),
+      );
+      if (!allowed) {
+        const relative = path.relative(root, resolved).replace(/\\/g, "/");
+        problems.push(
+          `native 按路径依赖 ${relative}：插件只能依赖 ${pluginLibraries
+            .map((library) => path.relative(root, library.directory).replace(/\\/g, "/"))
+            .join(" 与 ")}`,
+        );
+      }
+    }
+  }
+  if (problems.length)
+    throw new Error(`${label} 不是自足的包：\n  ${problems.join("\n  ")}`);
 }
 
 async function digestTree(directory, hash) {
@@ -200,6 +353,8 @@ async function publish(release, { dist = false } = {}) {
       )
     ).flat(),
   ]);
+  // Each package has to stand on its own; see checkPluginBoundary.
+  for (const entry of entries) await checkPluginBoundary(entry);
   for (const { directory, manifest, listing, binary } of entries) {
     const executable = process.platform === "win32" ? `${binary}.exe` : binary;
     const native = path.join(
@@ -222,7 +377,7 @@ async function publish(release, { dist = false } = {}) {
       return uiText.includes(name) || uiText.includes(base);
     });
     const bundled = [];
-    for (const name of ["view", "navigation", "markdown"]) {
+    for (const name of bundledSdk) {
       if (uiText.includes(`sdk-${name}.js`))
         bundled.push(...(await bundle(name)));
     }
