@@ -380,7 +380,7 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
     #[cfg(not(debug_assertions))]
     let menu = Menu::with_items(app, &[&settings, &quit])?;
     let mut tray = TrayIconBuilder::with_id("ember-peek")
-        .tooltip("Ember Peek · 选中文件后按空格预览")
+        .tooltip("Ember Peek")
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id.as_ref() {
