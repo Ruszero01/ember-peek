@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { Package, Check, LoaderCircle, ArrowRight } from "lucide-react";
-import { call, desktop } from "./bridge";
+import { Check, LoaderCircle, ArrowRight } from "lucide-react";
+import { call, desktop, windowAction } from "./bridge";
 import { BrandMark } from "./BrandMark";
 import { pluginIcon } from "./pluginIcons";
 import type { MarketEntry, MarketList } from "./types";
@@ -88,7 +88,8 @@ export function Welcome({ onDone }: { onDone: () => Promise<unknown> }) {
       }
     }
     try {
-      await finish();
+      await answer();
+      await onDone();
       if (failures.length) setError(failures.join("；"));
     } finally {
       setBusy(false);
@@ -96,11 +97,25 @@ export function Welcome({ onDone }: { onDone: () => Promise<unknown> }) {
     }
   }
 
-  async function finish() {
+  /** Leaving for the marketplace answers the chooser without installing anything. */
+  async function browseMarket() {
+    await answer();
+    await onDone();
+  }
+
+  /** The chooser is answered once, whichever way the user leaves it. */
+  async function answer() {
     // Nothing to record outside the desktop window, where the chooser is not reachable
     // anyway.
     if (desktop) await call("complete_onboarding");
-    await onDone();
+  }
+
+  /** Answering with "not now" means exactly that: the window gets out of the way instead of
+   *  opening the same marketplace the other button already offers. */
+  async function later() {
+    await answer();
+    if (desktop) await windowAction("close");
+    else await onDone();
   }
 
   return (
@@ -126,22 +141,11 @@ export function Welcome({ onDone }: { onDone: () => Promise<unknown> }) {
         </p>
       )}
       {!loading && !entries.length && !warnings.length && (
-        <div className="card empty-plugins">
-          <Package size={28} />
-          <p>
-            {suggestions
-              ? "推荐的基础插件都已安装，其他插件可以在“插件市场”里选择。"
-              : "暂时没有可安装的插件，稍后可以在“插件市场”里再看看。"}
-          </p>
-          <button
-            className="secondary-button"
-            disabled={busy}
-            onClick={() => void finish()}
-          >
-            去插件市场
-            <ArrowRight size={15} />
-          </button>
-        </div>
+        <p className="quiet-note">
+          {suggestions
+            ? "推荐的基础插件都已安装。"
+            : "这个来源没有可安装的插件。"}
+        </p>
       )}
       {entries.length > 0 && (
         <div className="welcome-list">
@@ -170,7 +174,8 @@ export function Welcome({ onDone }: { onDone: () => Promise<unknown> }) {
         </div>
       )}
       <div className="welcome-actions">
-        {/* Nothing to install means the page offers the marketplace instead of a dead button. */}
+        {/* Install what the source suggests, or go pick from the whole catalog: both lead
+            into the app, and the marketplace is one click either way. */}
         {entries.length > 0 && (
           <button
             className="primary-button"
@@ -188,12 +193,20 @@ export function Welcome({ onDone }: { onDone: () => Promise<unknown> }) {
         <button
           className="secondary-button"
           disabled={busy}
-          onClick={() => void finish()}
+          onClick={() => void browseMarket()}
         >
-          稍后再说
+          去插件市场
           <ArrowRight size={15} />
         </button>
       </div>
+      {/* The quiet way out, last: nothing installed, nothing opened. */}
+      <button
+        className="text-button welcome-later"
+        disabled={busy}
+        onClick={() => void later()}
+      >
+        稍后再说
+      </button>
     </div>
   );
 }

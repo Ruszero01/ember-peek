@@ -1602,4 +1602,6 @@ kbd {
 .welcome-item.selected .welcome-check { border-color: color-mix(in srgb, var(--accent) 45%, transparent); background: var(--accent-bg); }
 .welcome-actions { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 2px; }
 .welcome-actions .primary-button, .welcome-actions .secondary-button { min-width: 140px; justify-content: center; }
+/* The way out sits below the two ways in, and reads as the least of the three. */
+.welcome-later { margin-top: -8px; font-size: 11.5px; }
 .welcome .warning, .welcome .quiet-note { max-width: 520px; }
