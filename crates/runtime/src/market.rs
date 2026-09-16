@@ -410,7 +410,43 @@ impl Market {
     }
 
     pub async fn install(&self, runtime: &Runtime, id: &str) -> Result<(), String> {
-        runtime.install(&self.prepare(id).await?).await
+        runtime.install(&self.prepare(id).await?).await?;
+        self.prune_cache(runtime).await.map(|_| ())
+    }
+
+    /// Drop cached packages no installed revision can reach.
+    ///
+    /// The cache exists so the same package is not downloaded twice, which only matters for
+    /// packages something can still install or fall back to. Entries are keyed by artifact
+    /// hash, so without this every version a machine ever fetched would stay unpacked in the
+    /// cache for good — including versions of plugins the user has since uninstalled.
+    pub async fn prune_cache(&self, runtime: &Runtime) -> Result<usize, String> {
+        let retained = runtime.installed_build_ids().await?;
+        let entries = match std::fs::read_dir(&self.cache) {
+            Ok(entries) => entries,
+            // Nothing has been downloaded yet, which is not a failure.
+            Err(_) => return Ok(0),
+        };
+        let mut removed = 0;
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+            // An entry without a readable manifest cannot be installed from, so it goes too.
+            let build_id = Package::load(&path)
+                .ok()
+                .map(|package| package.manifest.build_id);
+            match build_id {
+                Some(build_id) if retained.contains(&build_id) => continue,
+                _ => {
+                    if std::fs::remove_dir_all(&path).is_ok() {
+                        removed += 1;
+                    }
+                }
+            }
+        }
+        Ok(removed)
     }
 
     /// Development only: the local mirror is rebuilt whenever plugin sources change, so
@@ -419,6 +455,7 @@ impl Market {
     pub async fn sync_development(&self, runtime: &Runtime) -> Result<(), String> {
         let (offerings, _) = self.offerings().await;
         let snapshot = runtime.snapshot().await;
+        let mut updated = false;
         for offering in offerings {
             let installed = snapshot
                 .plugins
@@ -430,6 +467,11 @@ impl Market {
             }
             let directory = self.materialize(&offering).await?;
             runtime.update_development(&directory).await?;
+            updated = true;
+        }
+        // A rebuild that replaced a plugin leaves the superseded package in the cache.
+        if updated {
+            self.prune_cache(runtime).await?;
         }
         Ok(())
     }

@@ -21,6 +21,9 @@ use tokio::sync::Mutex;
 
 pub const IDLE_TTL: Duration = Duration::from_secs(120);
 const MAX_SESSIONS: usize = 16;
+/// How many revisions of one plugin stay on disk: the installed one and the one it
+/// replaced. The second is what a rollback would fall back to; anything older is retired.
+const RETAINED_REVISIONS: usize = 2;
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -774,7 +777,67 @@ impl Runtime {
                 self.persist(&inner)?;
             }
         }
-        self.scan().await
+        self.scan().await?;
+        self.retire_superseded(&manifest.id).await
+    }
+
+    /// Keep the installed revision and the one it replaced, and retire everything older.
+    ///
+    /// Installing a new revision never overwrites the old one: on Windows a directory with
+    /// a running executable in it cannot be replaced, and a half-copied directory is worse
+    /// than a stale one. So updates land beside the previous revision and the switch is the
+    /// revision number. That would grow for the life of the machine, hence this cap: one
+    /// previous revision is what a rollback could need, and older ones are retired through
+    /// the same collector the uninstaller uses, so a revision still serving a preview is
+    /// deleted once that preview is gone rather than being ripped out from under it.
+    async fn retire_superseded(&self, id: &str) -> Result<(), String> {
+        let mut revisions: Vec<Package> = Vec::new();
+        for entry in std::fs::read_dir(&self.root)
+            .map_err(|e| e.to_string())?
+            .flatten()
+        {
+            if !entry.path().is_dir() {
+                continue;
+            }
+            if let Ok(package) = Package::load(&entry.path()) {
+                if package.manifest.id == id {
+                    revisions.push(package);
+                }
+            }
+        }
+        revisions.sort_by_key(|package| std::cmp::Reverse(package.manifest.revision));
+        let mut inner = self.inner.lock().await;
+        let mut changed = false;
+        for package in revisions.into_iter().skip(RETAINED_REVISIONS) {
+            changed |= inner.removed.insert(package.key());
+        }
+        if changed {
+            self.persist(&inner)?;
+        }
+        Ok(())
+    }
+
+    /// The build of every revision on disk, retired ones excluded. The download cache only
+    /// exists to avoid fetching something twice, so anything no installed revision can
+    /// reach is dead weight: this is what the cache is pruned against.
+    pub async fn installed_build_ids(&self) -> Result<HashSet<String>, String> {
+        let inner = self.inner.lock().await;
+        let mut ids = HashSet::new();
+        for entry in std::fs::read_dir(&self.root)
+            .map_err(|e| e.to_string())?
+            .flatten()
+        {
+            if !entry.path().is_dir() {
+                continue;
+            }
+            if let Ok(package) = Package::load(&entry.path()) {
+                if !inner.removed.contains(&package.key()) && !package.manifest.build_id.is_empty()
+                {
+                    ids.insert(package.manifest.build_id);
+                }
+            }
+        }
+        Ok(ids)
     }
 
     pub async fn reap(&self) {

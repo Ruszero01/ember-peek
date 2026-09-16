@@ -489,3 +489,96 @@ async fn a_source_can_suggest_plugins_for_a_fresh_installation() {
     assert!(!market.list(&runtime).await.unwrap().entries[0].recommended);
     runtime.shutdown().await;
 }
+
+/// Read the revision and build id of every package directory under `root`.
+fn revisions(root: &Path) -> Vec<(u64, String)> {
+    let mut found: Vec<(u64, String)> = std::fs::read_dir(root)
+        .unwrap()
+        .flatten()
+        .filter(|entry| entry.path().is_dir())
+        .map(|entry| {
+            let manifest: serde_json::Value =
+                serde_json::from_slice(&std::fs::read(entry.path().join("plugin.json")).unwrap())
+                    .unwrap();
+            (
+                manifest["revision"].as_u64().unwrap_or(0),
+                manifest["buildId"].as_str().unwrap_or_default().to_string(),
+            )
+        })
+        .collect();
+    found.sort();
+    found
+}
+
+/// Updates replace the installed revision rather than piling up beside it: the previous
+/// revision stays (it is what a rollback would fall back to), anything older is retired,
+/// and the download cache keeps exactly the packages those two revisions came from — so a
+/// machine does not accumulate every version it ever fetched.
+#[tokio::test]
+async fn updating_keeps_the_previous_revision_and_forgets_older_ones() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("installed");
+    let cache = temp.path().join("cache");
+    let mirror = temp.path().join("mirror");
+    let runtime = Runtime::new(root.clone()).unwrap();
+
+    for build_id in ["first-build", "second-build", "third-build"] {
+        let source = build(temp.path(), build_id);
+        publish(&mirror, &source, "test.one", build_id, &[]);
+        // A fresh market each round: a catalog is cached once it has been read.
+        let market = test_market(temp.path(), &mirror);
+        market.install(&runtime, "test.one").await.unwrap();
+    }
+    // Nothing is serving the retired revision, so the collector takes it.
+    runtime.reap().await;
+
+    let builds: Vec<String> = revisions(&root)
+        .into_iter()
+        .map(|(_, build)| build)
+        .collect();
+    assert_eq!(builds, ["second-build", "third-build"]);
+    assert_eq!(
+        runtime.snapshot().await.plugins[0].manifest.build_id,
+        "third-build"
+    );
+
+    let mut cached: Vec<String> = std::fs::read_dir(&cache)
+        .unwrap()
+        .flatten()
+        .map(|entry| {
+            let manifest: serde_json::Value =
+                serde_json::from_slice(&std::fs::read(entry.path().join("plugin.json")).unwrap())
+                    .unwrap();
+            manifest["buildId"].as_str().unwrap().to_string()
+        })
+        .collect();
+    cached.sort();
+    assert_eq!(cached, ["second-build", "third-build"]);
+    runtime.shutdown().await;
+}
+
+/// Uninstalling retires every revision at once, so the cache must not keep serving them.
+#[tokio::test]
+async fn uninstalling_drops_every_revision_and_its_cached_package() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("installed");
+    let mirror = temp.path().join("mirror");
+    let source = build(temp.path(), "first-build");
+    publish(&mirror, &source, "test.one", "first-build", &[]);
+    let runtime = Runtime::new(root.clone()).unwrap();
+    let market = test_market(temp.path(), &mirror);
+    market.install(&runtime, "test.one").await.unwrap();
+
+    runtime.uninstall("test.one").await.unwrap();
+    market.prune_cache(&runtime).await.unwrap();
+    runtime.reap().await;
+    assert!(revisions(&root).is_empty());
+    assert_eq!(
+        std::fs::read_dir(temp.path().join("cache"))
+            .unwrap()
+            .flatten()
+            .count(),
+        0
+    );
+    runtime.shutdown().await;
+}

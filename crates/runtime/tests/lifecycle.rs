@@ -721,3 +721,27 @@ async fn resetting_to_first_launch_refuses_unsaved_edits() {
     assert!(runtime.snapshot().await.plugins.is_empty());
     runtime.shutdown().await;
 }
+
+/// Installing from a directory replaces the installed revision instead of accumulating
+/// beside it, so repeated installs cannot grow the plugin directory without bound. The
+/// previous revision is left in place: it is what a rollback falls back to.
+#[tokio::test]
+async fn reinstalling_from_a_directory_keeps_only_the_previous_revision() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("installed");
+    let source = temp.path().join("built");
+    package(&source, "test.one", "one");
+    let runtime = Runtime::new(root.clone()).unwrap();
+    for _ in 0..3 {
+        runtime.install(&source).await.unwrap();
+    }
+    runtime.reap().await;
+    let installed: Vec<_> = std::fs::read_dir(&root)
+        .unwrap()
+        .flatten()
+        .filter(|entry| entry.path().is_dir())
+        .collect();
+    assert_eq!(installed.len(), 2, "expected the installed and previous revision");
+    assert_eq!(runtime.snapshot().await.plugins.len(), 1);
+    runtime.shutdown().await;
+}

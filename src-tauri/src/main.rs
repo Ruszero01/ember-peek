@@ -181,8 +181,14 @@ async fn set_plugin_setting(
 }
 
 #[tauri::command]
-async fn uninstall_plugin(host: Host<'_>, id: String) -> Result<(), String> {
-    host.uninstall(&id).await
+async fn uninstall_plugin(
+    host: Host<'_>,
+    market: State<'_, Market>,
+    id: String,
+) -> Result<(), String> {
+    host.uninstall(&id).await?;
+    // The revisions just retired are no longer reachable, so their cached packages go too.
+    market.prune_cache(host.inner()).await.map(|_| ())
 }
 
 #[tauri::command]
@@ -201,9 +207,16 @@ async fn pick_path(window: tauri::Window, folder: bool) -> Result<Option<String>
 }
 
 #[tauri::command]
-async fn install_plugin(host: Host<'_>, path: String) -> Result<(), String> {
+async fn install_plugin(
+    host: Host<'_>,
+    market: State<'_, Market>,
+    path: String,
+) -> Result<(), String> {
     // Package IO runs off the UI thread. No plugin is launched during installation.
-    host.install(&PathBuf::from(path)).await
+    host.install(&PathBuf::from(path)).await?;
+    // The installed revision is on disk now, so the cache only needs to keep what the
+    // installer can still reach — this package and whatever it replaced.
+    market.prune_cache(host.inner()).await.map(|_| ())
 }
 
 fn mime(path: &std::path::Path) -> &'static str {
