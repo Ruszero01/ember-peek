@@ -490,7 +490,8 @@ async fn a_source_can_suggest_plugins_for_a_fresh_installation() {
     runtime.shutdown().await;
 }
 
-/// Read the revision and build id of every package directory under `root`.
+/// Read the revision and build id of every package directory under `root`. The list doubles
+/// as the record of how many copies of a plugin are on disk.
 fn revisions(root: &Path) -> Vec<(u64, String)> {
     let mut found: Vec<(u64, String)> = std::fs::read_dir(root)
         .unwrap()
@@ -510,33 +511,43 @@ fn revisions(root: &Path) -> Vec<(u64, String)> {
     found
 }
 
-/// Updates replace the installed revision rather than piling up beside it: the previous
-/// revision stays (it is what a rollback would fall back to), anything older is retired,
-/// and the download cache keeps exactly the packages those two revisions came from — so a
-/// machine does not accumulate every version it ever fetched.
+/// An update overwrites the installed revision, and nothing else is kept: with no rollback to
+/// fall back to, one directory per plugin is the whole policy. The download cache follows —
+/// it holds the packages the installed builds came from, so a machine never accumulates every
+/// version it has ever fetched.
 #[tokio::test]
-async fn updating_keeps_the_previous_revision_and_forgets_older_ones() {
+async fn updating_overwrites_the_installed_revision_and_forgets_older_ones() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("installed");
     let cache = temp.path().join("cache");
     let mirror = temp.path().join("mirror");
     let runtime = Runtime::new(root.clone()).unwrap();
 
+    let mut installed = Vec::new();
     for build_id in ["first-build", "second-build", "third-build"] {
         let source = build(temp.path(), build_id);
         publish(&mirror, &source, "test.one", build_id, &[]);
         // A fresh market each round: a catalog is cached once it has been read.
         let market = test_market(temp.path(), &mirror);
         market.install(&runtime, "test.one").await.unwrap();
+        if build_id == "first-build" {
+            installed = revisions(&root);
+        }
     }
-    // Nothing is serving the retired revision, so the collector takes it.
     runtime.reap().await;
 
-    let builds: Vec<String> = revisions(&root)
-        .into_iter()
-        .map(|(_, build)| build)
-        .collect();
-    assert_eq!(builds, ["second-build", "third-build"]);
+    // The same directory as the first install — same revision, new contents — and nothing
+    // else beside it.
+    let after = revisions(&root);
+    assert_eq!(
+        after.iter().map(|(revision, _)| *revision).collect::<Vec<_>>(),
+        installed
+            .iter()
+            .map(|(revision, _)| *revision)
+            .collect::<Vec<_>>()
+    );
+    let builds: Vec<String> = after.into_iter().map(|(_, build)| build).collect();
+    assert_eq!(builds, ["third-build"]);
     assert_eq!(
         runtime.snapshot().await.plugins[0].manifest.build_id,
         "third-build"
@@ -553,7 +564,7 @@ async fn updating_keeps_the_previous_revision_and_forgets_older_ones() {
         })
         .collect();
     cached.sort();
-    assert_eq!(cached, ["second-build", "third-build"]);
+    assert_eq!(cached, ["third-build"]);
     runtime.shutdown().await;
 }
 

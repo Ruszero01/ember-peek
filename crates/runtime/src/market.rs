@@ -409,7 +409,7 @@ impl Market {
         }
     }
 
-    pub async fn install(&self, runtime: &Runtime, id: &str) -> Result<(), String> {
+    pub async fn install(&self, runtime: &Arc<Runtime>, id: &str) -> Result<(), String> {
         runtime.install(&self.prepare(id).await?).await?;
         self.prune_cache(runtime).await.map(|_| ())
     }
@@ -452,7 +452,7 @@ impl Market {
     /// Development only: the local mirror is rebuilt whenever plugin sources change, so
     /// plugins installed from it have to follow. Whether a rebuild counts as newer is the
     /// installer's decision, so this only decides which ids to offer it.
-    pub async fn sync_development(&self, runtime: &Runtime) -> Result<(), String> {
+    pub async fn sync_development(&self, runtime: &Arc<Runtime>) -> Result<(), String> {
         let (offerings, _) = self.offerings().await;
         let snapshot = runtime.snapshot().await;
         let mut updated = false;

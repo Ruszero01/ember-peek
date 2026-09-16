@@ -21,9 +21,9 @@ use tokio::sync::Mutex;
 
 pub const IDLE_TTL: Duration = Duration::from_secs(120);
 const MAX_SESSIONS: usize = 16;
-/// How many revisions of one plugin stay on disk: the installed one and the one it
-/// replaced. The second is what a rollback would fall back to; anything older is retired.
-const RETAINED_REVISIONS: usize = 2;
+/// Name prefix for the installed directory a replacement moved aside. Everything else that
+/// is not a plugin lives under a dot name, and `scan` skips those.
+const REPLACED_PREFIX: &str = ".replaced-";
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -59,6 +59,13 @@ struct Session {
     touched: Instant,
     calls: usize,
     source: Option<String>,
+}
+
+/// What a replacement cut: the files whose previews were dropped, and whether the session
+/// that was on screen was one of them.
+struct TakenOver {
+    files: Vec<PathBuf>,
+    active: bool,
 }
 
 /// Uncommitted work a destructive action would destroy: which session holds it, which file
@@ -246,8 +253,15 @@ impl Runtime {
     }
 
     pub async fn scan(&self) -> Result<(), String> {
+        // Before reading the directory, undo any replacement that died halfway: an installation
+        // moved aside but never replaced has to come back, or the plugin would look uninstalled.
+        recover_replaced(&self.root);
         let mut packages: BTreeMap<String, Package> = BTreeMap::new();
         let mut warnings = Vec::new();
+        // A plugin gets one directory, so any other revision of it is dead weight: the one this
+        // scan does not select is retired, which is also how an installation that predates
+        // in-place updates loses the copies the older scheme left behind.
+        let mut superseded = Vec::new();
         let mut inner = self.inner.lock().await;
         for entry in std::fs::read_dir(&self.root).map_err(|e| e.to_string())? {
             let entry = entry.map_err(|e| e.to_string())?;
@@ -260,11 +274,19 @@ impl Runtime {
                         continue;
                     }
                     let id = package.manifest.id.clone();
-                    if packages
-                        .get(&id)
-                        .is_none_or(|old| old.manifest.revision < package.manifest.revision)
-                    {
-                        packages.insert(id, package);
+                    match packages.get(&id).map(|old| {
+                        (old.key(), old.manifest.revision)
+                    }) {
+                        Some((_, revision)) if revision >= package.manifest.revision => {
+                            superseded.push(package.key())
+                        }
+                        Some((current, _)) => {
+                            superseded.push(current);
+                            packages.insert(id, package);
+                        }
+                        None => {
+                            packages.insert(id, package);
+                        }
                     }
                 }
                 Err(error) => {
@@ -274,6 +296,13 @@ impl Runtime {
         }
         inner.packages = packages;
         inner.warnings = warnings;
+        let mut changed = false;
+        for key in superseded {
+            changed |= inner.removed.insert(key);
+        }
+        if changed {
+            self.persist(&inner)?;
+        }
         Ok(())
     }
 
@@ -756,28 +785,183 @@ impl Runtime {
         self.persist(&inner)
     }
 
-    pub async fn install(&self, source: &Path) -> Result<(), String> {
-        let _installation = self.installation.lock().await;
-        self.install_package(source).await
-    }
-
-    pub async fn update_development(&self, source: &Path) -> Result<(), String> {
+    pub async fn install(self: &Arc<Self>, source: &Path) -> Result<(), String> {
         let _installation = self.installation.lock().await;
         let package = Package::load(source)?;
-        let should_update = self
+        let installed = self
             .inner
             .lock()
             .await
             .packages
             .get(&package.manifest.id)
-            .is_some_and(|old| {
-                !old.manifest.build_id.is_empty()
-                    && old.manifest.build_id != package.manifest.build_id
-            });
-        if should_update {
-            self.install_package(source).await?;
+            .cloned();
+        match installed {
+            // Already this exact build: installing it again changes nothing.
+            Some(installed)
+                if !package.manifest.build_id.is_empty()
+                    && installed.manifest.build_id == package.manifest.build_id =>
+            {
+                Ok(())
+            }
+            // An update replaces the installed directory; only a first install adds one.
+            Some(installed) => self.replace_package(source, &installed).await,
+            None => self.install_package(source).await,
         }
-        Ok(())
+    }
+
+    pub async fn update_development(self: &Arc<Self>, source: &Path) -> Result<(), String> {
+        let _installation = self.installation.lock().await;
+        let package = Package::load(source)?;
+        let installed = self
+            .inner
+            .lock()
+            .await
+            .packages
+            .get(&package.manifest.id)
+            .cloned();
+        let Some(installed) = installed else { return Ok(()) };
+        if installed.manifest.build_id.is_empty()
+            || installed.manifest.build_id == package.manifest.build_id
+        {
+            return Ok(());
+        }
+        self.replace_package(source, &installed).await
+    }
+
+    /// Replace the installed revision in place.
+    ///
+    /// An update does not stack a new revision beside the old one: the installed directory is
+    /// swapped for the verified new one, so a machine keeps exactly one copy per plugin. The
+    /// swap is two renames, which is why an update stops the plugin first — Windows will not
+    /// rename a directory with a running executable inside it — and why a crash between the
+    /// two leaves the previous revision recoverable instead of a half-written install.
+    ///
+    /// Whatever was previewing the plugin is cut and put back on the new build. Uncommitted
+    /// work is never in scope: an update is refused while the plugin reports any, so nothing a
+    /// user has not saved is destroyed by this.
+    async fn replace_package(
+        self: &Arc<Self>,
+        source: &Path,
+        installed: &Package,
+    ) -> Result<(), String> {
+        let id = installed.manifest.id.clone();
+        if let Some(change) = self.blocking_change(Some(&id)).await {
+            return Err(change.refusal("更新"));
+        }
+        let package = Package::load(source)?;
+        // The replacement keeps the installation's revision, so the directory it lives in is
+        // stable across updates instead of being renamed on every release.
+        let revision = installed.manifest.revision;
+        let staging = self.root.join(format!(".install-{revision}"));
+        let _ = std::fs::remove_dir_all(&staging);
+        copy_package(&package.directory, &staging, 0)?;
+        let mut manifest = package.manifest;
+        manifest.revision = revision;
+        std::fs::write(
+            staging.join("plugin.json"),
+            serde_json::to_vec_pretty(&manifest).unwrap(),
+        )
+        .map_err(|e| e.to_string())?;
+        // Nothing is swapped until the staged tree is known to load.
+        Package::load(&staging)?;
+        // Cut the previews now: their process is about to go and the files under them are
+        // about to change, so they must not be left pointing at either.
+        let taken = self.take_over(&id).await;
+        if let Err(error) = swap_directory(&staging, &installed.directory) {
+            let _ = std::fs::remove_dir_all(&staging);
+            return Err(format!("无法替换插件目录：{error}"));
+        }
+        self.scan().await?;
+        // Installations that predate in-place updates can still hold extra revisions; with no
+        // rollback to fall back to, the installed one is the only one worth keeping.
+        self.retire_superseded(&id).await?;
+        let failures = self.reopen(taken).await;
+        if failures.is_empty() {
+            Ok(())
+        } else {
+            Err(format!("插件已更新，但预览没有恢复：{}", failures.join("；")))
+        }
+    }
+
+    /// Stop everything serving one plugin and drop the sessions showing it, returning the
+    /// files they had open so they can be put back on the new build.
+    ///
+    /// A plugin process is shared by every file it previews, so the whole plugin goes, and with
+    /// it every session of the file groups it took part in: a group is composed once, and
+    /// recomposing it around a half-removed plugin would leave one contributor talking to a
+    /// process that no longer exists.
+    async fn take_over(self: &Arc<Self>, id: &str) -> TakenOver {
+        let mut inner = self.inner.lock().await;
+        let files: HashSet<String> = inner
+            .sessions
+            .values()
+            .filter(|session| session.info.plugin_id == id)
+            .map(|session| session.info.file_id.clone())
+            .collect();
+        let dropped: Vec<String> = inner
+            .sessions
+            .values()
+            .filter(|session| {
+                session.info.plugin_id == id || files.contains(&session.info.file_id)
+            })
+            .map(|session| session.info.id.clone())
+            .collect();
+        let was_active = inner
+            .active
+            .as_ref()
+            .is_some_and(|active| dropped.contains(active));
+        let mut paths = Vec::new();
+        let mut keys = HashSet::new();
+        for session_id in dropped {
+            if let Some(session) = inner.sessions.remove(&session_id) {
+                paths.push(session.path.clone());
+                keys.insert(session.package.key());
+            }
+        }
+        if was_active {
+            inner.active = None;
+        }
+        let workers: Vec<_> = keys
+            .iter()
+            .filter_map(|key| inner.workers.remove(key))
+            .collect();
+        drop(inner);
+        for worker in workers {
+            worker.stop().await;
+        }
+        TakenOver {
+            files: paths,
+            active: was_active,
+        }
+    }
+
+    /// Put the cut previews back, now that the plugin they use is the new build. A file whose
+    /// plugin no longer claims it, or refuses to start, is reported rather than dropped in
+    /// silence — the preview window falls back to its own empty state either way.
+    async fn reopen(self: &Arc<Self>, taken: TakenOver) -> Vec<String> {
+        let mut failures = Vec::new();
+        let mut first = None;
+        for path in taken.files {
+            match self.open(path.clone()).await {
+                Ok(session) => {
+                    if first.is_none() {
+                        first = Some(session.id);
+                    }
+                }
+                Err(error) => failures.push(format!(
+                    "{}：{error}",
+                    path.file_name()
+                        .map(|name| name.to_string_lossy().into_owned())
+                        .unwrap_or_else(|| path.to_string_lossy().into_owned())
+                )),
+            }
+        }
+        if taken.active {
+            if let Some(id) = first {
+                let _ = self.activate(Some(id)).await;
+            }
+        }
+        failures
     }
 
     async fn install_package(&self, source: &Path) -> Result<(), String> {
@@ -852,16 +1036,25 @@ impl Runtime {
         self.retire_superseded(&manifest.id).await
     }
 
-    /// Keep the installed revision and the one it replaced, and retire everything older.
+    /// Retire every revision of a plugin except the installed one.
     ///
-    /// Installing a new revision never overwrites the old one: on Windows a directory with
-    /// a running executable in it cannot be replaced, and a half-copied directory is worse
-    /// than a stale one. So updates land beside the previous revision and the switch is the
-    /// revision number. That would grow for the life of the machine, hence this cap: one
-    /// previous revision is what a rollback could need, and older ones are retired through
-    /// the same collector the uninstaller uses, so a revision still serving a preview is
-    /// deleted once that preview is gone rather than being ripped out from under it.
+    /// An update swaps the installed directory rather than adding a revision, so this is a
+    /// cleanup for installations that predate that: they can still hold revisions from the
+    /// scheme where updates landed beside the old one. There is no rollback to preserve, so
+    /// nothing else on disk is worth keeping — but they are retired through the same collector
+    /// the uninstaller uses, so a revision still serving a preview is deleted once that preview
+    /// is gone rather than being ripped out from under it.
     async fn retire_superseded(&self, id: &str) -> Result<(), String> {
+        let installed = self
+            .inner
+            .lock()
+            .await
+            .packages
+            .get(id)
+            .map(Package::key);
+        let Some(installed) = installed else {
+            return Ok(());
+        };
         let mut revisions: Vec<Package> = Vec::new();
         for entry in std::fs::read_dir(&self.root)
             .map_err(|e| e.to_string())?
@@ -871,15 +1064,14 @@ impl Runtime {
                 continue;
             }
             if let Ok(package) = Package::load(&entry.path()) {
-                if package.manifest.id == id {
+                if package.manifest.id == id && package.key() != installed {
                     revisions.push(package);
                 }
             }
         }
-        revisions.sort_by_key(|package| std::cmp::Reverse(package.manifest.revision));
         let mut inner = self.inner.lock().await;
         let mut changed = false;
-        for package in revisions.into_iter().skip(RETAINED_REVISIONS) {
+        for package in revisions {
             changed |= inner.removed.insert(package.key());
         }
         if changed {
@@ -1028,6 +1220,60 @@ pub(crate) fn publish_directory(from: &Path, to: &Path) -> Result<(), String> {
             }
             let _ = std::fs::remove_dir_all(from);
             Ok(())
+        }
+    }
+}
+
+/// Swap a freshly assembled package in over the installed directory it replaces.
+///
+/// Two renames rather than a copy over the top: copying into a live plugin directory is not
+/// atomic, so a crash, a full disk or an antivirus lock halfway through would leave an
+/// installation that mixes both builds — a new executable beside an old UI, or a truncated
+/// one — and the damage only shows up the next time the plugin runs. Renaming the installed
+/// directory aside first means the worst case is a complete previous revision sitting under
+/// `REPLACED_PREFIX`, which `scan` puts back (see `recover_replaced`).
+///
+/// A caller must stop the plugin first: Windows refuses both renames while its executable
+/// is running.
+fn swap_directory(from: &Path, to: &Path) -> Result<(), String> {
+    let name = to
+        .file_name()
+        .ok_or("插件目录名无效")?
+        .to_string_lossy()
+        .into_owned();
+    let aside = to.with_file_name(format!("{REPLACED_PREFIX}{name}"));
+    let _ = std::fs::remove_dir_all(&aside);
+    if let Err(error) = std::fs::rename(to, &aside) {
+        return Err(error.to_string());
+    }
+    if let Err(error) = std::fs::rename(from, to) {
+        // Put the installation back rather than leaving the plugin missing.
+        let _ = std::fs::rename(&aside, to);
+        return Err(error.to_string());
+    }
+    // Best effort: a leftover aside directory is removed by the next scan.
+    let _ = std::fs::remove_dir_all(&aside);
+    Ok(())
+}
+
+/// Undo a swap that was interrupted between its two renames.
+///
+/// Nothing else writes these names, so a directory carrying the prefix means an update died
+/// mid-swap. If the installation it belongs to is missing, the aside copy is that
+/// installation and goes back; if it is present, the update completed and this is the
+/// leftover to drop.
+fn recover_replaced(root: &Path) {
+    for entry in std::fs::read_dir(root).into_iter().flatten().flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let Some(original) = name.strip_prefix(REPLACED_PREFIX) else {
+            continue;
+        };
+        let target = root.join(original);
+        if target.exists() {
+            let _ = std::fs::remove_dir_all(entry.path());
+        } else {
+            // Still locked by a process that has not exited; the next scan retries.
+            let _ = std::fs::rename(entry.path(), &target);
         }
     }
 }

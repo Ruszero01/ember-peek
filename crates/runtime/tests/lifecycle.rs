@@ -17,6 +17,29 @@ fn package(path: &Path, id: &str, extension: &str) {
     std::fs::write(path.join("ui/index.html"), "<canvas></canvas>").unwrap();
     std::fs::write(path.join("plugin.json"), json!({"api":1,"id":id,"name":id,"version":"1.0.0","extensions":[extension],"icon":"file-text","executable":"worker.exe","entry":"ui/index.html","capabilities":["view"],"permissions":["readFile"]}).to_string()).unwrap();
 }
+/// A build id, so an install is recognised as an update of the one before it.
+fn set_build_id(path: &Path, build_id: &str) {
+    let manifest_path = path.join("plugin.json");
+    let mut manifest: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&manifest_path).unwrap()).unwrap();
+    manifest["buildId"] = json!(build_id);
+    std::fs::write(&manifest_path, manifest.to_string()).unwrap();
+}
+
+/// The installed revision directories of `root`, which an update must not grow.
+fn installed_dirs(root: &Path) -> Vec<String> {
+    let mut found: Vec<String> = std::fs::read_dir(root)
+        .unwrap()
+        .flatten()
+        .filter(|entry| {
+            entry.path().is_dir() && !entry.file_name().to_string_lossy().starts_with('.')
+        })
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .collect();
+    found.sort();
+    found
+}
+
 async fn ready(runtime: &Arc<Runtime>, id: &str) {
     let start = Instant::now();
     loop {
@@ -257,29 +280,125 @@ async fn reinstalling_a_disabled_plugin_brings_it_back_enabled() {
     runtime.shutdown().await;
 }
 
+/// An update replaces the installed directory and puts the preview back on the new build.
+///
+/// The preview cannot survive the swap: its process is stopped and the files under it are
+/// replaced, so it is cut and re-opened rather than left talking to a build that is gone.
 #[tokio::test]
-async fn updating_a_package_preserves_inflight_old_revision() {
+async fn updating_replaces_the_installed_directory_and_puts_the_preview_back() {
     let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("installed");
     let source = temp.path().join("package");
     package(&source, "test.one", "one");
-    let runtime = Runtime::new(temp.path().join("installed")).unwrap();
+    set_build_id(&source, "first-build");
+    let runtime = Runtime::new(root.clone()).unwrap();
     runtime.install(&source).await.unwrap();
-    let file = temp.path().join("slow.one");
-    std::fs::write(&file, "slow").unwrap();
-    let previous = runtime.open(file.clone()).await.unwrap();
-    tokio::time::sleep(Duration::from_millis(2)).await;
+    let installed = installed_dirs(&root);
+    assert_eq!(installed.len(), 1);
+
+    let file = temp.path().join("note.one");
+    std::fs::write(&file, "hello").unwrap();
+    let before = runtime.open(file.clone()).await.unwrap();
+    ready(&runtime, &before.id).await;
+    runtime.activate(Some(before.id.clone())).await.unwrap();
+
+    set_build_id(&source, "second-build");
     runtime.install(&source).await.unwrap();
-    let next = runtime.open(file).await.unwrap();
-    assert_ne!(previous.revision, next.revision);
-    assert_ne!(previous.id, next.id);
-    runtime.activate(Some(next.id.clone())).await.unwrap();
-    ready(&runtime, &previous.id).await;
-    ready(&runtime, &next.id).await;
-    assert_ne!(
-        runtime.session_data(&previous.id).await.unwrap()["pid"],
-        runtime.session_data(&next.id).await.unwrap()["pid"]
+
+    // Same directory, new contents: an update is not a second copy beside the old one.
+    assert_eq!(installed_dirs(&root), installed);
+    assert_eq!(
+        runtime.snapshot().await.plugins[0].manifest.build_id,
+        "second-build"
     );
-    assert_eq!(runtime.snapshot().await.active, Some(next.id));
+    // The preview was cut and put back: one session for the same file, on the new build.
+    let sessions = runtime.snapshot().await.sessions;
+    assert_eq!(sessions.len(), 1);
+    assert_ne!(sessions[0].id, before.id);
+    assert_eq!(sessions[0].name, before.name);
+    // Re-activating is what keeps the preview window on that file: it shows the active
+    // session's file, and the session that was on screen no longer exists.
+    assert_eq!(runtime.snapshot().await.active, Some(sessions[0].id.clone()));
+    ready(&runtime, &sessions[0].id).await;
+    runtime.shutdown().await;
+}
+
+/// An update must not destroy work the plugin has not committed, and must say why in the
+/// plugin's own words.
+#[tokio::test]
+async fn updating_a_plugin_with_pending_changes_is_refused() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("installed");
+    let source = temp.path().join("package");
+    package(&source, "test.one", "one");
+    set_build_id(&source, "first-build");
+    let runtime = Runtime::new(root.clone()).unwrap();
+    runtime.install(&source).await.unwrap();
+    let installed = installed_dirs(&root);
+
+    let file = temp.path().join("note.one");
+    std::fs::write(&file, "hello").unwrap();
+    let session = runtime.open(file).await.unwrap();
+    ready(&runtime, &session.id).await;
+    runtime
+        .set_pending(&session.id, true, Some("未保存的编辑".into()))
+        .await
+        .unwrap();
+
+    set_build_id(&source, "second-build");
+    let refusal = runtime.install(&source).await.unwrap_err();
+    assert!(refusal.contains("未保存的编辑"), "{refusal}");
+    assert!(refusal.contains("更新"), "{refusal}");
+    // Nothing moved: same build, same directory, preview untouched.
+    assert_eq!(installed_dirs(&root), installed);
+    assert_eq!(
+        runtime.snapshot().await.plugins[0].manifest.build_id,
+        "first-build"
+    );
+    assert_eq!(runtime.snapshot().await.sessions[0].id, session.id);
+
+    // Once the plugin lets go of the changes, the same install goes through.
+    runtime.set_pending(&session.id, false, None).await.unwrap();
+    runtime.install(&source).await.unwrap();
+    assert_eq!(
+        runtime.snapshot().await.plugins[0].manifest.build_id,
+        "second-build"
+    );
+    runtime.shutdown().await;
+}
+
+/// A swap that dies between its two renames has to be undone, or the plugin would look
+/// uninstalled on the next start even though its files are all there.
+#[tokio::test]
+async fn an_interrupted_swap_is_put_back() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("installed");
+    let source = temp.path().join("package");
+    package(&source, "test.one", "one");
+    let runtime = Runtime::new(root.clone()).unwrap();
+    runtime.install(&source).await.unwrap();
+    let installed = installed_dirs(&root);
+    assert_eq!(installed.len(), 1);
+
+    // Exactly the state a crash leaves: the installation renamed aside, nothing in its place.
+    std::fs::rename(
+        root.join(&installed[0]),
+        root.join(format!(".replaced-{}", installed[0])),
+    )
+    .unwrap();
+    runtime.scan().await.unwrap();
+    assert_eq!(installed_dirs(&root), installed);
+    assert_eq!(runtime.snapshot().await.plugins.len(), 1);
+
+    // A leftover beside a healthy installation is dropped rather than counted twice.
+    std::fs::create_dir_all(root.join(format!(".replaced-{}", installed[0]))).unwrap();
+    runtime.scan().await.unwrap();
+    assert_eq!(installed_dirs(&root), installed);
+    assert!(root
+        .read_dir()
+        .unwrap()
+        .flatten()
+        .all(|entry| !entry.file_name().to_string_lossy().starts_with(".replaced-")));
     runtime.shutdown().await;
 }
 
@@ -728,26 +847,22 @@ async fn resetting_to_first_launch_refuses_unsaved_edits() {
     runtime.shutdown().await;
 }
 
-/// Installing from a directory replaces the installed revision instead of accumulating
-/// beside it, so repeated installs cannot grow the plugin directory without bound. The
-/// previous revision is left in place: it is what a rollback falls back to.
+/// Reinstalling from a directory overwrites what is installed, so repeated installs cannot
+/// grow the plugin directory at all — not even by one revision.
 #[tokio::test]
-async fn reinstalling_from_a_directory_keeps_only_the_previous_revision() {
+async fn reinstalling_from_a_directory_overwrites_the_installed_one() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("installed");
     let source = temp.path().join("built");
     package(&source, "test.one", "one");
     let runtime = Runtime::new(root.clone()).unwrap();
+    runtime.install(&source).await.unwrap();
+    let installed = installed_dirs(&root);
     for _ in 0..3 {
         runtime.install(&source).await.unwrap();
     }
     runtime.reap().await;
-    let installed: Vec<_> = std::fs::read_dir(&root)
-        .unwrap()
-        .flatten()
-        .filter(|entry| entry.path().is_dir())
-        .collect();
-    assert_eq!(installed.len(), 2, "expected the installed and previous revision");
+    assert_eq!(installed_dirs(&root), installed);
     assert_eq!(runtime.snapshot().await.plugins.len(), 1);
     runtime.shutdown().await;
 }
@@ -795,5 +910,55 @@ async fn a_refusal_names_the_work_the_plugin_reports() {
     assert!(runtime.blocking_change(None).await.is_some());
     runtime.set_pending(&session.id, false, None).await.unwrap();
     assert!(runtime.blocking_change(None).await.is_none());
+    runtime.shutdown().await;
+}
+
+/// An installation from the older scheme — an update that landed beside the old revision —
+/// loses the extra copy on the next scan instead of keeping it for the life of the machine.
+#[tokio::test]
+async fn a_superseded_revision_is_retired_on_the_next_scan() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("installed");
+    let source = temp.path().join("package");
+    package(&source, "test.one", "one");
+    let runtime = Runtime::new(root.clone()).unwrap();
+    runtime.install(&source).await.unwrap();
+    let installed = installed_dirs(&root);
+    assert_eq!(installed.len(), 1);
+
+    // What the older scheme produced: a second directory, a higher revision, newer contents.
+    let newer = format!("test.one-9999999999999");
+    let copy = root.join(&newer);
+    let worker = std::fs::copy(
+        root.join(&installed[0]).join("worker.exe"),
+        temp.path().join("worker.exe"),
+    )
+    .unwrap();
+    assert!(worker > 0);
+    std::fs::create_dir_all(copy.join("ui")).unwrap();
+    std::fs::copy(
+        root.join(&installed[0]).join("worker.exe"),
+        copy.join("worker.exe"),
+    )
+    .unwrap();
+    std::fs::copy(
+        root.join(&installed[0]).join("ui/index.html"),
+        copy.join("ui/index.html"),
+    )
+    .unwrap();
+    let mut manifest: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(root.join(&installed[0]).join("plugin.json")).unwrap())
+            .unwrap();
+    manifest["revision"] = json!(9999999999999u64);
+    std::fs::write(copy.join("plugin.json"), manifest.to_string()).unwrap();
+
+    runtime.scan().await.unwrap();
+    // The newer copy is the installation; the one it superseded is on its way out.
+    assert_eq!(
+        runtime.snapshot().await.plugins[0].manifest.revision,
+        9999999999999
+    );
+    runtime.reap().await;
+    assert_eq!(installed_dirs(&root), vec![newer]);
     runtime.shutdown().await;
 }
