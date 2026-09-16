@@ -1423,7 +1423,9 @@ function App() {
                   </div>
                 )}
               </div>
-              <div className="sidebar-bottom">v{APP_VERSION}</div>
+              <div className="sidebar-bottom">
+                <span className="version">v{APP_VERSION}</span>
+              </div>
             </aside>
             <main className="settings-main">
               <div className="page-top">
@@ -1649,7 +1651,7 @@ function App() {
                   <BrandMark size={58} />
                   <h1>Ember Peek</h1>
                   <p>轻量预览，一切皆插件。</p>
-                  <span className="version">{APP_VERSION} · 最小原型</span>
+                  <span className="version">{APP_VERSION}</span>
                   <div className="about-details">
                     <span>
                       已安装插件 <strong>{snapshot.plugins.length}</strong>

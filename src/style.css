@@ -237,11 +237,15 @@ button.busy:disabled {
   background: var(--accent);
   margin-left: auto;
 }
+/* Shaped like the tag on the about page, so the version reads the same in both places. */
 .sidebar-bottom {
-  font-size: 11px;
-  color: var(--muted);
+  flex-shrink: 0;
   margin-top: auto;
   padding: 0 13px;
+}
+.sidebar-bottom .version {
+  margin-left: 0;
+  padding: 3px 6px;
 }
 .settings-main {
   flex: 1;
@@ -1424,9 +1428,6 @@ kbd {
   overflow-y: auto;
   overflow-x: hidden;
   overscroll-behavior-y: contain;
-}
-.sidebar-bottom {
-  flex-shrink: 0;
 }
 
 .plugin-head .plugin-activation {
