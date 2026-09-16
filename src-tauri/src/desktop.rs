@@ -289,7 +289,7 @@ pub struct DesktopSnapshot {
 #[tauri::command]
 pub fn show_settings(app: AppHandle, page: Option<String>) -> Result<(), String> {
     let page = page
-        .filter(|v| matches!(v.as_str(), "general" | "plugins" | "about"))
+        .filter(|v| matches!(v.as_str(), "general" | "plugins" | "about" | "welcome"))
         .unwrap_or_else(|| "general".into());
     let revision = {
         let desktop = app.state::<Desktop>();

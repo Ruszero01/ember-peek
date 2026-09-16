@@ -73,6 +73,8 @@ pub struct Snapshot {
     pub active: Option<String>,
     pub warnings: Vec<String>,
     pub plugin_directory: String,
+    /// Whether the first-run plugin chooser still has to be shown.
+    pub onboarded: bool,
 }
 
 #[derive(Default)]
@@ -90,6 +92,10 @@ struct Inner {
     settings: BTreeMap<String, serde_json::Map<String, Value>>,
     warnings: Vec<String>,
     view_states: HashMap<(PathBuf, String), (Value, Instant)>,
+    /// Whether the first-run plugin chooser has been shown and answered. It is UI state,
+    /// but it lives in this file because this file is the app's persisted state, and the
+    /// host has to decide before any window exists.
+    onboarded: bool,
 }
 
 pub struct Runtime {
@@ -117,6 +123,7 @@ impl Runtime {
             settings: serde_json::from_value(state["settings"].clone()).unwrap_or_default(),
             preferred: serde_json::from_value(state["preferred"].clone()).unwrap_or_default(),
             activation: serde_json::from_value(state["activation"].clone()).unwrap_or_default(),
+            onboarded: state["onboarded"].as_bool().unwrap_or(false),
             ..Default::default()
         };
         Ok(Arc::new(Self {
@@ -135,6 +142,7 @@ impl Runtime {
             "settings": inner.settings,
             "preferred": inner.preferred,
             "activation": inner.activation,
+            "onboarded": inner.onboarded,
         }))
         .map_err(|e| e.to_string())?;
         std::fs::write(self.root.join("host-state.json"), bytes).map_err(|e| e.to_string())
@@ -280,7 +288,19 @@ impl Runtime {
             active,
             warnings: inner.warnings.clone(),
             plugin_directory: self.root.to_string_lossy().into(),
+            onboarded: inner.onboarded,
         }
+    }
+
+    /// The first-run plugin chooser has been answered, whether plugins were installed or
+    /// not. Recorded so it is only ever shown once.
+    pub async fn complete_onboarding(&self) -> Result<(), String> {
+        let mut inner = self.inner.lock().await;
+        if inner.onboarded {
+            return Ok(());
+        }
+        inner.onboarded = true;
+        self.persist(&inner)
     }
 
     /// Store one declared setting. Unknown keys and values that fail the schema are

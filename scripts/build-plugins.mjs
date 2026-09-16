@@ -7,6 +7,7 @@ import {
   writeFile,
   rename,
   readdir,
+  rm,
   stat,
 } from "node:fs/promises";
 import { watch } from "node:fs";
@@ -80,22 +81,14 @@ function canonical(value) {
   return JSON.stringify(value);
 }
 
-/** Mirror bases, each with a trailing slash so an artifact name can be appended. */
-function artifactBases(argv) {
-  const values = [];
-  for (let index = 0; index < argv.length; index += 1)
-    if (argv[index] === "--base-url") values.push(argv[index + 1] ?? "");
-  if (process.env.EMBER_PLUGIN_BASE_URLS)
-    values.push(...process.env.EMBER_PLUGIN_BASE_URLS.split(/[\s,]+/));
-  return [...new Set(values.filter(Boolean))].map((url) =>
-    url.endsWith("/") ? url : `${url}/`,
-  );
-}
-
-async function publish(release, { dist = false, bases = [], sourceName = "" } = {}) {
+/**
+ * Build every plugin and write the market a source serves: one zip per plugin plus the
+ * catalog indexing them. The host ships no packages, so this output is either the dev
+ * host's local mirror or the upload for a release.
+ */
+async function publish(release, { dist = false } = {}) {
   const target = hostTarget();
   const entries = [];
-  const artifacts = [];
   for (const dir of await readdir(plugins, { withFileTypes: true })) {
     if (!dir.isDirectory()) continue;
     const directory = path.join(plugins, dir.name);
@@ -202,10 +195,13 @@ async function publish(release, { dist = false, bases = [], sourceName = "" } = 
     for (const [source] of extras) hash.update(await readFile(source));
     await digestTree(path.join(directory, "ui"), hash);
     const buildId = hash.digest("hex");
-    const name = `${manifest.id}-${buildId.slice(0, 24)}`;
-    const destination = path.join(marketRoot, name);
+    // Content-addressed by plugin, version and build, so an artifact name identifies
+    // exactly one package and a new build never overwrites an older one.
+    const artifact = `${manifest.id}-${manifest.version}-${buildId.slice(0, 24)}.zip`;
+    const destination = path.join(marketRoot, artifact);
     if (!(await stat(destination).catch(() => null))) {
-      const staging = path.join(marketRoot, `.${name}-${process.pid}`);
+      const staging = path.join(marketRoot, `.stage-${process.pid}-${manifest.id}`);
+      await rm(staging, { recursive: true, force: true });
       await mkdir(path.join(staging, "bin"), { recursive: true });
       await cp(path.join(directory, "ui"), path.join(staging, "ui"), {
         recursive: true,
@@ -219,66 +215,33 @@ async function publish(release, { dist = false, bases = [], sourceName = "" } = 
       for (const [source, name] of extras)
         await cp(source, path.join(staging, "ui", name));
       await cp(native, path.join(staging, "bin", executable));
+      // The install-time revision is zeroed: the installer assigns it, and leaving the
+      // build clock in here would make the same inputs produce different bytes, which
+      // would make the catalog's sha256 meaningless.
       await writeFile(
         path.join(staging, "plugin.json"),
-        JSON.stringify(
-          { ...published, revision: Date.now(), buildId },
-          null,
-          2,
-        ),
+        JSON.stringify({ ...published, revision: 0, buildId }, null, 2),
       );
-      try {
-        await rename(staging, destination);
-      } catch (error) {
-        // Another builder may have published the identical immutable package.
-        const published = await readFile(
-          path.join(destination, "plugin.json"),
-          "utf8",
-        )
-          .then((value) => JSON.parse(value))
-          .catch(() => null);
-        if (published?.buildId !== buildId) throw error;
-      }
+      await writeFile(destination, createZip(await readTree(staging)));
+      await rm(staging, { recursive: true, force: true });
     }
+    const zip = await readFile(destination);
+    if (dist) await cp(destination, path.join(releaseRoot, artifact));
     catalog.push({
       id: manifest.id,
-      directory: name,
+      artifact,
+      sha256: createHash("sha256").update(zip).digest("hex"),
+      size: zip.length,
+      version: manifest.version,
+      buildId,
+      // Everything the market card needs before anything is downloaded.
+      name: manifest.name,
+      extensions: manifest.extensions,
+      ...(manifest.icon ? { icon: manifest.icon } : {}),
+      targets: [target],
       summary: listing.summary,
       publisher: listing.publisher,
-      targets: [target],
     });
-    if (dist) {
-      // The distributable artifact is the published package with the install-time
-      // revision zeroed, so the same inputs always produce the same bytes and the
-      // catalog's sha256 stays meaningful. The installer assigns the revision itself.
-      const artifact = `${manifest.id}-${manifest.version}-${buildId.slice(0, 24)}.zip`;
-      const files = (await readTree(destination)).map((file) =>
-        file.name === "plugin.json"
-          ? {
-              name: file.name,
-              data: Buffer.from(
-                JSON.stringify({ ...published, revision: 0, buildId }, null, 2),
-              ),
-            }
-          : file,
-      );
-      const zip = createZip(files);
-      await writeFile(path.join(releaseRoot, artifact), zip);
-      artifacts.push({
-        id: manifest.id,
-        artifact,
-        sha256: createHash("sha256").update(zip).digest("hex"),
-        size: zip.length,
-        version: manifest.version,
-        buildId,
-        name: manifest.name,
-        extensions: manifest.extensions,
-        ...(manifest.icon ? { icon: manifest.icon } : {}),
-        targets: [target],
-        summary: listing.summary,
-        publisher: listing.publisher,
-      });
-    }
     console.log(
       `Market: ${manifest.name} ${manifest.version} (${buildId.slice(0, 8)})`,
     );
@@ -286,49 +249,48 @@ async function publish(release, { dist = false, bases = [], sourceName = "" } = 
   const temporary = path.join(marketRoot, `.catalog-${process.pid}.json`);
   await writeFile(
     temporary,
-    JSON.stringify(
-      {
-        api: 1,
-        // Where a host can find newer releases than the ones shipped with it. The
-        // bundled copies stay the offline baseline; these are the update path.
-        sources: bases.map((base) => ({
-          catalog: `${base}catalog.json`,
-          base,
-          ...(sourceName ? { name: sourceName } : {}),
-        })),
-        entries: catalog,
-      },
-      null,
-      2,
-    ),
+    JSON.stringify({ api: 1, entries: catalog }, null, 2),
   );
   await rename(temporary, path.join(marketRoot, "catalog.json"));
+  // The catalog is the only entry point, so anything else left in these directories is
+  // a previous build's leftovers. Leaving them costs the dev machine disk and would put
+  // stale packages in an upload.
+  const keep = new Set(catalog.map((entry) => entry.artifact));
+  await prune(marketRoot, keep);
   if (dist) {
-    await mkdir(releaseRoot, { recursive: true });
     const target = path.join(releaseRoot, "catalog.json");
     const temporaryRelease = `${target}.${process.pid}`;
     await writeFile(
       temporaryRelease,
-      JSON.stringify({ api: 1, sources: [], entries: artifacts }, null, 2),
+      JSON.stringify({ api: 1, entries: catalog }, null, 2),
     );
     await rename(temporaryRelease, target);
-    if (!bases.length)
-      console.log(
-        "Release: no base URL configured, so the published catalog cannot be fetched. " +
-          "Pass --base-url <url> (repeatable) or EMBER_PLUGIN_BASE_URLS=<url,...>.",
-      );
+    await prune(releaseRoot, keep);
+    console.log(`Release: ${catalog.length} packages in .release/, ready to upload`);
   }
 }
 
-export function buildPlugins({
-  release = false,
-  dist = false,
-  bases = [],
-  sourceName = "",
-} = {}) {
-  serial = serial
-    .catch(() => {})
-    .then(() => publish(release, { dist, bases, sourceName }));
+/**
+ * Remove everything in `directory` that the catalog does not reference. An upload should
+ * carry exactly the packages its index names, and a dev machine should not accumulate
+ * every build it has ever produced.
+ */
+async function prune(directory, keep) {
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const location = path.join(directory, entry.name);
+    // Directories are never part of a published market: the earlier layout left unpacked
+    // packages here, and staging directories are leftovers from interrupted builds.
+    if (entry.isDirectory()) {
+      await rm(location, { recursive: true, force: true });
+      continue;
+    }
+    if (!entry.isFile() || !entry.name.endsWith(".zip")) continue;
+    if (!keep.has(entry.name)) await rm(location, { force: true });
+  }
+}
+
+export function buildPlugins({ release = false, dist = false } = {}) {
+  serial = serial.catch(() => {}).then(() => publish(release, { dist }));
   return serial;
 }
 
@@ -405,19 +367,13 @@ if (
   process.once("SIGINT", shutdown);
   process.once("SIGTERM", shutdown);
   const argv = process.argv;
-  const option = (name) => {
-    const index = argv.indexOf(name);
-    return index === -1 ? "" : (argv[index + 1] ?? "");
-  };
   try {
     await buildPlugins({
-      // `--dist` writes the publishable artifacts, so it always packages release
-      // binaries: shipping a debug executable in a zip people download is not a choice
+      // `--dist` writes the uploadable artifacts, so it always packages release
+      // binaries: putting a debug executable in a zip people download is not a choice
       // worth offering.
       release: argv.includes("--release") || argv.includes("--dist"),
       dist: argv.includes("--dist"),
-      bases: artifactBases(argv),
-      sourceName: option("--source-name"),
     });
   } catch (error) {
     console.error(error);

@@ -1,0 +1,10 @@
+{
+  "api": 1,
+  "sources": [
+    {
+      "name": "官方源",
+      "catalog": "https://github.com/Ruszero01/ember-peek/releases/latest/download/catalog.json",
+      "base": "https://github.com/Ruszero01/ember-peek/releases/latest/download/"
+    }
+  ]
+}

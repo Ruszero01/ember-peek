@@ -6,10 +6,13 @@ mod explorer;
 
 use base64::Engine;
 use ember_runtime::manifest::{Activation, Permission};
-use ember_runtime::market::{Market, MarketList};
+use ember_runtime::market::{read_sources, Market, MarketList, Source};
 use ember_runtime::{Runtime, Snapshot};
 use serde_json::Value;
-use std::{path::PathBuf, sync::Arc};
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 use tauri::{Manager, State};
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 
@@ -46,6 +49,11 @@ async fn market_install(
 #[tauri::command]
 async fn snapshot(host: Host<'_>) -> Result<Snapshot, String> {
     Ok(host.snapshot().await)
+}
+
+#[tauri::command]
+async fn complete_onboarding(host: Host<'_>) -> Result<(), String> {
+    host.complete_onboarding().await
 }
 
 #[tauri::command]
@@ -258,9 +266,26 @@ fn main() {
             let runtime = Runtime::new(root).map_err(std::io::Error::other)?;
             tauri::async_runtime::block_on(runtime.scan()).map_err(std::io::Error::other)?;
             app.manage(runtime.clone());
+            // The host is a shell: it ships no plugins, so a source is where both the
+            // plugin list and the packages behind it come from.
+            let sources = if cfg!(debug_assertions) {
+                match std::env::var("EMBER_MARKET_SOURCES") {
+                    Ok(config) => read_sources(Path::new(&config)),
+                    // Development serves the last plugin build as a local mirror, and
+                    // ignores the shipped remote source: a local build is newer than
+                    // anything published, so preferring the published one would make the
+                    // dev loop install stale packages.
+                    Err(_) => Ok(vec![Source {
+                        name: Some("开发镜像".into()),
+                        catalog: workspace.join(".marketplace/catalog.json").to_string_lossy().into_owned(),
+                        base: workspace.join(".marketplace").to_string_lossy().into_owned(),
+                    }]),
+                }
+            } else {
+                read_sources(&app.path().resource_dir()?.join("plugin-sources.json"))
+            };
             let market = Market::new(
-                if cfg!(debug_assertions) { workspace.join(".marketplace") }
-                    else { app.path().resource_dir()?.join("marketplace") },
+                sources,
                 // Downloaded packages are cached by content hash, so reinstalling or
                 // retrying an install does not download them twice.
                 if cfg!(debug_assertions) { workspace.join(".plugin-cache") }
@@ -268,6 +293,14 @@ fn main() {
             ).map_err(std::io::Error::other)?;
             app.manage(market.clone());
             desktop::setup(app.handle())?;
+            // A fresh install can preview nothing at all, so the first run asks which
+            // plugins to install and then installs them the normal way. It is recorded
+            // as answered, so it is shown exactly once.
+            if !tauri::async_runtime::block_on(runtime.snapshot()).onboarded {
+                if let Err(error) = desktop::show_settings(app.handle().clone(), Some("welcome".into())) {
+                    eprintln!("Welcome window: {error}");
+                }
+            }
             #[cfg(windows)]
             match explorer::start(app.handle().clone()) {
                 Ok(explorer) => { app.manage(explorer); }
@@ -293,7 +326,7 @@ fn main() {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![view_state, market_list, market_prepare, market_install, snapshot, refresh_plugins, open_file, desktop::select_preview, desktop::return_view, desktop::desktop_snapshot, desktop::show_settings, session_data, source_data, source_call, set_dirty, plugin_mutate, authorize_clipboard, file_changed, complete_view, plugin_call, read_file, set_enabled, set_activation, reorder_plugins, uninstall_plugin, plugin_settings, set_plugin_setting, pick_path, install_plugin])
+        .invoke_handler(tauri::generate_handler![view_state, market_list, market_prepare, market_install, snapshot, refresh_plugins, open_file, desktop::select_preview, desktop::return_view, desktop::desktop_snapshot, desktop::show_settings, session_data, source_data, source_call, set_dirty, plugin_mutate, authorize_clipboard, file_changed, complete_view, complete_onboarding, plugin_call, read_file, set_enabled, set_activation, reorder_plugins, uninstall_plugin, plugin_settings, set_plugin_setting, pick_path, install_plugin])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();

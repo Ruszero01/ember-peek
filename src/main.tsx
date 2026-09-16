@@ -48,6 +48,7 @@ import { PluginStage } from "./PluginStage";
 import { PluginDetails } from "./PluginDetails";
 import { PluginConfirm, type PluginAction } from "./PluginConfirm";
 import { Marketplace } from "./Marketplace";
+import { Welcome } from "./Welcome";
 import { call, desktop, windowAction } from "./bridge";
 import { Selection, isContributionCurrent } from "./protocol.mjs";
 import { pluginIcon } from "./pluginIcons";
@@ -66,6 +67,8 @@ const initial: Snapshot = {
   active: null,
   warnings: [],
   pluginDirectory: "",
+  // Nothing is shown until the host answers, and the chooser is the host's decision.
+  onboarded: true,
 };
 const icons: Record<string, typeof Search> = {
   search: Search,
@@ -467,7 +470,7 @@ function App() {
   const [snapshot, setSnapshot] = useState(initial);
   const [active, setActive] = useState<string | null>(null);
   const [page, setPage] = useState<
-    "preview" | "general" | "plugins" | "about" | "plugin"
+    "preview" | "general" | "plugins" | "about" | "plugin" | "welcome"
   >(settingsWindow ? "general" : "preview");
   // Which plugin the "plugin" page is configuring. Kept beside `page` so selecting a
   // plugin does not have to encode the plugin id into the page state itself.
@@ -731,7 +734,9 @@ function App() {
                 ? "plugins"
                 : status.settingsPage === "about"
                   ? "about"
-                  : "general",
+                  : status.settingsPage === "welcome"
+                    ? "welcome"
+                    : "general",
             );
           }
         }
@@ -1299,6 +1304,13 @@ function App() {
             </div>
           </footer>
         </>
+      ) : page === "welcome" ? (
+        <Welcome
+          onDone={async () => {
+            setPage("plugins");
+            setPluginTab("market");
+          }}
+        />
       ) : (
         <>
           {title}

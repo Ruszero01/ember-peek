@@ -1582,3 +1582,21 @@ kbd {
 .scrub-track { position: relative; width: 24px; height: 22px; margin: 3px 0; }
 .scrub-ticks { position: absolute; inset: 0 5px; background: repeating-linear-gradient(to top, var(--muted) 0 1px, transparent 1px 5px); opacity: .45; }
 .scrub-thumb { position: absolute; left: 1px; right: 1px; height: 3px; border-radius: 3px; background: var(--accent); transform: translateY(50%); box-shadow: 0 0 5px var(--accent-bg); }
+
+/* First run: the app is a shell, so the only question is which plugins to install. */
+.welcome { display: flex; flex-direction: column; gap: 14px; padding: 26px 30px; max-width: 720px; margin: 0 auto; width: 100%; overflow-y: auto; }
+.welcome-heading { display: flex; align-items: center; gap: 10px; color: var(--accent); }
+.welcome-heading h1 { font-size: 17px; font-weight: 600; color: var(--text); margin: 0; }
+.welcome-step { margin-left: auto; font-size: 10px; color: var(--muted); border: 1px solid var(--border); border-radius: 5px; padding: 3px 8px; }
+.welcome-lead { margin: 0; font-size: 11px; line-height: 1.8; color: var(--muted); }
+.welcome-list { display: flex; flex-direction: column; gap: 8px; }
+.welcome-item { display: flex; align-items: center; gap: 13px; padding: 13px 15px; border: 1px solid var(--border); border-radius: 11px; background: var(--card); color: inherit; text-align: left; cursor: pointer; transition: border-color .18s, background .18s; }
+.welcome-item:hover { border-color: color-mix(in srgb, var(--accent) 24%, var(--border)); }
+.welcome-item.selected { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); background: linear-gradient(110deg, var(--accent-bg), var(--card)); }
+.welcome-item .plugin-icon { flex-shrink: 0; width: 38px; height: 38px; border-radius: 11px; }
+.welcome-item .plugin-detail h2 { font-size: 13px; margin: 0 0 4px; }
+.welcome-item .plugin-detail p { margin: 0; font-size: 11px; line-height: 1.6; color: var(--muted); }
+.welcome-check { flex-shrink: 0; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; border: 1px solid var(--border); border-radius: 6px; color: var(--accent); }
+.welcome-item.selected .welcome-check { border-color: color-mix(in srgb, var(--accent) 45%, transparent); background: var(--accent-bg); }
+.welcome-actions { display: flex; align-items: center; gap: 10px; margin-top: 4px; }
+.welcome-actions .primary-button { min-width: 150px; justify-content: center; }

@@ -5,16 +5,15 @@ import { PluginDetails } from "./PluginDetails";
 import { PluginConfirm, type PluginAction } from "./PluginConfirm";
 import { pluginIcon } from "./pluginIcons";
 
-type Source =
-  | { kind: "local"; location: string }
-  | {
-      kind: "remote";
-      name: string;
-      catalog: string;
-      urls: string[];
-      sha256: string;
-      size: number;
-    };
+/** Where a plugin comes from: a configured source, and the package behind the entry. */
+type Source = {
+  kind: "remote";
+  name: string;
+  catalog: string;
+  urls: string[];
+  sha256: string;
+  size: number;
+};
 
 type Entry = {
   source: Source;
@@ -33,13 +32,11 @@ type MarketList = { entries: Entry[]; warnings: string[] };
 
 /** Where an entry comes from, spelled for the details panel and the confirm dialog. */
 function sourceLabel(source: Source) {
-  return source.kind === "local" ? source.location : source.urls[0];
+  return `${source.name} · ${source.urls[0]}`;
 }
 
 function sourceSize(source: Source) {
-  return source.kind === "local"
-    ? ""
-    : ` · ${(source.size / 1024 / 1024).toFixed(1)} MiB`;
+  return ` · ${(source.size / 1024 / 1024).toFixed(1)} MiB`;
 }
 
 export function Marketplace({
@@ -99,11 +96,7 @@ export function Marketplace({
     setBusy(entry.id);
     setError("");
     try {
-      progress(
-        entry.source.kind === "remote"
-          ? "正在下载并校验插件包…"
-          : "正在读取并校验本地插件包…",
-      );
+      progress("正在下载并校验插件包…");
       const path = await call<string>("market_prepare", { id: entry.id });
       progress("正在安装插件…");
       await call("install_plugin", { path });
@@ -121,11 +114,13 @@ export function Marketplace({
       .toLowerCase()
       .includes(filter.toLowerCase()),
   );
-  const anyRemote = entries.some((entry) => entry.source.kind === "remote");
+  // Every plugin comes from a source; naming the one in use is more useful than saying
+  // that it is remote.
+  const sourceNames = [...new Set(entries.map((entry) => entry.source.name))];
   return (
     <>
       {action && <PluginConfirm action={action} onClose={() => setAction(null)} />}
-      <div className="market-source"><Package size={16} /><div><strong>{anyRemote ? "插件市场" : "本地插件市场"}</strong><span>{anyRemote ? "内置插件随应用提供，远程来源的插件下载后校验安装" : "从本地目录获取 · 安装后即可使用"}</span></div><span className="source-badge">{anyRemote ? "本地 + 远程" : "本地源"}</span></div>
+      <div className="market-source"><Package size={16} /><div><strong>插件市场</strong><span>从插件源获取 · 下载后校验安装</span></div><span className="source-badge">{sourceNames.length === 1 ? sourceNames[0] : `${sourceNames.length} 个来源`}</span></div>
       {(error || loadError) && (
         <p className="warning" role="alert">
           {error || loadError}
@@ -181,7 +176,6 @@ export function Marketplace({
                       <p>{entry.publisher} · {entry.id}{entry.installedVersion ? ` · 已安装 v${entry.installedVersion}` : ""}</p>
                       <p className="source-path">
                         来源：{sourceLabel(entry.source)}{sourceSize(entry.source)}
-                        {entry.source.kind === "remote" ? `（${entry.source.name}）` : ""}
                       </p>
                     </PluginDetails>
                   </div>
@@ -223,7 +217,7 @@ export function Marketplace({
               ? "请在桌面窗口中浏览和安装插件"
               : filter
                 ? "没有匹配的插件"
-                : "市场暂无插件，请先运行开发命令构建市场。"}
+                : "插件源里暂时没有插件，请稍后重试。"}
           </p>
         </div>
       )}

@@ -1,5 +1,4 @@
 #![cfg(feature = "test-worker")]
-use ember_runtime::market::Market;
 use ember_runtime::Runtime;
 use serde_json::json;
 use std::{
@@ -31,12 +30,6 @@ async fn ready(runtime: &Arc<Runtime>, id: &str) {
         assert!(start.elapsed() < Duration::from_secs(5));
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
-}
-
-/// A market laid out the way the host builds it: a bundled catalog beside a cache for
-/// downloaded packages.
-fn test_market(root: &Path) -> Market {
-    Market::new(root.join("market"), root.join("cache")).unwrap()
 }
 
 #[tokio::test]
@@ -287,95 +280,6 @@ async fn updating_a_package_preserves_inflight_old_revision() {
         runtime.session_data(&next.id).await.unwrap()["pid"]
     );
     assert_eq!(runtime.snapshot().await.active, Some(next.id));
-    runtime.shutdown().await;
-}
-
-#[tokio::test]
-async fn marketplace_install_update_and_uninstall_are_real_package_operations() {
-    let temp = tempfile::tempdir().unwrap();
-    let source = temp.path().join("market/one");
-    package(&source, "test.one", "one");
-    let manifest_path = source.join("plugin.json");
-    let mut manifest: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(&manifest_path).unwrap()).unwrap();
-    manifest["buildId"] = json!("first-build");
-    std::fs::write(&manifest_path, manifest.to_string()).unwrap();
-    std::fs::write(temp.path().join("market/catalog.json"), json!({"api":1,"entries":[{"id":"test.one","directory":"one","summary":"Test plugin","publisher":"Tests"}]}).to_string()).unwrap();
-    let market = test_market(temp.path());
-    let runtime = Runtime::new(temp.path().join("installed")).unwrap();
-    assert!(market.list(&runtime).await.unwrap().entries[0]
-        .installed_version
-        .is_none());
-    // The market card needs the same icon the installed card uses.
-    assert_eq!(
-        market.list(&runtime).await.unwrap().entries[0]
-            .icon
-            .as_deref(),
-        Some("file-text")
-    );
-    // Preparation validates the local source without installing anything.
-    let prepared = market.prepare("test.one").await.unwrap();
-    assert_eq!(prepared, source.canonicalize().unwrap());
-    assert!(runtime.snapshot().await.plugins.is_empty());
-    let entries = market.list(&runtime).await.unwrap().entries;
-    let entry = serde_json::to_value(&entries[0]).unwrap();
-    assert_eq!(entry["source"]["kind"], "local");
-    assert_eq!(entry["source"]["location"], prepared.to_string_lossy().as_ref());
-    assert!(market.prepare("unknown.plugin").await.is_err());
-    market.install(&runtime, "test.one").await.unwrap();
-    assert!(market.list(&runtime).await.unwrap().entries[0]
-        .installed_version
-        .is_some());
-    assert!(!market.list(&runtime).await.unwrap().entries[0].update_available);
-    manifest["buildId"] = json!("second-build");
-    std::fs::write(&manifest_path, manifest.to_string()).unwrap();
-    assert!(market.list(&runtime).await.unwrap().entries[0].update_available);
-    market.sync_development(&runtime).await.unwrap();
-    assert!(!market.list(&runtime).await.unwrap().entries[0].update_available);
-    runtime.uninstall("test.one").await.unwrap();
-    market.sync_development(&runtime).await.unwrap();
-    assert!(runtime.snapshot().await.plugins.is_empty());
-    assert!(market.install(&runtime, "unknown.plugin").await.is_err());
-    runtime.shutdown().await;
-}
-
-/// Installing from the market must carry the settings declaration into the installed
-/// package, otherwise the settings UI has nothing to render for a freshly installed
-/// plugin even though the market copy declares settings.
-#[tokio::test]
-async fn market_install_carries_the_settings_declaration() {
-    let temp = tempfile::tempdir().unwrap();
-    let source = temp.path().join("market/one");
-    configurable_package(&source, "test.one", "one");
-    let manifest_path = source.join("plugin.json");
-    let mut manifest: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(&manifest_path).unwrap()).unwrap();
-    manifest["buildId"] = json!("market-build");
-    std::fs::write(&manifest_path, manifest.to_string()).unwrap();
-    std::fs::write(
-        temp.path().join("market/catalog.json"),
-        json!({"api":1,"entries":[{"id":"test.one","directory":"one","summary":"Test plugin","publisher":"Tests"}]})
-            .to_string(),
-    )
-    .unwrap();
-
-    let market = test_market(temp.path());
-    let runtime = Runtime::new(temp.path().join("installed")).unwrap();
-    market.install(&runtime, "test.one").await.unwrap();
-
-    let plugins = runtime.snapshot().await.plugins;
-    assert_eq!(plugins.len(), 1);
-    // The declarations the UI needs are present after installation.
-    assert_eq!(plugins[0].manifest.settings.len(), 3);
-    assert_eq!(plugins[0].manifest.settings[0].key, "wrap");
-    assert_eq!(plugins[0].manifest.settings[0].label, "换行");
-    // The declared icon name survives installation so the card and the settings tab
-    // agree on which icon to draw.
-    assert_eq!(plugins[0].manifest.icon.as_deref(), Some("file-text"));
-    // And the resolved values are the declared defaults.
-    assert_eq!(plugins[0].values["wrap"], json!(true));
-    assert_eq!(plugins[0].values["mode"], json!("safe"));
-    assert_eq!(plugins[0].values["zoom"].as_f64(), Some(1.0));
     runtime.shutdown().await;
 }
 
@@ -735,4 +639,23 @@ async fn shared_navigation_survives_revision_but_isolates_files() {
         position
     );
     runtime.shutdown().await;
+}
+
+/// The first-run plugin chooser is answered once: a fresh state has not seen it, and the
+/// answer survives a restart.
+#[tokio::test]
+async fn the_onboarding_answer_persists() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("installed");
+    let runtime = Runtime::new(root.clone()).unwrap();
+    assert!(!runtime.snapshot().await.onboarded);
+    runtime.complete_onboarding().await.unwrap();
+    assert!(runtime.snapshot().await.onboarded);
+    // Answering twice is a no-op rather than an error.
+    runtime.complete_onboarding().await.unwrap();
+    runtime.shutdown().await;
+
+    let restarted = Runtime::new(root).unwrap();
+    assert!(restarted.snapshot().await.onboarded);
+    restarted.shutdown().await;
 }

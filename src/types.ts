@@ -79,6 +79,8 @@ export type Snapshot = {
   active: string | null;
   warnings: string[];
   pluginDirectory: string;
+  /** False until the first-run plugin chooser has been answered. */
+  onboarded: boolean;
 };
 export type Control = {
   id: string;

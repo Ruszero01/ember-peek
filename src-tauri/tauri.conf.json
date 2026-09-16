@@ -20,7 +20,7 @@
     "targets": ["nsis"],
     "icon": ["icons/icon.ico"],
     "resources": {
-      "../.marketplace/": "marketplace/"
+      "plugin-sources.json": "plugin-sources.json"
     }
   }
 }
