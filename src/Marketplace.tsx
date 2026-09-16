@@ -96,7 +96,7 @@ export function Marketplace({
   return (
     <>
       {action && <PluginConfirm action={action} onClose={() => setAction(null)} />}
-      <div className="market-source"><Package size={16} /><div><strong>插件市场</strong><span>从插件源获取 · 下载后校验安装</span></div><span className="source-badge">{sourceNames.length === 1 ? sourceNames[0] : `${sourceNames.length} 个来源`}</span></div>
+      <div className="market-source"><Package size={16} /><strong>插件市场</strong><span className="source-badge">{sourceNames.length === 1 ? sourceNames[0] : `${sourceNames.length} 个来源`}</span></div>
       {(error || loadError) && (
         <p className="warning" role="alert">
           {error || loadError}
@@ -193,7 +193,7 @@ export function Marketplace({
               ? "请在桌面窗口中浏览和安装插件"
               : filter
                 ? "没有匹配的插件"
-                : "插件源里暂时没有插件，请稍后重试。"}
+                : "暂时没有可安装的插件，请稍后重试。"}
           </p>
         </div>
       )}

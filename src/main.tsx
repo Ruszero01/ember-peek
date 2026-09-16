@@ -432,9 +432,6 @@ function PluginSettingsPane({ plugin }: { plugin: Plugin | undefined }) {
           {error}
         </p>
       )}
-      <p className="quiet-note">
-        自动激活和列表排序为通用设置；其他设置由插件提供，修改后自动保存。
-      </p>
     </>
   );
 }
