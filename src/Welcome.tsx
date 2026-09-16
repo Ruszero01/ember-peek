@@ -3,29 +3,20 @@ import { Package, Check, LoaderCircle, ArrowRight } from "lucide-react";
 import { call, desktop } from "./bridge";
 import { BrandMark } from "./BrandMark";
 import { pluginIcon } from "./pluginIcons";
+import type { MarketEntry, MarketList } from "./types";
 
-type Entry = {
-  source: { kind: "remote"; name: string; urls: string[]; size: number };
-  id: string;
-  name: string;
-  version: string;
-  extensions: string[];
-  icon?: string;
-  summary: string;
-  publisher: string;
-  installedVersion: string | null;
-  updateAvailable: boolean;
-};
-
-type MarketList = { entries: Entry[]; warnings: string[] };
+/** How many plugins to suggest when a source marks none, rather than listing everything. */
+const SUGGESTION_LIMIT = 3;
 
 /**
  * The first run. The app is a shell with no preview of its own, so the only thing worth
- * asking on first launch is which plugins to install. Every choice goes through the same
- * download and install path the marketplace uses; this page only picks the ids.
+ * asking on first launch is which plugins to install, and only the basics are worth
+ * suggesting: the full list is one click away in the marketplace. Every choice goes
+ * through the same download and install path the marketplace uses; this page only picks
+ * the ids.
  */
 export function Welcome({ onDone }: { onDone: () => Promise<unknown> }) {
-  const [entries, setEntries] = useState<Entry[]>([]);
+  const [entries, setEntries] = useState<MarketEntry[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [warnings, setWarnings] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
@@ -46,8 +37,12 @@ export function Welcome({ onDone }: { onDone: () => Promise<unknown> }) {
         const installable = result.entries.filter(
           (entry) => !entry.installedVersion,
         );
-        setEntries(installable);
-        setSelected(new Set(installable.map((entry) => entry.id)));
+        const suggested = installable.filter((entry) => entry.recommended);
+        const offered = suggested.length
+          ? suggested
+          : installable.slice(0, SUGGESTION_LIMIT);
+        setEntries(offered);
+        setSelected(new Set(offered.map((entry) => entry.id)));
         setWarnings(result.warnings);
       } catch (e) {
         if (!disposed) setError(String(e));
@@ -104,13 +99,10 @@ export function Welcome({ onDone }: { onDone: () => Promise<unknown> }) {
   return (
     <div className="welcome">
       <div className="welcome-heading">
-        <BrandMark size={26} />
+        <BrandMark size={30} />
         <h1>欢迎使用 Ember Peek</h1>
-        <span className="welcome-step">第 1 步 · 选择插件</span>
+        <p>预览能力全部由插件提供，应用本身只是一个外壳。先装上常用的几种，其余随时可以在“插件市场”里增删。</p>
       </div>
-      <p className="welcome-lead">
-        预览能力全部由插件提供，应用本身只是一个外壳。选择现在要安装的插件，之后可以随时在“插件市场”里增删。
-      </p>
       {loading && (
         <p className="quiet-note">
           <LoaderCircle size={16} className="spinner" /> 正在读取插件源…
@@ -144,17 +136,15 @@ export function Welcome({ onDone }: { onDone: () => Promise<unknown> }) {
                 onClick={() => toggle(entry.id)}
                 aria-pressed={on}
               >
+                <span className="welcome-check">{on && <Check size={14} />}</span>
                 <span className="plugin-icon">
-                  <Icon size={22} />
+                  <Icon size={24} />
                 </span>
-                <div className="plugin-detail">
-                  <h2>
-                    {entry.name}
-                    <span className="plugin-version">v{entry.version}</span>
-                  </h2>
-                  <p>{entry.summary}</p>
-                </div>
-                <span className="welcome-check">{on && <Check size={16} />}</span>
+                <h2>
+                  {entry.name}
+                  <span className="plugin-version">v{entry.version}</span>
+                </h2>
+                <p>{entry.summary}</p>
               </button>
             );
           })}

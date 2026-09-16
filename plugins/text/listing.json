@@ -1,4 +1,5 @@
 {
   "summary": "纯文本预览，支持行号、换行、复制及跨插件阅读位置同步。",
-  "publisher": "Ember Peek"
+  "publisher": "Ember Peek",
+  "recommended": true
 }

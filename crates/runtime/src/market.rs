@@ -125,6 +125,10 @@ struct Listing {
     build_id: String,
     #[serde(default)]
     targets: Vec<String>,
+    /// Suggested by the source for a fresh installation, so the first-run chooser can
+    /// offer a few basics instead of the whole catalog.
+    #[serde(default)]
+    recommended: bool,
     #[serde(default)]
     name: Option<String>,
     #[serde(default)]
@@ -143,6 +147,7 @@ struct Offering {
     summary: String,
     publisher: String,
     targets: Vec<String>,
+    recommended: bool,
     remote: Remote,
 }
 
@@ -180,6 +185,8 @@ pub struct Entry {
     pub icon: Option<String>,
     pub summary: String,
     pub publisher: String,
+    /// Suggested for a fresh installation.
+    pub recommended: bool,
     pub installed_version: Option<String>,
     pub update_available: bool,
 }
@@ -296,6 +303,7 @@ impl Market {
                 icon: offering.icon.clone(),
                 summary: offering.summary.clone(),
                 publisher: offering.publisher.clone(),
+                recommended: offering.recommended,
                 update_available: installed.is_some_and(|installed| {
                     installed.manifest.version != offering.version
                         || installed.manifest.build_id != offering.remote.build_id
@@ -591,6 +599,7 @@ fn resolve(listing: &Listing, source: &Source) -> Result<Offering, String> {
         summary: listing.summary.clone(),
         publisher: listing.publisher.clone(),
         targets: listing.targets.clone(),
+        recommended: listing.recommended,
         remote: Remote {
             urls: vec![artifact_url(&source.base, &listing.artifact)?],
             sha256: listing.sha256.clone(),

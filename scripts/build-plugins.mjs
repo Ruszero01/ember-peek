@@ -234,13 +234,15 @@ async function publish(release, { dist = false } = {}) {
       size: zip.length,
       version: manifest.version,
       buildId,
-      // Everything the market card needs before anything is downloaded.
+      // Everything the market card needs before anything is downloaded, including
+      // whether the source suggests this plugin for a fresh installation.
       name: manifest.name,
       extensions: manifest.extensions,
       ...(manifest.icon ? { icon: manifest.icon } : {}),
       targets: [target],
       summary: listing.summary,
       publisher: listing.publisher,
+      ...(listing.recommended ? { recommended: true } : {}),
     });
     console.log(
       `Market: ${manifest.name} ${manifest.version} (${buildId.slice(0, 8)})`,

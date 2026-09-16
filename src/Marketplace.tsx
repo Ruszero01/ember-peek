@@ -4,38 +4,14 @@ import { call, desktop } from "./bridge";
 import { PluginDetails } from "./PluginDetails";
 import { PluginConfirm, type PluginAction } from "./PluginConfirm";
 import { pluginIcon } from "./pluginIcons";
-
-/** Where a plugin comes from: a configured source, and the package behind the entry. */
-type Source = {
-  kind: "remote";
-  name: string;
-  catalog: string;
-  urls: string[];
-  sha256: string;
-  size: number;
-};
-
-type Entry = {
-  source: Source;
-  id: string;
-  name: string;
-  version: string;
-  extensions: string[];
-  icon?: string;
-  summary: string;
-  publisher: string;
-  installedVersion: string | null;
-  updateAvailable: boolean;
-};
-
-type MarketList = { entries: Entry[]; warnings: string[] };
+import type { MarketEntry, MarketList, MarketSource } from "./types";
 
 /** Where an entry comes from, spelled for the details panel and the confirm dialog. */
-function sourceLabel(source: Source) {
+function sourceLabel(source: MarketSource) {
   return `${source.name} · ${source.urls[0]}`;
 }
 
-function sourceSize(source: Source) {
+function sourceSize(source: MarketSource) {
   return ` · ${(source.size / 1024 / 1024).toFixed(1)} MiB`;
 }
 
@@ -46,7 +22,7 @@ export function Marketplace({
   filter: string;
   onInstalled: () => Promise<unknown>;
 }) {
-  const [entries, setEntries] = useState<Entry[]>([]);
+  const [entries, setEntries] = useState<MarketEntry[]>([]);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [error, setError] = useState("");
   const [loadError, setLoadError] = useState("");
@@ -90,7 +66,7 @@ export function Marketplace({
     };
   }, []);
   async function install(
-    entry: Entry,
+    entry: MarketEntry,
     progress: (label: string) => void,
   ) {
     setBusy(entry.id);

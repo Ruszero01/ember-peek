@@ -82,6 +82,30 @@ export type Snapshot = {
   /** False until the first-run plugin chooser has been answered. */
   onboarded: boolean;
 };
+/** Where a plugin comes from: a configured source, and the package behind the entry. */
+export type MarketSource = {
+  kind: "remote";
+  name: string;
+  catalog: string;
+  urls: string[];
+  sha256: string;
+  size: number;
+};
+export type MarketEntry = {
+  source: MarketSource;
+  id: string;
+  name: string;
+  version: string;
+  extensions: string[];
+  icon?: string;
+  summary: string;
+  publisher: string;
+  /** The source suggests this one for a fresh installation. */
+  recommended: boolean;
+  installedVersion: string | null;
+  updateAvailable: boolean;
+};
+export type MarketList = { entries: MarketEntry[]; warnings: string[] };
 export type Control = {
   id: string;
   kind: "button" | "toggle" | "scrub";

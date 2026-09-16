@@ -90,6 +90,17 @@ fn zip_tree(directory: &Path) -> Vec<u8> {
 
 /// Publish `package` into `mirror` and write the catalog entry indexing it.
 fn publish(mirror: &Path, package: &Path, id: &str, build_id: &str, targets: &[&str]) -> String {
+    publish_marked(mirror, package, id, build_id, targets, false)
+}
+
+fn publish_marked(
+    mirror: &Path,
+    package: &Path,
+    id: &str,
+    build_id: &str,
+    targets: &[&str],
+    recommended: bool,
+) -> String {
     std::fs::create_dir_all(mirror).unwrap();
     let artifact = format!("{id}-1.0.0-{build_id}.zip");
     let zip = zip_tree(package);
@@ -107,6 +118,7 @@ fn publish(mirror: &Path, package: &Path, id: &str, build_id: &str, targets: &[&
         "sha256": sha256_hex(&zip),
         "size": zip.len(),
         "buildId": build_id,
+        "recommended": recommended,
     }]})
     .to_string();
     std::fs::write(mirror.join("catalog.json"), catalog).unwrap();
@@ -453,5 +465,27 @@ async fn a_second_source_mirrors_the_same_package() {
         entry["source"]["sha256"].as_str().unwrap()
     ).is_dir());
     assert!(second.join(&artifact).is_file());
+    runtime.shutdown().await;
+}
+
+/// The first-run chooser offers what a source suggests, so the flag has to survive the
+/// catalog into the market listing.
+#[tokio::test]
+async fn a_source_can_suggest_plugins_for_a_fresh_installation() {
+    let temp = tempfile::tempdir().unwrap();
+    let source = build(temp.path(), "published-build");
+    let mirror = temp.path().join("mirror");
+    publish_marked(&mirror, &source, "test.one", "published-build", &[], true);
+    let market = test_market(temp.path(), &mirror);
+    let runtime = Runtime::new(temp.path().join("installed")).unwrap();
+
+    let list = market.list(&runtime).await.unwrap();
+    assert_eq!(list.entries.len(), 1);
+    assert!(list.entries[0].recommended);
+    // A source that marks nothing is still readable; the chooser decides what to do with
+    // an empty suggestion list.
+    publish_marked(&mirror, &source, "test.one", "published-build", &[], false);
+    let market = test_market(temp.path(), &mirror);
+    assert!(!market.list(&runtime).await.unwrap().entries[0].recommended);
     runtime.shutdown().await;
 }
