@@ -3,7 +3,7 @@ import {
   controls,
   status,
   presented,
-  dirty,
+  pending,
   mutate,
   fileChanged,
   panel,
@@ -62,7 +62,8 @@ async function mountEditor(initial) {
   let saved = data.text.replace(/\r\n?|\n/g, "\n"),
     fingerprint = data.fingerprint;
   let saving = false,
-    pending = Promise.resolve(),
+    // Reports are serialized: the host must see them in the order the editor changed state.
+    reports = Promise.resolve(),
     navigation,
     surface,
     panelOpen = false;
@@ -70,8 +71,10 @@ async function mountEditor(initial) {
     found = [],
     current = -1;
   function mark(value) {
-    pending = pending.then(() => dirty(value));
-    return pending;
+    reports = reports.then(() =>
+      pending(value, value ? "未保存的编辑" : undefined),
+    );
+    return reports;
   }
   function publishSearch() {
     void postTo("panel", {
@@ -120,7 +123,7 @@ async function mountEditor(initial) {
       saving = true;
       surface.readOnly(true);
       try {
-        await pending;
+        await reports;
         await navigation?.flush();
         const result = await mutate("save", {
           text: surface.text.replace(/\n/g, eol),

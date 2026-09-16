@@ -418,7 +418,7 @@ async fn plugin_settings_round_trip_through_storage_and_reach_the_plugin() {
 }
 
 #[tokio::test]
-async fn shared_contract_universal_overlay_and_dirty_document_retention() {
+async fn shared_contract_universal_overlay_and_pending_document_retention() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("installed");
     for (folder, id) in [
@@ -483,13 +483,16 @@ async fn shared_contract_universal_overlay_and_dirty_document_retention() {
         .await
         .is_err());
     runtime.activate(None).await.unwrap();
-    runtime.dirty(&editor.id, true).await.unwrap();
+    runtime
+        .set_pending(&editor.id, true, Some("未保存的编辑".into()))
+        .await
+        .unwrap();
     assert!(runtime.enabled("test.editor", false).await.is_err());
     assert!(runtime.uninstall("test.editor").await.is_err());
     tokio::time::sleep(Duration::from_millis(100)).await;
     runtime.reap().await;
     assert_eq!(runtime.snapshot().await.sessions.len(), 3);
-    runtime.dirty(&editor.id, false).await.unwrap();
+    runtime.set_pending(&editor.id, false, None).await.unwrap();
     runtime.reap().await;
     assert!(runtime.snapshot().await.sessions.is_empty());
     runtime.shutdown().await;
@@ -713,10 +716,13 @@ async fn resetting_to_first_launch_refuses_unsaved_edits() {
     std::fs::write(&file, "hello").unwrap();
     let session = runtime.open(file).await.unwrap();
     ready(&runtime, &session.id).await;
-    runtime.dirty(&session.id, true).await.unwrap();
+    runtime
+        .set_pending(&session.id, true, Some("未保存的编辑".into()))
+        .await
+        .unwrap();
     assert!(runtime.reset_to_first_launch().await.is_err());
     assert_eq!(runtime.snapshot().await.plugins.len(), 1);
-    runtime.dirty(&session.id, false).await.unwrap();
+    runtime.set_pending(&session.id, false, None).await.unwrap();
     runtime.reset_to_first_launch().await.unwrap();
     assert!(runtime.snapshot().await.plugins.is_empty());
     runtime.shutdown().await;
@@ -743,5 +749,51 @@ async fn reinstalling_from_a_directory_keeps_only_the_previous_revision() {
         .collect();
     assert_eq!(installed.len(), 2, "expected the installed and previous revision");
     assert_eq!(runtime.snapshot().await.plugins.len(), 1);
+    runtime.shutdown().await;
+}
+
+/// A refusal quotes the plugin, not a hardcoded idea of what an editor does: the host has no
+/// way to know whether the uncommitted work is text, a crop or a rotation, and it does not
+/// need to — it only needs to say whose work it is and let the plugin name it.
+#[tokio::test]
+async fn a_refusal_names_the_work_the_plugin_reports() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("installed");
+    package(&root.join("one"), "test.one", "one");
+    let runtime = Runtime::new(root.clone()).unwrap();
+    runtime.scan().await.unwrap();
+    let file = temp.path().join("photo.one");
+    std::fs::write(&file, "pixels").unwrap();
+    let session = runtime.open(file).await.unwrap();
+    ready(&runtime, &session.id).await;
+
+    runtime
+        .set_pending(&session.id, true, Some("未应用的裁剪".into()))
+        .await
+        .unwrap();
+    let refusal = runtime.uninstall("test.one").await.unwrap_err();
+    // The file is what the user can act on; the plugin is what they clicked.
+    assert!(refusal.contains("photo.one"), "{refusal}");
+    assert!(refusal.contains("未应用的裁剪"), "{refusal}");
+    assert!(refusal.contains("卸载"), "{refusal}");
+
+    // Switching it off and replacing it are the same refusal, word for word.
+    assert_eq!(
+        runtime.enabled("test.one", false).await.unwrap_err(),
+        refusal.replace("卸载", "停用")
+    );
+    assert_eq!(
+        runtime.blocking_change(Some("test.one")).await.unwrap().reason,
+        "未应用的裁剪"
+    );
+    // A plugin that names nothing is still protected, in the host's neutral words.
+    runtime.set_pending(&session.id, true, None).await.unwrap();
+    assert_eq!(
+        runtime.blocking_change(Some("test.one")).await.unwrap().reason,
+        "尚未提交的变更"
+    );
+    assert!(runtime.blocking_change(None).await.is_some());
+    runtime.set_pending(&session.id, false, None).await.unwrap();
+    assert!(runtime.blocking_change(None).await.is_none());
     runtime.shutdown().await;
 }

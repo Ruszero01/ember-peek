@@ -218,7 +218,7 @@ export function PluginStage({
         .filter((s) => {
           if (!s.capabilities.includes("view"))
             return !s.capabilities.includes("overlay");
-          return s.id === active?.id || s.dirty || recentViews.includes(s.id);
+          return s.id === active?.id || s.pending || recentViews.includes(s.id);
         })
         .map((session) => (
           <div key={session.id} className="contribution-frame">

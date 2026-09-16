@@ -67,11 +67,11 @@ test("search is no longer a host control kind", () => {
   );
 });
 test("a plugin's floating panel may not speak for the session it shares with the view", () => {
-  // One entry can be mounted twice. The view owns the lifecycle, the dirty flag and the
+  // One entry can be mounted twice. The view owns the lifecycle, the pending changes and the
   // document, so a panel mount must not be able to race it over any of them.
   for (const method of [
     "presented",
-    "dirty",
+    "pending",
     "fileChanged",
     "returnView",
     "mutate",

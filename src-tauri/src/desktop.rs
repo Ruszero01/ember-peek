@@ -1,4 +1,4 @@
-use ember_runtime::{Runtime, Snapshot};
+use ember_runtime::{PendingChange, Runtime, Snapshot};
 use serde::Serialize;
 use std::{
     collections::HashMap,
@@ -195,7 +195,7 @@ pub async fn refresh_file(app: &AppHandle, id: &str, return_to_source: bool) -> 
     if snapshot
         .sessions
         .iter()
-        .any(|s| s.file_id == file_id && s.dirty)
+        .any(|s| s.file_id == file_id && s.pending)
     {
         return Ok(());
     }
@@ -247,8 +247,15 @@ pub async fn return_view(app: AppHandle, id: String) -> Result<(), String> {
     if snapshot.active.as_ref() != Some(&id) || !desktop.current(revision) {
         return Ok(());
     }
-    if snapshot.sessions.iter().any(|s| s.id == id && s.dirty) {
-        return Err("请先保存或撤销编辑".into());
+    // Leaving the view is not destruction, but it does hand the session back, so the same
+    // claim that blocks uninstalling blocks this too — in the same words.
+    if let Some(change) = snapshot
+        .sessions
+        .iter()
+        .find(|s| s.id == id && s.pending)
+        .map(PendingChange::from_info)
+    {
+        return Err(change.refusal("返回"));
     }
     let target = runtime.return_target(&id).await?;
     if desktop.current(revision) {
@@ -330,7 +337,7 @@ pub fn hide(app: &AppHandle, label: &str) {
         }
     }
 }
-pub fn reap(app: &AppHandle, dirty: bool) {
+pub fn reap(app: &AppHandle, pending: bool) {
     let handle = app.clone();
     let _ = app.run_on_main_thread(move || {
         let expired: Vec<_> = handle
@@ -344,7 +351,7 @@ pub fn reap(app: &AppHandle, dirty: bool) {
             .map(|(label, _)| label.clone())
             .collect();
         for label in expired {
-            if dirty && label == "preview" {
+            if pending && label == "preview" {
                 continue;
             }
             if let Some(window) = handle.get_webview_window(&label) {
@@ -416,7 +423,7 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
             "quit" => {
                 let app = app.clone();
                 tauri::async_runtime::spawn(async move {
-                    if app.state::<Arc<Runtime>>().has_dirty().await {
+                    if app.state::<Arc<Runtime>>().has_pending().await {
                         let discard = tauri::async_runtime::spawn_blocking(|| {
                             rfd::MessageDialog::new()
                                 .set_title("有未保存的编辑")

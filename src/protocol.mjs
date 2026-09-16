@@ -42,10 +42,10 @@ export function validateControls(value) {
 
 // Requests that belong to the session rather than to one mount of it. A plugin entry can be
 // mounted twice (view + floating panel); only the owner mount may send these, so a panel
-// cannot race the view over the dirty flag, the lifecycle or the document.
+// cannot race the view over the pending changes, the lifecycle or the document.
 const SESSION_OWNING = new Set([
   "presented",
-  "dirty",
+  "pending",
   "fileChanged",
   "returnView",
   "mutate",

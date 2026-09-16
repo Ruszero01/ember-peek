@@ -69,15 +69,17 @@
 ## SDK 与宿主边界
 
 ```js
-import { ready, controls, sourceCall, dirty, mutate, fileChanged } from './sdk.js';
+import { ready, controls, sourceCall, pending, mutate, fileChanged } from './sdk.js';
 const { data, source, file } = await ready;
 // source?.data 是源共享的契约结果；data 是本插件 open 的结果。
 const chunk = await sourceCall('page', { index: 0 });
-await dirty(true);                // 保护未保存的贡献和整个文件组
+await pending(true, '未保存的编辑');  // 声明本次会话有未提交的变更，附上给用户看的措辞
 const result = await mutate('save', { /* 本插件自己的格式 */ });
-await dirty(false);               // 只在保存或明确撤销成功后解除
+await pending(false);               // 只在保存或明确撤销成功后解除
 await fileChanged();              // 使旧缓存失效，当前文件仍被选中时重新组合
 ```
+
+`pending` 是通用变更声明：宿主不知道也不判断变更是什么（文本草稿、裁剪区域、旋转角度都行），只把它当作"不要销毁这次会话"的依据——存在变更时拒绝卸载、停用和替换该插件，不回收它的预览 WebView，托盘退出要求确认，并且所有拒绝都用插件给的措辞（`reason`，缺省时宿主说"尚未提交的变更"）。第二个参数是给用户看的名词短句，会被截断到 60 字。
 
 宿主不实现 save、编码或文本编辑。`mutate` 检查 writeFile 后调用**该插件自己的**原生业务方法。`fileChanged` 不会在用户已经切换文件后抢回焦点；存在其他未保存贡献时保留草稿，不强制重建它。
 
@@ -130,4 +132,4 @@ Ctrl+S 保存成功会刷新共享源并保持编辑视口；撤销恢复已保�
 
 声明 `capabilities` 含 `overlay` 的插件必须同时声明 `overlay` 尺寸，例如 `"overlay": { "width": 290, "height": 152, "anchor": "bottomRight" }`。宽高单位为 CSS 像素，指插件内容区，不含宿主 16px 拖动条；宽度范围 120–1600，高度范围 24–1200。`anchor` 可选，默认 `topRight`，只决定首次出现的位置。非浮层插件不能声明 overlay 尺寸。
 
-宿主只提供一块可拖动的浮动面板和位置记忆，面板内容（标题、关闭按钮、搜索框、信息文本）全部由插件的 entry 网页自己绘制；宿主不提供标题栏、展开/收起按钮或位置重置按钮。浮层挂载是次要挂载：不能上报 `controls`/`status`，也不能发送 `presented`、`dirty`、`fileChanged`、`returnView`、`mutate`，越权调用被明确拒绝。文件信息插件仅负责内容排版，宿主没有针对它的尺寸分支。
+宿主只提供一块可拖动的浮动面板和位置记忆，面板内容（标题、关闭按钮、搜索框、信息文本）全部由插件的 entry 网页自己绘制；宿主不提供标题栏、展开/收起按钮或位置重置按钮。浮层挂载是次要挂载：不能上报 `controls`/`status`，也不能发送 `presented`、`pending`、`fileChanged`、`returnView`、`mutate`，越权调用被明确拒绝。文件信息插件仅负责内容排版，宿主没有针对它的尺寸分支。

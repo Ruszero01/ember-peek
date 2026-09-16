@@ -85,8 +85,13 @@ async fn source_call(
     host.source_call(&id, &method, value).await
 }
 #[tauri::command]
-async fn set_dirty(host: Host<'_>, id: String, dirty: bool) -> Result<(), String> {
-    host.dirty(&id, dirty).await
+async fn set_pending(
+    host: Host<'_>,
+    id: String,
+    pending: bool,
+    reason: Option<String>,
+) -> Result<(), String> {
+    host.set_pending(&id, pending, reason).await
 }
 #[tauri::command]
 async fn plugin_mutate(
@@ -328,7 +333,7 @@ fn main() {
                 let mut interval = tokio::time::interval(std::time::Duration::from_secs(2));
                 loop {
                     interval.tick().await;
-                    desktop::reap(&handle, runtime.has_dirty().await);
+                    desktop::reap(&handle, runtime.has_pending().await);
                     runtime.reap().await;
                     // Detect immutable plugin builds without restarting the host or in-flight work.
                     let _ = runtime.scan().await;
@@ -339,7 +344,7 @@ fn main() {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![view_state, market_list, market_prepare, market_install, snapshot, refresh_plugins, open_file, desktop::select_preview, desktop::return_view, desktop::desktop_snapshot, desktop::show_settings, session_data, source_data, source_call, set_dirty, plugin_mutate, authorize_clipboard, file_changed, complete_view, complete_onboarding, plugin_call, read_file, set_enabled, set_activation, reorder_plugins, uninstall_plugin, plugin_settings, set_plugin_setting, pick_path, install_plugin])
+        .invoke_handler(tauri::generate_handler![view_state, market_list, market_prepare, market_install, snapshot, refresh_plugins, open_file, desktop::select_preview, desktop::return_view, desktop::desktop_snapshot, desktop::show_settings, session_data, source_data, source_call, set_pending, plugin_mutate, authorize_clipboard, file_changed, complete_view, complete_onboarding, plugin_call, read_file, set_enabled, set_activation, reorder_plugins, uninstall_plugin, plugin_settings, set_plugin_setting, pick_path, install_plugin])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();

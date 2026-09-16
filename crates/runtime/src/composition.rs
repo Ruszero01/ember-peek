@@ -116,7 +116,7 @@ impl Runtime {
                     .sessions
                     .values()
                     .filter(|s| &s.info.file_id == file)
-                    .all(|s| s.calls == 0 && !s.info.dirty)
+                    .all(|s| s.calls == 0 && !s.info.pending)
             })
             .collect();
         let ids_to_remove: Vec<_> = inner
@@ -185,7 +185,8 @@ impl Runtime {
                 capabilities: package.manifest.capabilities.clone(),
                 overlay: package.manifest.overlay.clone(),
                 available: true,
-                dirty: false,
+                pending: false,
+                pending_reason: None,
                 name: path.file_name().unwrap().to_string_lossy().into(),
                 size: metadata.len(),
                 status: if error.is_some() { "error" } else { "loading" }.into(),

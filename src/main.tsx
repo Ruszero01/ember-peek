@@ -1236,7 +1236,8 @@ function App() {
                       }
                     >
                       {contributor.label}
-                      {contributor.dirty ? " ●" : ""}
+                      {/* The dot means the plugin is holding work it has not committed. */}
+                      {contributor.pending ? " ●" : ""}
                       {contributor.status === "loading"
                         ? " …"
                         : contributor.status === "error"

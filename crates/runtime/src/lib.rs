@@ -37,7 +37,13 @@ pub struct SessionInfo {
     pub capabilities: Vec<Capability>,
     pub overlay: Option<manifest::OverlaySize>,
     pub available: bool,
-    pub dirty: bool,
+    /// The plugin has changes it has not committed. Only the plugin can clear this, and the
+    /// host treats it as a reason not to destroy the session: what it protects is the user's
+    /// uncommitted work, whether that is a text draft, a crop or a colour tweak.
+    pub pending: bool,
+    /// The plugin's own wording for those changes, shown when the host has to explain why it
+    /// refused. Absent means the host falls back to a neutral phrase.
+    pub pending_reason: Option<String>,
     pub name: String,
     pub size: u64,
     pub status: String,
@@ -53,6 +59,55 @@ struct Session {
     touched: Instant,
     calls: usize,
     source: Option<String>,
+}
+
+/// Uncommitted work a destructive action would destroy: which session holds it, which file
+/// it is about, and what the plugin calls the changes.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingChange {
+    pub session: String,
+    /// The file the work belongs to: what the user has to go back to, and the part of the
+    /// sentence they can act on.
+    pub file: String,
+    pub reason: String,
+}
+
+impl PendingChange {
+    /// Read the claim off a session, with the host's neutral wording for a plugin that did
+    /// not name what it is holding.
+    pub fn from_info(info: &SessionInfo) -> Self {
+        Self {
+            session: info.id.clone(),
+            file: info.name.clone(),
+            reason: info
+                .pending_reason
+                .clone()
+                .unwrap_or_else(|| "尚未提交的变更".into()),
+        }
+    }
+
+    /// The sentence every refusing path uses, so uninstalling, switching off and replacing a
+    /// plugin all explain the same situation in the same words.
+    pub fn refusal(&self, action: &str) -> String {
+        format!("“{}”有{}，请先保存或放弃后再{action}", self.file, self.reason)
+    }
+}
+
+fn pending_change(session: &Session) -> PendingChange {
+    PendingChange::from_info(&session.info)
+}
+
+/// `Runtime::blocking_change` for callers that already hold the lock. A `None` id asks about
+/// every plugin, which is what a whole-application action such as the development reset does.
+fn blocking_change(inner: &Inner, plugin_id: Option<&str>) -> Option<PendingChange> {
+    inner
+        .sessions
+        .values()
+        .find(|session| {
+            session.info.pending && plugin_id.is_none_or(|id| session.info.plugin_id == id)
+        })
+        .map(pending_change)
 }
 
 #[derive(Serialize)]
@@ -260,7 +315,7 @@ impl Runtime {
                 let mut info = s.info.clone();
                 info.available = !inner.disabled.contains(&info.plugin_id)
                     && inner.packages.contains_key(&info.plugin_id)
-                    && (!s.data["cacheKey"].is_null() || info.dirty);
+                    && (!s.data["cacheKey"].is_null() || info.pending);
                 info
             })
             .collect();
@@ -311,8 +366,8 @@ impl Runtime {
     /// chooser is otherwise only reachable by clearing the app data directory by hand.
     pub async fn reset_to_first_launch(&self) -> Result<(), String> {
         // Refused rather than answered with data loss, the same as uninstalling.
-        if self.has_dirty().await {
-            return Err("请先保存或撤销未保存的编辑".into());
+        if let Some(change) = self.blocking_change(None).await {
+            return Err(change.refusal("重置"));
         }
         // A running plugin's own executable cannot be deleted on Windows, so they stop
         // first; nothing is left that could hold a package directory open.
@@ -478,15 +533,25 @@ impl Runtime {
         }
         Ok(())
     }
-    pub async fn dirty(&self, id: &str, dirty: bool) -> Result<(), String> {
-        self.inner
-            .lock()
-            .await
-            .sessions
-            .get_mut(id)
-            .ok_or("Session expired")?
-            .info
-            .dirty = dirty;
+    /// Record the plugin's own claim that this session holds uncommitted changes, and how
+    /// the plugin names them. The host cannot verify the claim and does not try: it only
+    /// keeps the plugin's word about what must not be destroyed.
+    pub async fn set_pending(
+        &self,
+        id: &str,
+        pending: bool,
+        reason: Option<String>,
+    ) -> Result<(), String> {
+        let mut inner = self.inner.lock().await;
+        let session = inner.sessions.get_mut(id).ok_or("Session expired")?;
+        session.info.pending = pending;
+        session.info.pending_reason = if pending {
+            reason.map(|reason| reason.trim().to_string())
+                .filter(|reason| !reason.is_empty())
+                .map(|reason| reason.chars().take(60).collect())
+        } else {
+            None
+        };
         Ok(())
     }
     pub async fn invalidate(&self, file_id: &str) {
@@ -501,13 +566,26 @@ impl Runtime {
             session.data["cacheKey"] = Value::Null;
         }
     }
-    pub async fn has_dirty(&self) -> bool {
+    /// Whether any session holds uncommitted changes. Only the plugin clears that state, so
+    /// this is what keeps a draft alive across an idle pass and what makes quitting ask first.
+    pub async fn has_pending(&self) -> bool {
         self.inner
             .lock()
             .await
             .sessions
             .values()
-            .any(|s| s.info.dirty)
+            .any(|s| s.info.pending)
+    }
+
+    /// Uncommitted changes that a destructive action would destroy: those of one plugin, or
+    /// of any plugin when `plugin_id` is `None`.
+    ///
+    /// Every path that disposes of a plugin — uninstalling it, switching it off, replacing it
+    /// with a new build, quitting — asks this, so all of them refuse in the same words and a
+    /// plugin that reports changes is protected without the host knowing what they are.
+    pub async fn blocking_change(&self, plugin_id: Option<&str>) -> Option<PendingChange> {
+        let inner = self.inner.lock().await;
+        blocking_change(&inner, plugin_id)
     }
     pub async fn source_call(&self, id: &str, method: &str, value: Value) -> Result<Value, String> {
         let source = {
@@ -616,13 +694,10 @@ impl Runtime {
         if !inner.packages.contains_key(id) {
             return Err("Unknown plugin".into());
         }
-        if !enabled
-            && inner
-                .sessions
-                .values()
-                .any(|s| s.info.plugin_id == id && s.info.dirty)
-        {
-            return Err("请先保存或撤销该插件的未保存编辑".into());
+        if !enabled {
+            if let Some(change) = blocking_change(&inner, Some(id)) {
+                return Err(change.refusal("停用"));
+            }
         }
         if enabled {
             inner.disabled.remove(id);
@@ -656,12 +731,8 @@ impl Runtime {
     pub async fn uninstall(&self, id: &str) -> Result<(), String> {
         let _installation = self.installation.lock().await;
         let mut inner = self.inner.lock().await;
-        if inner
-            .sessions
-            .values()
-            .any(|s| s.info.plugin_id == id && s.info.dirty)
-        {
-            return Err("请先保存或撤销该插件的未保存编辑".into());
+        if let Some(change) = blocking_change(&inner, Some(id)) {
+            return Err(change.refusal("卸载"));
         }
         if inner.packages.remove(id).is_none() {
             return Err("Unknown plugin".into());
@@ -850,7 +921,7 @@ impl Runtime {
         let pinned: HashSet<_> = inner
             .sessions
             .values()
-            .filter(|s| s.calls != 0 || s.info.dirty || s.touched.elapsed() < self.ttl)
+            .filter(|s| s.calls != 0 || s.info.pending || s.touched.elapsed() < self.ttl)
             .map(|s| s.info.file_id.clone())
             .chain(active_file)
             .collect();

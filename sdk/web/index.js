@@ -241,8 +241,17 @@ addEventListener("keydown", (event) => {
 });
 
 // Generic contribution lifecycle and opaque data-source channel.
-export function dirty(value) {
-  return request("dirty", { dirty: value });
+//
+// `pending(true)` declares that this session holds work the plugin has not committed — a
+// draft, a crop, a rotation, whatever the plugin's own idea of a change is. `reason` is the
+// wording the host shows when it has to explain a refusal. While it is set the host refuses
+// to uninstall, disable or replace the plugin, and keeps the preview mounted until the plugin
+// clears it.
+export function pending(value, reason) {
+  return request("pending", {
+    pending: value,
+    ...(typeof reason === "string" ? { reason } : {}),
+  });
 }
 export function fileChanged({ returnToSource = false } = {}) {
   return request("fileChanged", { returnToSource });

@@ -13,7 +13,10 @@ export type Session = {
     anchor: "topLeft" | "topRight" | "bottomLeft" | "bottomRight";
   } | null;
   available: boolean;
-  dirty: boolean;
+  /** The plugin reports uncommitted changes; the host will not destroy this session. */
+  pending: boolean;
+  /** The plugin's own wording for them, shown when the host has to refuse. */
+  pendingReason: string | null;
   name: string;
   size: number;
   status: "loading" | "ready" | "error";

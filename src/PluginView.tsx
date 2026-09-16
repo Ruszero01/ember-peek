@@ -49,7 +49,7 @@ export function PluginView({
 }) {
   // When one entry owns both a view and a panel, the panel mount is secondary: it renders
   // and talks to the native process, but the view stays the owner of session state
-  // (lifecycle, dirty flag, toolbar controls) and of writes to the document.
+  // (lifecycle, pending changes, toolbar controls) and of writes to the document.
   const secondary = role === "panel" && session.capabilities.includes("view");
   const instanceId = secondary ? `${session.id}#panel` : session.id;
   const frame = useRef<HTMLIFrameElement>(null);
@@ -193,12 +193,16 @@ export function PluginView({
                     ? params.error.slice(0, 500)
                     : null,
               });
-            } else if (message.method === "dirty") {
-              if (typeof params?.dirty !== "boolean")
-                throw new Error("Invalid dirty flag");
-              value = await call("set_dirty", {
+            } else if (message.method === "pending") {
+              if (typeof params?.pending !== "boolean")
+                throw new Error("Invalid pending flag");
+              value = await call("set_pending", {
                 id: session.id,
-                dirty: params.dirty,
+                pending: params.pending,
+                reason:
+                  typeof params?.reason === "string"
+                    ? params.reason.slice(0, 60)
+                    : null,
               });
             } else if (message.method === "fileChanged") {
               value = await call("file_changed", {
