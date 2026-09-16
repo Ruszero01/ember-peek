@@ -21,7 +21,7 @@ node tools/live-targets.mjs                              # 列出当前窗口
 node tools/live-targets.mjs plugin.localhost expr.js     # 读插件视图的真实 DOM
 ```
 
-详见 [tools/README.md](tools/README.md)，其中也记录了"已打开会话固定在其原插件修订上、改插件代码后必须重新打开文件"这一容易误判的行为。
+详见 [tools/README.md](tools/README.md)，其中也记录了"插件更新会切断并自动重开预览、目录缓存有 10 分钟 TTL"这些容易误判的行为。
 
 启动后常驻托盘，不自动创建 WebView；只有首次启动会打开一次引导页（见下）。之后右键托盘选择“设置”，进入“插件管理 → 插件市场”安装插件。插件源与已安装目录分离：从源里下载的包只有用户点击安装后才会复制到安装目录。
 

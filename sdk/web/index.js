@@ -3,7 +3,7 @@ let port;
 let sequence = 0;
 let settings = {};
 let sessionId = "";
-const pending = new Map();
+const awaiting = new Map();
 const actions = new Map();
 const visibilityListeners = new Set();
 const settingsListeners = new Set();
@@ -106,9 +106,9 @@ window.addEventListener("message", (event) => {
         .then(() => actions.get(message.id)?.(message.value))
         .catch((error) => status(String(error)));
     } else if (message.type === "reply") {
-      const entry = pending.get(message.id);
+      const entry = awaiting.get(message.id);
       if (!entry) return;
-      pending.delete(message.id);
+      awaiting.delete(message.id);
       clearTimeout(entry.timer);
       message.error
         ? entry.reject(new Error(message.error))
@@ -124,10 +124,10 @@ function request(method, params) {
   const id = ++sequence;
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
-      pending.delete(id);
+      awaiting.delete(id);
       reject(new Error("Host request timed out"));
     }, 125000);
-    pending.set(id, { resolve, reject, timer });
+    awaiting.set(id, { resolve, reject, timer });
     port.postMessage({ type: "request", id, method, params });
   });
 }

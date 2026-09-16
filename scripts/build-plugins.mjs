@@ -1,4 +1,4 @@
-import { build } from "esbuild";
+import { build, transform } from "esbuild";
 import { spawn } from "node:child_process";
 import {
   cp,
@@ -31,6 +31,23 @@ const webSdkExtras = [
 ];
 let child;
 let serial = Promise.resolve();
+
+/// Parse the files that go into a package verbatim.
+///
+/// The bundler never sees them: the shared SDK is copied into every package and a plugin's own
+/// ui files are copied as they are, so a syntax error in either ships silently and only shows
+/// up as a plugin page that loads nothing. A parse is enough to catch that here instead.
+async function checkSyntax(files) {
+  for (const [label, code] of files) {
+    try {
+      await transform(code, { loader: "js" });
+    } catch (error) {
+      throw new Error(
+        `${path.relative(root, label)}: ${String(error.message).split("\n")[0]}`,
+      );
+    }
+  }
+}
 
 async function digestTree(directory, hash) {
   for (const entry of (await readdir(directory, { withFileTypes: true })).sort(
@@ -162,6 +179,27 @@ async function publish(release, { dist = false } = {}) {
     return output.outputFiles;
   }
 
+  // Everything a package carries verbatim, checked before the first byte is written.
+  await checkSyntax([
+    ...[[webSdk, await readFile(webSdk, "utf8")]].map(([file, code]) => [file, code]),
+    ...(await Promise.all(
+      webSdkExtras
+        .filter(([source]) => source.endsWith(".js"))
+        .map(async ([source]) => [source, await readFile(source, "utf8")]),
+    )),
+    ...(
+      await Promise.all(
+        entries.map(async ({ directory }) =>
+          (await readTree(path.join(directory, "ui")))
+            .filter((file) => file.name.endsWith(".js"))
+            .map((file) => [
+              path.join(directory, "ui", file.name),
+              file.data.toString("utf8"),
+            ]),
+        ),
+      )
+    ).flat(),
+  ]);
   for (const { directory, manifest, listing, binary } of entries) {
     const executable = process.platform === "win32" ? `${binary}.exe` : binary;
     const native = path.join(
