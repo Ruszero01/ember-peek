@@ -214,9 +214,8 @@ async function publish(release, { dist = false } = {}) {
     const hash = createHash("sha256").update(canonical(published));
     // A plugin only carries the shared UI it actually imports: copying the search bar into
     // a plugin that never opens a panel would be dead weight in every published package.
-    // Matched on the published name, not the source name: a plugin import says
-    // `./sdk-gutter.js`, so a filter looking for `gutter.js` never matched and the package
-    // came out without the module the plugin imports.
+    // Both the published name (`./sdk-search.js`) and the source file name (`search.js`)
+    // count, so a plugin written against either spelling still gets the file it imports.
     const uiText = await treeText(path.join(directory, "ui"));
     const extras = webSdkExtras.filter(([source, name]) => {
       const base = path.basename(source);
