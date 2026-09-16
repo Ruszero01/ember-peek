@@ -101,11 +101,11 @@ export function Welcome({ onDone }: { onDone: () => Promise<unknown> }) {
       <div className="welcome-heading">
         <BrandMark size={30} />
         <h1>欢迎使用 Ember Peek</h1>
-        <p>预览能力全部由插件提供，应用本身只是一个外壳。先装上常用的几种，其余随时可以在“插件市场”里增删。</p>
+        <p>选择要安装的插件，装好后即可预览对应文件；之后随时可以在“插件市场”里增减。</p>
       </div>
       {loading && (
         <p className="quiet-note">
-          <LoaderCircle size={16} className="spinner" /> 正在读取插件源…
+          <LoaderCircle size={16} className="spinner" /> 正在获取插件列表…
         </p>
       )}
       {warnings.map((warning, index) => (
@@ -121,7 +121,7 @@ export function Welcome({ onDone }: { onDone: () => Promise<unknown> }) {
       {!loading && !entries.length && !warnings.length && (
         <div className="card empty-plugins">
           <Package size={28} />
-          <p>插件源里暂时没有可安装的插件，可以稍后在“插件市场”里再试。</p>
+          <p>暂时没有可安装的插件，稍后可以在“插件市场”里再看看。</p>
         </div>
       )}
       {entries.length > 0 && (
