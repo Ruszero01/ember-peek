@@ -746,7 +746,7 @@ impl Runtime {
         )
         .map_err(|e| e.to_string())?;
         Package::load(&staging)?;
-        std::fs::rename(staging, directory).map_err(|e| e.to_string())?;
+        publish_directory(&staging, &directory)?;
         {
             let mut inner = self.inner.lock().await;
             if !inner.packages.contains_key(&manifest.id) {
@@ -873,6 +873,31 @@ impl Runtime {
     }
 }
 
+/// Put an assembled package directory in place.
+///
+/// `rename` is the right primitive: atomic and free. But Windows refuses to rename a
+/// directory while any handle is open inside it, and that is exactly what happens when
+/// something watches the tree the package is assembled in — an editor with the checkout
+/// open, a sync client, an antivirus. Copying is not refused by the same condition, so it
+/// is the fallback rather than the end of the install.
+pub(crate) fn publish_directory(from: &Path, to: &Path) -> Result<(), String> {
+    match std::fs::rename(from, to) {
+        Ok(()) => Ok(()),
+        Err(rename_error) => {
+            if to.exists() {
+                // Someone published it first; the caller decides what that means.
+                return Err(rename_error.to_string());
+            }
+            if let Err(error) = copy_package(from, to, 0) {
+                let _ = std::fs::remove_dir_all(to);
+                return Err(error);
+            }
+            let _ = std::fs::remove_dir_all(from);
+            Ok(())
+        }
+    }
+}
+
 fn copy_package(source: &Path, target: &Path, depth: usize) -> Result<(), String> {
     if depth > 16 {
         return Err("Package nesting exceeds 16 levels".into());
@@ -894,4 +919,57 @@ fn copy_package(source: &Path, target: &Path, depth: usize) -> Result<(), String
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn staged(root: &Path) -> PathBuf {
+        let staging = root.join("staging");
+        std::fs::create_dir_all(staging.join("bin")).unwrap();
+        std::fs::write(staging.join("plugin.json"), "{}").unwrap();
+        std::fs::write(staging.join("bin/one.exe"), "stub").unwrap();
+        staging
+    }
+
+    /// Windows refuses to rename a directory while a handle is open inside it, which is
+    /// what a watcher, a scanner or an editor does to files that were just written. A
+    /// package has to land anyway, so this asserts the copy fallback. On a platform that
+    /// allows the rename the same assertions hold; the fallback is simply not needed.
+    #[test]
+    fn publishing_a_directory_that_something_has_open() {
+        let temp = tempfile::tempdir().unwrap();
+        let staging = staged(temp.path());
+        let held = std::fs::File::open(staging.join("plugin.json")).unwrap();
+
+        let published = temp.path().join("published");
+        publish_directory(&staging, &published).unwrap();
+        drop(held);
+        assert!(published.join("plugin.json").is_file());
+        assert_eq!(
+            std::fs::read_to_string(published.join("bin/one.exe")).unwrap(),
+            "stub"
+        );
+        assert!(!staging.exists(), "the staging directory is left behind");
+    }
+
+    /// Publishing onto an occupied destination is refused rather than merged. That is how
+    /// two installs of the same artifact agree instead of fighting: the caller sees the
+    /// error, notices the destination is there, and uses what is already published.
+    #[test]
+    fn publishing_onto_an_occupied_directory_is_refused() {
+        let temp = tempfile::tempdir().unwrap();
+        let staging = staged(temp.path());
+        let published = temp.path().join("published");
+        std::fs::create_dir_all(&published).unwrap();
+        std::fs::write(published.join("plugin.json"), "already published").unwrap();
+
+        assert!(publish_directory(&staging, &published).is_err());
+        assert!(staging.exists(), "the staging directory is still there");
+        assert_eq!(
+            std::fs::read_to_string(published.join("plugin.json")).unwrap(),
+            "already published"
+        );
+    }
 }

@@ -393,7 +393,7 @@ impl Market {
             let _ = std::fs::remove_dir_all(&staging);
             return Err(error);
         }
-        match std::fs::rename(&staging, &cached) {
+        match crate::publish_directory(&staging, &cached) {
             Ok(()) => Ok(cached),
             // Another download of the same artifact finished first. Its directory holds
             // the same content, so it is a better answer than failing.
