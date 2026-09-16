@@ -659,3 +659,65 @@ async fn the_onboarding_answer_persists() {
     assert!(restarted.snapshot().await.onboarded);
     restarted.shutdown().await;
 }
+
+/// The development reset puts an installation back to what a first launch looks like:
+/// nothing installed, nothing remembered, and no package directories left behind.
+#[tokio::test]
+async fn resetting_to_first_launch_leaves_nothing_installed() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("installed");
+    let source = temp.path().join("package");
+    configurable_package(&source, "test.one", "one");
+    let runtime = Runtime::new(root.clone()).unwrap();
+    runtime.install(&source).await.unwrap();
+    runtime.complete_onboarding().await.unwrap();
+    runtime.set_setting("test.one", "wrap", json!(false)).await.unwrap();
+    runtime.enabled("test.one", false).await.unwrap();
+    assert_eq!(runtime.snapshot().await.plugins.len(), 1);
+
+    runtime.reset_to_first_launch().await.unwrap();
+    let snapshot = runtime.snapshot().await;
+    assert!(snapshot.plugins.is_empty());
+    assert!(!snapshot.onboarded);
+    // Nothing comes back on the next scan: the directories are gone, not merely retired.
+    runtime.scan().await.unwrap();
+    let snapshot = runtime.snapshot().await;
+    assert!(snapshot.plugins.is_empty());
+    assert!(snapshot.warnings.is_empty(), "{:?}", snapshot.warnings);
+    // The plugin root holds the state file as well, so this counts package directories.
+    let packages = std::fs::read_dir(&root)
+        .unwrap()
+        .flatten()
+        .filter(|entry| entry.path().is_dir())
+        .count();
+    assert_eq!(packages, 0);
+
+    // The remembered choices went with it, so the plugin comes back at its defaults.
+    runtime.install(&source).await.unwrap();
+    let plugins = runtime.snapshot().await.plugins;
+    assert_eq!(plugins.len(), 1);
+    assert!(plugins[0].enabled);
+    assert_eq!(plugins[0].values["wrap"], json!(true));
+    runtime.shutdown().await;
+}
+
+/// The reset is refused while a draft is open, so it cannot quietly discard edits.
+#[tokio::test]
+async fn resetting_to_first_launch_refuses_unsaved_edits() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("installed");
+    configurable_package(&root.join("one"), "test.one", "one");
+    let runtime = Runtime::new(root.clone()).unwrap();
+    runtime.scan().await.unwrap();
+    let file = temp.path().join("note.one");
+    std::fs::write(&file, "hello").unwrap();
+    let session = runtime.open(file).await.unwrap();
+    ready(&runtime, &session.id).await;
+    runtime.dirty(&session.id, true).await.unwrap();
+    assert!(runtime.reset_to_first_launch().await.is_err());
+    assert_eq!(runtime.snapshot().await.plugins.len(), 1);
+    runtime.dirty(&session.id, false).await.unwrap();
+    runtime.reset_to_first_launch().await.unwrap();
+    assert!(runtime.snapshot().await.plugins.is_empty());
+    runtime.shutdown().await;
+}

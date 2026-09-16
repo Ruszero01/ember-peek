@@ -370,7 +370,14 @@ pub fn reap(app: &AppHandle, dirty: bool) {
 pub fn setup(app: &AppHandle) -> tauri::Result<()> {
     app.manage(Desktop::default());
     let settings = MenuItem::with_id(app, "settings", "设置", true, None::<&str>)?;
+    // Development only: the first-run chooser otherwise only comes back by clearing the
+    // app data directory by hand, which is not something to ask of whoever is testing it.
+    #[cfg(debug_assertions)]
+    let reset = MenuItem::with_id(app, "reset", "重置为首次启动", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
+    #[cfg(debug_assertions)]
+    let menu = Menu::with_items(app, &[&settings, &reset, &quit])?;
+    #[cfg(not(debug_assertions))]
     let menu = Menu::with_items(app, &[&settings, &quit])?;
     let mut tray = TrayIconBuilder::with_id("ember-peek")
         .tooltip("Ember Peek · 选中文件后按空格预览")
@@ -379,6 +386,32 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
         .on_menu_event(|app, event| match event.id.as_ref() {
             "settings" => {
                 let _ = show_settings(app.clone(), None);
+            }
+            #[cfg(debug_assertions)]
+            "reset" => {
+                let app = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    let runtime = app.state::<Arc<Runtime>>();
+                    if let Err(error) = runtime.reset_to_first_launch().await {
+                        // The tray has nowhere else to report this, and the usual reason is
+                        // a draft the developer has to deal with first.
+                        eprintln!("Reset to first launch: {error}");
+                        let _ = tauri::async_runtime::spawn_blocking(move || {
+                            rfd::MessageDialog::new()
+                                .set_title("无法重置为首次启动")
+                                .set_description(error)
+                                .set_buttons(rfd::MessageButtons::Ok)
+                                .show()
+                        })
+                        .await;
+                        return;
+                    }
+                    // The chooser is what a first launch shows, so show it now rather than
+                    // making the developer find the market themselves.
+                    if let Err(error) = show_settings(app.clone(), Some("welcome".into())) {
+                        eprintln!("Welcome window: {error}");
+                    }
+                });
             }
             "quit" => {
                 let app = app.clone();

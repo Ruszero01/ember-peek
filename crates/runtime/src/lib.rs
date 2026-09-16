@@ -303,6 +303,46 @@ impl Runtime {
         self.persist(&inner)
     }
 
+    /// Put this installation back to what a first launch looks like: nothing installed and
+    /// nothing remembered. Development builds offer it from the tray, because the first-run
+    /// chooser is otherwise only reachable by clearing the app data directory by hand.
+    pub async fn reset_to_first_launch(&self) -> Result<(), String> {
+        // Refused rather than answered with data loss, the same as uninstalling.
+        if self.has_dirty().await {
+            return Err("请先保存或撤销未保存的编辑".into());
+        }
+        // A running plugin's own executable cannot be deleted on Windows, so they stop
+        // first; nothing is left that could hold a package directory open.
+        self.shutdown().await;
+        let mut inner = self.inner.lock().await;
+        inner.packages.clear();
+        inner.sessions.clear();
+        inner.active = None;
+        inner.preferred.clear();
+        inner.activation.clear();
+        inner.disabled.clear();
+        inner.settings.clear();
+        inner.view_states.clear();
+        inner.warnings.clear();
+        inner.removed.clear();
+        inner.onboarded = false;
+        // A fresh installation has no package directories either. Anything still locked by
+        // a process that has not exited yet stays retired instead, and the collector
+        // removes it once that process is gone.
+        for entry in std::fs::read_dir(&self.root)
+            .map_err(|e| e.to_string())?
+            .flatten()
+        {
+            if let Ok(package) = Package::load(&entry.path()) {
+                let key = package.key();
+                if std::fs::remove_dir_all(entry.path()).is_err() {
+                    inner.removed.insert(key);
+                }
+            }
+        }
+        self.persist(&inner)
+    }
+
     /// Store one declared setting. Unknown keys and values that fail the schema are
     /// rejected, so persisted state can always be trusted by the running plugin.
     pub async fn set_setting(
