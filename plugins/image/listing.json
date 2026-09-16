@@ -1,5 +1,5 @@
 {
-  "summary": "图片预览，支持缩放、适应窗口和拖动。支持 PNG、JPEG、GIF、WebP、BMP、AVIF 和 SVG。",
+  "summary": "支持缩放、适应窗口和拖动。",
   "publisher": "Ember Peek",
   "recommended": true
 }
