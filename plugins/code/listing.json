@@ -1,4 +1,5 @@
 {
   "summary": "按语言显示语法高亮、共享行号和阅读位置。",
-  "publisher": "Ember Peek"
+  "publisher": "Ember Peek",
+  "recommended": true
 }

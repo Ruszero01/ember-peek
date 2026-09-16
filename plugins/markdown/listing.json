@@ -1,4 +1,5 @@
 {
   "summary": "Markdown 渲染与源码切换，标题大纲自动跟随阅读位置。",
-  "publisher": "Ember Peek"
+  "publisher": "Ember Peek",
+  "recommended": true
 }

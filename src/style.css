@@ -1588,8 +1588,9 @@ kbd {
 .welcome-heading h1 { font-size: 19px; font-weight: 600; color: var(--text); margin: 0; }
 .welcome-heading p { margin: 0; max-width: 520px; font-size: 11.5px; line-height: 1.85; color: var(--muted); }
 /* Capped tracks with the row centred, so one or two suggestions stay a readable card
-   rather than stretching across the window. */
-.welcome-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(196px, 240px)); justify-content: center; gap: 12px; width: 100%; max-width: 780px; }
+   rather than stretching across the window. The cap fits four tracks, which is what the
+   shipped sources suggest, so the row does not break into a ragged second line. */
+.welcome-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(196px, 240px)); justify-content: center; gap: 12px; width: 100%; max-width: 1020px; }
 .welcome-item { position: relative; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 20px 16px 18px; border: 1px solid var(--border); border-radius: 13px; background: var(--card); color: inherit; text-align: center; cursor: pointer; transition: border-color .18s, background .18s, transform .18s; }
 .welcome-item:hover { border-color: color-mix(in srgb, var(--accent) 24%, var(--border)); transform: translateY(-1px); }
 .welcome-item.selected { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); background: linear-gradient(160deg, var(--accent-bg), var(--card)); }
