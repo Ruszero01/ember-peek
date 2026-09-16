@@ -65,6 +65,8 @@ await client.typeText("插件");
 
 **1. 应用启动时不创建窗口。** `src-tauri/tauri.conf.json` 里 `"windows": []`，窗口按需创建（托盘、资源管理器空格、设置、命令行传文件路径）。所以在打开窗口之前，`live-targets.mjs` 没有目标，调试端口也不会打开。
 
+**宿主默认没有窗口。** 窗口按需创建，托盘应用启动时一个窗口都没有，所以 `live-targets.mjs` 会看不到目标。用 `EMBER_DEBUG_WINDOW=settings` 让宿主启动时开一个设置窗口（另有 `plugins`/`about`/`welcome`），不要为了让引导页出现去改 `.plugins/host-state.json` 的 `onboarded`。
+
 **2. 插件更新会切断并自动重开正在预览的会话。** 更新是覆盖式的：宿主先停掉该插件的进程，把新包换进同一个安装目录，再按原路径重新打开被切断的文件——所以改完插件代码（`plugins:watch` 会重建本地镜像，宿主两秒内同步）**不需要手动重开文件**，预览会自己刷新到新构建。`revision` 只在一次安装的生命周期内保持不变，`.plugins/` 下每个插件只有一个目录。排查"改了没生效"时先确认镜像确实重建了（构建脚本会打印新的 buildId）——目录缓存有 10 分钟 TTL，宿主最长要等这么久才会看到新目录。
 
 **3. `dev-with-debug.ps1` 必须保持纯 ASCII。** Windows PowerShell 5.1 用系统 ANSI 码页读取 `.ps1`，非 ASCII 字符（比如中文注释）会变成乱码并可能直接导致语法错误。

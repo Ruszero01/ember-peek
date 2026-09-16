@@ -19,6 +19,8 @@ export function Welcome({ onDone }: { onDone: () => Promise<unknown> }) {
   const [entries, setEntries] = useState<MarketEntry[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [warnings, setWarnings] = useState<string[]>([]);
+  /** Whether the source suggested anything at all, which decides how an empty page reads. */
+  const [suggestions, setSuggestions] = useState(false);
   const [loading, setLoading] = useState(true);
   const [progress, setProgress] = useState("");
   const [error, setError] = useState("");
@@ -37,12 +39,17 @@ export function Welcome({ onDone }: { onDone: () => Promise<unknown> }) {
         const installable = result.entries.filter(
           (entry) => !entry.installedVersion,
         );
-        const suggested = installable.filter((entry) => entry.recommended);
-        const offered = suggested.length
-          ? suggested
+        // A source that marks nothing has a few entries picked for it, so a fresh install is
+        // not looking at an empty page. A source that does mark them is taken at its word:
+        // once its suggestions are installed there is nothing to suggest, and filling the page
+        // with whatever else the catalog holds would present unrelated plugins as suggestions.
+        const marked = result.entries.some((entry) => entry.recommended);
+        const offered = marked
+          ? installable.filter((entry) => entry.recommended)
           : installable.slice(0, SUGGESTION_LIMIT);
         setEntries(offered);
         setSelected(new Set(offered.map((entry) => entry.id)));
+        setSuggestions(marked);
         setWarnings(result.warnings);
       } catch (e) {
         if (!disposed) setError(String(e));
@@ -121,7 +128,19 @@ export function Welcome({ onDone }: { onDone: () => Promise<unknown> }) {
       {!loading && !entries.length && !warnings.length && (
         <div className="card empty-plugins">
           <Package size={28} />
-          <p>暂时没有可安装的插件，稍后可以在“插件市场”里再看看。</p>
+          <p>
+            {suggestions
+              ? "推荐的基础插件都已安装，其他插件可以在“插件市场”里选择。"
+              : "暂时没有可安装的插件，稍后可以在“插件市场”里再看看。"}
+          </p>
+          <button
+            className="secondary-button"
+            disabled={busy}
+            onClick={() => void finish()}
+          >
+            去插件市场
+            <ArrowRight size={15} />
+          </button>
         </div>
       )}
       {entries.length > 0 && (
@@ -151,18 +170,21 @@ export function Welcome({ onDone }: { onDone: () => Promise<unknown> }) {
         </div>
       )}
       <div className="welcome-actions">
-        <button
-          className="primary-button"
-          disabled={busy || !selected.size}
-          onClick={() => void install()}
-        >
-          {busy ? (
-            <LoaderCircle size={15} className="spinner" />
-          ) : (
-            <Check size={15} />
-          )}
-          {busy ? progress || "正在安装…" : `安装所选（${selected.size}）`}
-        </button>
+        {/* Nothing to install means the page offers the marketplace instead of a dead button. */}
+        {entries.length > 0 && (
+          <button
+            className="primary-button"
+            disabled={busy || !selected.size}
+            onClick={() => void install()}
+          >
+            {busy ? (
+              <LoaderCircle size={15} className="spinner" />
+            ) : (
+              <Check size={15} />
+            )}
+            {busy ? progress || "正在安装…" : `安装所选（${selected.size}）`}
+          </button>
+        )}
         <button
           className="secondary-button"
           disabled={busy}

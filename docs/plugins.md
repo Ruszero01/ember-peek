@@ -447,6 +447,8 @@ ui/sdk.js   ui/sdk-ui.css   ui/sdk-search.js
 
 需要验证真实远程源时，用 `EMBER_MARKET_SOURCES` 指向一个来源文件即可（它只在 debug 构建里生效）。
 
+窗口是按需创建的，托盘应用启动时通常一个窗口都没有。调试时如果需要窗口（例如让 `tools/live-targets.mjs` 有目标可连），用 `EMBER_DEBUG_WINDOW=settings|plugins|about|welcome` 让宿主启动时直接打开对应页面，而不是去清掉首启引导的答案——后者会让下次启动重新弹出引导页。同样是 debug 构建专有。
+
 ### 数值拖动工具栏控件
 
 `controls()` 支持 `kind: "scrub"`：声明有限的 `value`、`min`、`max`（`0 < min < max`），可选 `suffix`。宿主默认显示数值，按住并上下拖动时显示虚拟刻度；向上增大、向下减小，松开/取消后恢复数字。`run(value)` 接收绝对数值；插件重新发布控件以同步滚轮等其他操作引起的变化。支持方向键、Home 和 End。图片插件以百分比声明缩放范围，保留适应窗口和原始尺寸按钮。

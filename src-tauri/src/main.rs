@@ -314,7 +314,25 @@ fn main() {
             // A fresh install can preview nothing at all, so the first run asks which
             // plugins to install and then installs them the normal way. It is recorded
             // as answered, so it is shown exactly once.
-            if !tauri::async_runtime::block_on(runtime.snapshot()).onboarded {
+            if cfg!(debug_assertions) {
+                // Development opens a window on request: windows are created on demand, so
+                // tooling that needs one would otherwise have to clear the first-run answer
+                // just to get a window it can talk to.
+                match std::env::var("EMBER_DEBUG_WINDOW") {
+                    Ok(page) => {
+                        let page = Some(page);
+                        if let Err(error) = desktop::show_settings(app.handle().clone(), page) {
+                            eprintln!("Debug window: {error}");
+                        }
+                    }
+                    Err(_) if !tauri::async_runtime::block_on(runtime.snapshot()).onboarded => {
+                        if let Err(error) = desktop::show_settings(app.handle().clone(), Some("welcome".into())) {
+                            eprintln!("Welcome window: {error}");
+                        }
+                    }
+                    Err(_) => {}
+                }
+            } else if !tauri::async_runtime::block_on(runtime.snapshot()).onboarded {
                 if let Err(error) = desktop::show_settings(app.handle().clone(), Some("welcome".into())) {
                     eprintln!("Welcome window: {error}");
                 }
