@@ -3,6 +3,8 @@
 /dist/
 /.plugins/
 /.marketplace/
+/.release/
+/.plugin-cache/
 /src-tauri/gen/
 *.log
 *.tmp

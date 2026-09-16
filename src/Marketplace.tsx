@@ -5,8 +5,19 @@ import { PluginDetails } from "./PluginDetails";
 import { PluginConfirm, type PluginAction } from "./PluginConfirm";
 import { pluginIcon } from "./pluginIcons";
 
+type Source =
+  | { kind: "local"; location: string }
+  | {
+      kind: "remote";
+      name: string;
+      catalog: string;
+      urls: string[];
+      sha256: string;
+      size: number;
+    };
+
 type Entry = {
-  source: { kind: "local"; location: string };
+  source: Source;
   id: string;
   name: string;
   version: string;
@@ -18,6 +29,19 @@ type Entry = {
   updateAvailable: boolean;
 };
 
+type MarketList = { entries: Entry[]; warnings: string[] };
+
+/** Where an entry comes from, spelled for the details panel and the confirm dialog. */
+function sourceLabel(source: Source) {
+  return source.kind === "local" ? source.location : source.urls[0];
+}
+
+function sourceSize(source: Source) {
+  return source.kind === "local"
+    ? ""
+    : ` · ${(source.size / 1024 / 1024).toFixed(1)} MiB`;
+}
+
 export function Marketplace({
   filter,
   onInstalled,
@@ -26,14 +50,16 @@ export function Marketplace({
   onInstalled: () => Promise<unknown>;
 }) {
   const [entries, setEntries] = useState<Entry[]>([]);
+  const [warnings, setWarnings] = useState<string[]>([]);
   const [error, setError] = useState("");
   const [loadError, setLoadError] = useState("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState("");
   const [action, setAction] = useState<PluginAction | null>(null);
   async function refresh() {
-    const result = await call<Entry[]>("market_list");
-    setEntries(result);
+    const result = await call<MarketList>("market_list");
+    setEntries(result.entries);
+    setWarnings(result.warnings);
     setError("");
   }
   useEffect(() => {
@@ -45,9 +71,10 @@ export function Marketplace({
       timer: ReturnType<typeof setTimeout>;
     const poll = async () => {
       try {
-        const result = await call<Entry[]>("market_list");
+        const result = await call<MarketList>("market_list");
         if (!disposed) {
-          setEntries(result);
+          setEntries(result.entries);
+          setWarnings(result.warnings);
           setLoadError("");
         }
       } catch (error) {
@@ -65,12 +92,19 @@ export function Marketplace({
       clearTimeout(timer);
     };
   }, []);
-  async function install(id: string, progress: (label: string) => void) {
-    setBusy(id);
+  async function install(
+    entry: Entry,
+    progress: (label: string) => void,
+  ) {
+    setBusy(entry.id);
     setError("");
     try {
-      progress("正在读取并校验本地插件包…");
-      const path = await call<string>("market_prepare", { id });
+      progress(
+        entry.source.kind === "remote"
+          ? "正在下载并校验插件包…"
+          : "正在读取并校验本地插件包…",
+      );
+      const path = await call<string>("market_prepare", { id: entry.id });
       progress("正在安装插件…");
       await call("install_plugin", { path });
       progress("正在刷新插件列表…");
@@ -87,15 +121,23 @@ export function Marketplace({
       .toLowerCase()
       .includes(filter.toLowerCase()),
   );
+  const anyRemote = entries.some((entry) => entry.source.kind === "remote");
   return (
     <>
       {action && <PluginConfirm action={action} onClose={() => setAction(null)} />}
-      <div className="market-source"><Package size={16} /><div><strong>本地插件市场</strong><span>从本地目录获取 · 安装后即可使用</span></div><span className="source-badge">本地源</span></div>
+      <div className="market-source"><Package size={16} /><div><strong>{anyRemote ? "插件市场" : "本地插件市场"}</strong><span>{anyRemote ? "内置插件随应用提供，远程来源的插件下载后校验安装" : "从本地目录获取 · 安装后即可使用"}</span></div><span className="source-badge">{anyRemote ? "本地 + 远程" : "本地源"}</span></div>
       {(error || loadError) && (
         <p className="warning" role="alert">
           {error || loadError}
         </p>
       )}
+      {/* A source that could not be read is reported here: a market quietly missing
+          the entries it was configured with is worse than a visible warning. */}
+      {warnings.map((warning, index) => (
+        <p className="warning" role="alert" key={`${index}-${warning}`}>
+          {warning}
+        </p>
+      ))}
       {loading && (
         <p className="quiet-note">
           <LoaderCircle size={16} className="spinner" /> 正在读取市场…
@@ -137,7 +179,10 @@ export function Marketplace({
                     <p>{entry.summary}</p>
                     <PluginDetails extensions={entry.extensions}>
                       <p>{entry.publisher} · {entry.id}{entry.installedVersion ? ` · 已安装 v${entry.installedVersion}` : ""}</p>
-                      <p className="source-path">来源：{entry.source.location}</p>
+                      <p className="source-path">
+                        来源：{sourceLabel(entry.source)}{sourceSize(entry.source)}
+                        {entry.source.kind === "remote" ? `（${entry.source.name}）` : ""}
+                      </p>
                     </PluginDetails>
                   </div>
                   <button
@@ -146,7 +191,7 @@ export function Marketplace({
                       !!busy ||
                       (!!entry.installedVersion && !entry.updateAvailable)
                     }
-                    onClick={() => setAction({ name: entry.name, kind: entry.updateAvailable ? "update" : "install", detail: `v${entry.version} · ${entry.publisher} · ${entry.source.location}`, run: progress => install(entry.id, progress) })}
+                    onClick={() => setAction({ name: entry.name, kind: entry.updateAvailable ? "update" : "install", detail: `v${entry.version} · ${entry.publisher} · ${sourceLabel(entry.source)}`, run: progress => install(entry, progress) })}
                   >
                     {busy === entry.id ? (
                       <LoaderCircle size={14} className="spinner" />

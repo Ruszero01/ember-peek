@@ -13,6 +13,7 @@
     "build:desktop": "tauri build",
     "plugins:build": "node scripts/build-plugins.mjs",
     "plugins:watch": "node scripts/build-plugins.mjs --watch",
+    "plugins:dist": "node scripts/build-plugins.mjs --dist",
     "version:check": "node scripts/sync-version.mjs --check",
     "version:set": "node scripts/sync-version.mjs --set",
     "check": "npm run build && npm run plugins:build && cargo check --workspace",

@@ -1,3 +1,4 @@
+mod artifact;
 mod composition;
 pub mod manifest;
 pub mod market;

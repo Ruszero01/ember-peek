@@ -33,6 +33,12 @@ async fn ready(runtime: &Arc<Runtime>, id: &str) {
     }
 }
 
+/// A market laid out the way the host builds it: a bundled catalog beside a cache for
+/// downloaded packages.
+fn test_market(root: &Path) -> Market {
+    Market::new(root.join("market"), root.join("cache")).unwrap()
+}
+
 #[tokio::test]
 async fn matching_plugins_compose_and_switch_without_reopening() {
     let temp = tempfile::tempdir().unwrap();
@@ -295,37 +301,37 @@ async fn marketplace_install_update_and_uninstall_are_real_package_operations() 
     manifest["buildId"] = json!("first-build");
     std::fs::write(&manifest_path, manifest.to_string()).unwrap();
     std::fs::write(temp.path().join("market/catalog.json"), json!({"api":1,"entries":[{"id":"test.one","directory":"one","summary":"Test plugin","publisher":"Tests"}]}).to_string()).unwrap();
-    let market = Market {
-        root: temp.path().join("market"),
-    };
+    let market = test_market(temp.path());
     let runtime = Runtime::new(temp.path().join("installed")).unwrap();
-    assert!(market.list(&runtime).await.unwrap()[0]
+    assert!(market.list(&runtime).await.unwrap().entries[0]
         .installed_version
         .is_none());
     // The market card needs the same icon the installed card uses.
     assert_eq!(
-        market.list(&runtime).await.unwrap()[0].icon.as_deref(),
+        market.list(&runtime).await.unwrap().entries[0]
+            .icon
+            .as_deref(),
         Some("file-text")
     );
     // Preparation validates the local source without installing anything.
     let prepared = market.prepare("test.one").await.unwrap();
     assert_eq!(prepared, source.canonicalize().unwrap());
     assert!(runtime.snapshot().await.plugins.is_empty());
-    let entries = market.list(&runtime).await.unwrap();
+    let entries = market.list(&runtime).await.unwrap().entries;
     let entry = serde_json::to_value(&entries[0]).unwrap();
     assert_eq!(entry["source"]["kind"], "local");
     assert_eq!(entry["source"]["location"], prepared.to_string_lossy().as_ref());
     assert!(market.prepare("unknown.plugin").await.is_err());
     market.install(&runtime, "test.one").await.unwrap();
-    assert!(market.list(&runtime).await.unwrap()[0]
+    assert!(market.list(&runtime).await.unwrap().entries[0]
         .installed_version
         .is_some());
-    assert!(!market.list(&runtime).await.unwrap()[0].update_available);
+    assert!(!market.list(&runtime).await.unwrap().entries[0].update_available);
     manifest["buildId"] = json!("second-build");
     std::fs::write(&manifest_path, manifest.to_string()).unwrap();
-    assert!(market.list(&runtime).await.unwrap()[0].update_available);
+    assert!(market.list(&runtime).await.unwrap().entries[0].update_available);
     market.sync_development(&runtime).await.unwrap();
-    assert!(!market.list(&runtime).await.unwrap()[0].update_available);
+    assert!(!market.list(&runtime).await.unwrap().entries[0].update_available);
     runtime.uninstall("test.one").await.unwrap();
     market.sync_development(&runtime).await.unwrap();
     assert!(runtime.snapshot().await.plugins.is_empty());
@@ -353,9 +359,7 @@ async fn market_install_carries_the_settings_declaration() {
     )
     .unwrap();
 
-    let market = Market {
-        root: temp.path().join("market"),
-    };
+    let market = test_market(temp.path());
     let runtime = Runtime::new(temp.path().join("installed")).unwrap();
     market.install(&runtime, "test.one").await.unwrap();
 

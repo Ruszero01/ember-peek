@@ -2,6 +2,8 @@ plugins/
 sdk/
 .plugins/
 .marketplace/
+.release/
+.plugin-cache/
 tests/
 scripts/
 

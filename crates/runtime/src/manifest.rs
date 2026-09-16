@@ -284,9 +284,47 @@ pub struct Manifest {
     pub revision: u64,
     #[serde(default)]
     pub build_id: String,
+    /// Platforms this package's native executable runs on, as `os-arch` (for example
+    /// `windows-x86_64`). Empty means the package does not restrict itself, which is
+    /// also how packages built before this field existed keep loading.
+    #[serde(default)]
+    pub targets: Vec<String>,
+}
+
+/// The target this host runs, spelled the way `targets` declares it. Packaging runs
+/// on the build host, so a package built here can only intend this value.
+pub const HOST_TARGET: &str = if cfg!(all(target_os = "windows", target_arch = "x86_64")) {
+    "windows-x86_64"
+} else if cfg!(all(target_os = "windows", target_arch = "aarch64")) {
+    "windows-aarch64"
+} else if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+    "macos-aarch64"
+} else if cfg!(all(target_os = "macos", target_arch = "x86_64")) {
+    "macos-x86_64"
+} else if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
+    "linux-x86_64"
+} else if cfg!(all(target_os = "linux", target_arch = "aarch64")) {
+    "linux-aarch64"
+} else {
+    "unknown"
+};
+
+pub fn valid_target(target: &str) -> bool {
+    !target.is_empty()
+        && target.len() <= 32
+        && target
+            .bytes()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-' || c == b'_')
 }
 
 impl Manifest {
+    /// Whether this host can run the package's executable. A package that declares no
+    /// target is not restricted; the installer still only ever runs the binary it
+    /// extracted, so the worst case of a wrong declaration is a clear failure to start.
+    pub fn runs_here(&self) -> bool {
+        self.targets.is_empty() || self.targets.iter().any(|t| t == HOST_TARGET)
+    }
+
     pub fn matches(&self, extension: &str) -> bool {
         self.extensions.is_empty()
             || self.extensions.iter().any(|e| {
@@ -399,6 +437,17 @@ impl Package {
             {
                 return Err("Icon must be a lowercase kebab-case name".into());
             }
+        }
+        if manifest.targets.len() > 8
+            || manifest
+                .targets
+                .iter()
+                .enumerate()
+                .any(|(index, target)| {
+                    !valid_target(target) || manifest.targets[..index].contains(target)
+                })
+        {
+            return Err("Invalid target declaration".into());
         }
         contained(directory, &manifest.executable)?;
         contained(directory, &manifest.entry)?;

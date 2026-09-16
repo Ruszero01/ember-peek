@@ -6,7 +6,7 @@ mod explorer;
 
 use base64::Engine;
 use ember_runtime::manifest::{Activation, Permission};
-use ember_runtime::market::{Entry, Market};
+use ember_runtime::market::{Market, MarketList};
 use ember_runtime::{Runtime, Snapshot};
 use serde_json::Value;
 use std::{path::PathBuf, sync::Arc};
@@ -25,7 +25,7 @@ async fn view_state(
 }
 
 #[tauri::command]
-async fn market_list(host: Host<'_>, market: State<'_, Market>) -> Result<Vec<Entry>, String> {
+async fn market_list(host: Host<'_>, market: State<'_, Market>) -> Result<MarketList, String> {
     market.list(host.inner()).await
 }
 
@@ -252,14 +252,20 @@ fn main() {
             });
         })
         .setup(|app| {
-            let root = if cfg!(debug_assertions) { PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join(".plugins") }
+            let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_path_buf();
+            let root = if cfg!(debug_assertions) { workspace.join(".plugins") }
                 else { app.path().app_data_dir()?.join("plugins") };
             let runtime = Runtime::new(root).map_err(std::io::Error::other)?;
             tauri::async_runtime::block_on(runtime.scan()).map_err(std::io::Error::other)?;
             app.manage(runtime.clone());
-            let market = Market { root: if cfg!(debug_assertions) {
-                PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join(".marketplace")
-            } else { app.path().resource_dir()?.join("marketplace") } };
+            let market = Market::new(
+                if cfg!(debug_assertions) { workspace.join(".marketplace") }
+                    else { app.path().resource_dir()?.join("marketplace") },
+                // Downloaded packages are cached by content hash, so reinstalling or
+                // retrying an install does not download them twice.
+                if cfg!(debug_assertions) { workspace.join(".plugin-cache") }
+                    else { app.path().app_data_dir()?.join("plugin-cache") },
+            ).map_err(std::io::Error::other)?;
             app.manage(market.clone());
             desktop::setup(app.handle())?;
             #[cfg(windows)]

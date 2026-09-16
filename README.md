@@ -57,7 +57,17 @@ Ctrl+C 退出整组开发服务，由 Tauri CLI 管理后端与开发钩子的�
 - Rust 托盘与 Explorer 监听继续运行，下次触发按需重建窗口。关闭预览不会取消原生插件加载；未使用的插件会话按运行时的 120 秒策略回收。
 - 彻底退出：右键托盘“退出”，释放快捷键监听和插件进程。
 
-内置市场是本地目录源，可离线使用，提供纯文本、代码、Markdown 预览、文本编辑、图片预览和全类型文件信息插件。市场包由构建生成到 `.marketplace`，发行时作为 Tauri resources 随应用提供；用户点击安装后才复制到独立的安装目录。它不包含在线目录服务器、网络下载或账户系统。
+内置市场是本地目录源，可离线使用，提供纯文本、代码、Markdown 预览、文本编辑、图片预览和全类型文件信息插件。市场包由构建生成到 `.marketplace`，发行时作为 Tauri resources 随应用提供；用户点击安装后才复制到独立的安装目录。
+
+这份内置目录同一份 schema 也能描述**远程目录**：内置目录里的 `sources` 指向已发布的 `catalog.json` 与它的插件包地址，远程条目以 zip 下载，装前校验 `sha256`（传输）与 `buildId`（身份）。下载物按哈希缓存在 `.plugin-cache`（发行版在应用数据目录的 `plugin-cache`），重复安装不重复下载。**没有签名校验**：目录里声明 `signature` 会被直接拒绝而不是被当作已校验，详见[插件开发](docs/plugins.md)。
+
+发布插件包：
+
+```powershell
+npm run plugins:dist -- --base-url https://example.com/plugins
+```
+
+产物在 `.release/`（`catalog.json` 加每个插件一个 zip），整体上传到该地址即可。不配置 `--base-url` 也能产出包，脚本会提示发布出去的目录还不知道自己在哪里。
 
 开发版已安装插件位于 `.plugins`。发行版位于系统应用数据目录的 `org.emberpeek.desktop/plugins`。市场内的每个包都包含独立可执行程序和网页视图，宿主仍不包含任何预览实现。
 
@@ -66,10 +76,11 @@ Ctrl+C 退出整组开发服务，由 Tauri CLI 管理后端与开发钩子的�
 ```powershell
 npm test
 npm run check
+npm run plugins:dist   # 产出 .release/ 下可上传的插件包与目录索引
 npm run build:desktop
 ```
 
-`npm test` 使用真实独立子进程测试并发加载、切换类型、崩溃恢复、安装新格式、禁用与闲置回收。`npm run check` 检查前端生产构建和 Rust workspace。以上命令不启动开发服务器。
+`npm test` 使用真实独立子进程测试并发加载、切换类型、崩溃恢复、安装新格式、禁用与闲置回收，并覆盖打包器与发布目录（含一个由发布脚本产出、由宿主解包器读取的固定 zip）。`npm run check` 检查前端生产构建和 Rust workspace。以上命令不启动开发服务器。
 
 ## 目录
 
@@ -91,7 +102,7 @@ tests/                前端协议测试
 
 保留品牌、浅深主题、设置侧栏、开关样式、悬浮操作栏和沉浸交互。文本预览插件保持最小原型：UTF-8/UTF-16、虚拟行、复制与自动换行，最多读取前 2 MiB；Markdown 当前按纯文本处理。图片插件支持 WebView2 可解码的 PNG/JPEG/GIF/WebP/BMP/AVIF/SVG，限制 32 MiB，提供缩放和拖动。
 
-FBX、PDF、PSD 插件尚未实现；这套协议允许插件携带自己的解析器和任意 HTML/Canvas/WebGL 视图，安装时无需修改宿主。原型提供内置本地市场，没有在线市场或签名系统。Explorer 集成仅响应资源管理器文件列表中的无修饰空格，不接管其他应用、地址栏、搜索框或重命名输入。多选时预览选择集合的第一项；没有文件系统路径的虚拟项不触发预览。
+FBX、PDF、PSD 插件尚未实现；这套协议允许插件携带自己的解析器和任意 HTML/Canvas/WebGL 视图，安装时无需修改宿主。市场已能通过内置目录的 `sources` 接入远程目录（zip 包 + `sha256`/`buildId` 校验），但没有签名系统：目录里声明 `signature` 会被拒绝，而不是被当作已校验。Explorer 集成仅响应资源管理器文件列表中的无修饰空格，不接管其他应用、地址栏、搜索框或重命名输入。多选时预览选择集合的第一项；没有文件系统路径的虚拟项不触发预览。
 
 能力协议和验收项见 [插件能力](docs/specs/plugin-capabilities.md)。
 
