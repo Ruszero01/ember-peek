@@ -1,10 +1,21 @@
 import { useEffect, useState } from "react";
-import { Package, Download, RotateCw, Check, LoaderCircle } from "lucide-react";
+import {
+  Package,
+  Download,
+  RotateCw,
+  ChevronDown,
+  ChevronUp,
+  LoaderCircle,
+} from "lucide-react";
 import { call, desktop } from "./bridge";
 import { PluginDetails } from "./PluginDetails";
 import { PluginConfirm, type PluginAction } from "./PluginConfirm";
 import { pluginIcon } from "./pluginIcons";
 import type { MarketEntry, MarketList, MarketSource } from "./types";
+
+/** How many installed plugins stay on screen before the group folds. Two rows of chips at
+ *  a normal window width: enough to recognise what is there, not a reason to scroll. */
+const INSTALLED_VISIBLE = 8;
 
 /** Where an entry comes from, spelled for the details panel and the confirm dialog. */
 function sourceLabel(source: MarketSource) {
@@ -15,12 +26,64 @@ function sourceSize(source: MarketSource) {
   return ` · ${(source.size / 1024 / 1024).toFixed(1)} MiB`;
 }
 
+/** One installed plugin as a chip.
+ *
+ *  The market is for finding plugins; reading, reordering and removing installed ones
+ *  happens in the plugin manager, which lists them in full. So this keeps identity and the
+ *  single action that belongs here — an update that is actually waiting — and leaves
+ *  publisher, source and file types out of the way. */
+function InstalledChip({
+  entry,
+  busy,
+  onUpdate,
+}: {
+  entry: MarketEntry;
+  busy: boolean;
+  onUpdate: () => void;
+}) {
+  const Icon = pluginIcon(entry.icon);
+  return (
+    <div
+      className={`installed-chip${entry.updateAvailable ? " has-update" : ""}`}
+      title={`${entry.publisher} · ${entry.id}`}
+    >
+      <span className="plugin-icon">
+        <Icon size={16} />
+      </span>
+      <span className="installed-chip-text">
+        <strong>{entry.name}</strong>
+        {/* The version stays short so a real plugin name is never the part that gets
+            truncated; what the update moves away from is in the button's tooltip, and the
+            confirm dialog repeats it before anything is installed. */}
+        <span>v{entry.version}</span>
+      </span>
+      {entry.updateAvailable && (
+        <button
+          className="chip-update"
+          disabled={busy}
+          title={`从 v${entry.installedVersion} 更新到 v${entry.version}`}
+          onClick={onUpdate}
+        >
+          {busy ? (
+            <LoaderCircle size={12} className="spinner" />
+          ) : (
+            <RotateCw size={12} />
+          )}
+          更新
+        </button>
+      )}
+    </div>
+  );
+}
+
 export function Marketplace({
   filter,
   onInstalled,
+  onManage,
 }: {
   filter: string;
   onInstalled: () => Promise<unknown>;
+  onManage?: () => void;
 }) {
   const [entries, setEntries] = useState<MarketEntry[]>([]);
   const [warnings, setWarnings] = useState<string[]>([]);
@@ -29,6 +92,7 @@ export function Marketplace({
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState("");
   const [action, setAction] = useState<PluginAction | null>(null);
+  const [showAllInstalled, setShowAllInstalled] = useState(false);
   async function refresh() {
     const result = await call<MarketList>("market_list");
     setEntries(result.entries);
@@ -118,73 +182,113 @@ export function Marketplace({
         {
           title: "未安装",
           entries: visible.filter((entry) => !entry.installedVersion),
+          compact: false,
         },
         {
           title: "已安装",
           entries: visible.filter((entry) => !!entry.installedVersion),
+          compact: true,
         },
       ]
         .filter((group) => group.entries.length > 0)
-        .map((group) => (
-          <section
-            className="market-group"
-            key={group.title}
-            aria-label={group.title}
-          >
-            <h2 className="market-group-title">
-              {group.title}
-              <span>{group.entries.length}</span>
-            </h2>
-            {group.entries.map((entry) => {
-              const Icon = pluginIcon(entry.icon);
-              return (
-                <section className="market-card" key={entry.id}>
-                  <span className="plugin-icon">
-                    <Icon size={23} />
-                  </span>
-                  <div className="plugin-detail">
-                    <h2>
-                      {entry.name}
-                      <span className="plugin-version">v{entry.version}</span>
-                    </h2>
-                    <p>{entry.summary}</p>
-                    <PluginDetails extensions={entry.extensions}>
-                      <p>{entry.publisher} · {entry.id}{entry.installedVersion ? ` · 已安装 v${entry.installedVersion}` : ""}</p>
-                      <p className="source-path">
-                        来源：{sourceLabel(entry.source)}{sourceSize(entry.source)}
-                      </p>
-                    </PluginDetails>
-                  </div>
-                  <button
-                    className="secondary-button"
-                    disabled={
-                      !!busy ||
-                      (!!entry.installedVersion && !entry.updateAvailable)
-                    }
-                    onClick={() => setAction({ name: entry.name, kind: entry.updateAvailable ? "update" : "install", detail: `v${entry.version} · ${entry.publisher} · ${sourceLabel(entry.source)}`, run: progress => install(entry, progress) })}
-                  >
-                    {busy === entry.id ? (
-                      <LoaderCircle size={14} className="spinner" />
-                    ) : entry.updateAvailable ? (
-                      <RotateCw size={14} />
-                    ) : entry.installedVersion ? (
-                      <Check size={14} />
-                    ) : (
-                      <Download size={14} />
-                    )}
-                    {busy === entry.id
-                      ? "安装中…"
-                      : entry.updateAvailable
-                        ? "更新"
-                        : entry.installedVersion
-                          ? "已安装"
-                          : "安装"}
+        .map((group) => {
+          const overflowing =
+            group.compact && group.entries.length > INSTALLED_VISIBLE;
+          const folded = overflowing && !showAllInstalled;
+          const shown = folded
+            ? group.entries.slice(0, INSTALLED_VISIBLE)
+            : group.entries;
+          return (
+            <section
+              className="market-group"
+              key={group.title}
+              aria-label={group.title}
+            >
+              <h2 className="market-group-title">
+                {group.title}
+                <span>{group.entries.length}</span>
+                {group.compact && onManage && (
+                  <button className="text-button group-manage" onClick={onManage}>
+                    在插件管理中启用或卸载
                   </button>
-                </section>
-              );
-            })}
-          </section>
-        ))}
+                )}
+              </h2>
+              {group.compact
+                ? (
+                    <div className="installed-chips">
+                      {shown.map((entry) => (
+                        <InstalledChip
+                          key={entry.id}
+                          entry={entry}
+                          busy={busy === entry.id}
+                          onUpdate={() =>
+                            setAction({
+                              name: entry.name,
+                              kind: "update",
+                              detail: `v${entry.version} · ${entry.publisher} · ${sourceLabel(entry.source)}`,
+                              run: (progress) => install(entry, progress),
+                            })
+                          }
+                        />
+                      ))}
+                    </div>
+                  )
+                : shown.map((entry) => {
+                    const Icon = pluginIcon(entry.icon);
+                    return (
+                      <section className="market-card" key={entry.id}>
+                        <span className="plugin-icon">
+                          <Icon size={23} />
+                        </span>
+                        <div className="plugin-detail">
+                          <h2>
+                            {entry.name}
+                            <span className="plugin-version">v{entry.version}</span>
+                          </h2>
+                          <p>{entry.summary}</p>
+                          <PluginDetails extensions={entry.extensions}>
+                            <p>{entry.publisher} · {entry.id}</p>
+                            <p className="source-path">
+                              来源：{sourceLabel(entry.source)}{sourceSize(entry.source)}
+                            </p>
+                          </PluginDetails>
+                        </div>
+                        <button
+                          className="secondary-button"
+                          disabled={!!busy}
+                          onClick={() => setAction({ name: entry.name, kind: "install", detail: `v${entry.version} · ${entry.publisher} · ${sourceLabel(entry.source)}`, run: progress => install(entry, progress) })}
+                        >
+                          {busy === entry.id ? (
+                            <LoaderCircle size={14} className="spinner" />
+                          ) : (
+                            <Download size={14} />
+                          )}
+                          {busy === entry.id ? "安装中…" : "安装"}
+                        </button>
+                      </section>
+                    );
+                  })}
+              {overflowing && (
+                <button
+                  className="text-button group-toggle"
+                  onClick={() => setShowAllInstalled(!showAllInstalled)}
+                >
+                  {folded ? (
+                    <>
+                      展开全部 {group.entries.length} 个
+                      <ChevronDown size={13} />
+                    </>
+                  ) : (
+                    <>
+                      收起
+                      <ChevronUp size={13} />
+                    </>
+                  )}
+                </button>
+              )}
+            </section>
+          );
+        })}
       {!loading && !error && !loadError && !visible.length && (
         <div className="card empty-plugins">
           <Package size={28} />

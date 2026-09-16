@@ -1566,7 +1566,11 @@ function App() {
                     />
                   </label>
                   {pluginTab === "market" ? (
-                    <Marketplace filter={filter} onInstalled={refresh} />
+                    <Marketplace
+                      filter={filter}
+                      onInstalled={refresh}
+                      onManage={() => setPluginTab("installed")}
+                    />
                   ) : (
                     <>
                       {snapshot.plugins

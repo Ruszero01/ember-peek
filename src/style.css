@@ -1488,6 +1488,24 @@ kbd {
 .market-source { display: flex; align-items: center; gap: 10px; padding: 13px 16px; border: 1px solid var(--border); border-radius: 10px; background: linear-gradient(110deg, var(--accent-bg), var(--card)); color: var(--accent); margin-top: 16px; }
 .market-source strong { font-size: 11px; font-weight: 600; color: var(--text); }
 .source-badge { margin-left: auto; font-size: 9px; border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent); padding: 3px 7px; border-radius: 5px; }
+/* Installed plugins are chips, not cards: the market is where plugins are found, and the
+   plugin manager is where installed ones are read, reordered and removed. A chip only has
+   to say which plugin it is, and offer an update when one is actually waiting. */
+.installed-chips { display: grid; grid-template-columns: repeat(auto-fill, minmax(212px, 1fr)); gap: 9px; }
+.installed-chip { display: flex; align-items: center; gap: 9px; min-width: 0; padding: 7px 10px; border: 1px solid var(--border); border-radius: 9px; background: var(--card); transition: border-color .18s; }
+.installed-chip:hover { border-color: color-mix(in srgb, var(--accent) 22%, var(--border)); }
+.installed-chip.has-update { border-color: color-mix(in srgb, var(--accent) 32%, var(--border)); }
+.installed-chip .plugin-icon { flex-shrink: 0; width: 26px; height: 26px; border-radius: 8px; }
+.installed-chip-text { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 7px; }
+.installed-chip-text strong, .installed-chip-text span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.installed-chip-text strong { flex: 1; font-size: 12px; font-weight: 600; }
+.installed-chip-text span { flex-shrink: 0; font-size: 10px; color: var(--faint); }
+.chip-update { display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; padding: 4px 9px; border-radius: 7px; background: var(--accent-bg); color: var(--accent); font-size: 10px; font-weight: 600; }
+.chip-update:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 24%, transparent); }
+.chip-update:disabled { opacity: .6; cursor: default; }
+.group-manage { margin-left: auto; font-size: 10px; padding: 3px 6px; }
+.group-toggle { display: flex; align-items: center; justify-content: center; gap: 5px; width: 100%; margin-top: 10px; padding: 7px; font-size: 10.5px; color: var(--faint); border: 1px dashed var(--border); border-radius: 9px; }
+.group-toggle:hover { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 30%, var(--border)); }
 .plugin-nav-item { position: relative; gap: 5px; min-height: 42px; padding: 7px 8px 7px 5px; cursor: pointer; user-select: none; transition: background .18s, opacity .18s, transform .18s; }
 .plugin-drag-handle { display: inline-flex; align-items: center; justify-content: center; align-self: stretch; min-width: 17px; color: var(--faint); cursor: grab; border-radius: 5px; }
 .plugin-nav-item .plugin-drag-handle:hover:not(:disabled),
