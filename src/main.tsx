@@ -38,6 +38,7 @@ import {
   Save,
   RotateCcw,
   Hash,
+  Code,
   GripVertical,
 } from "lucide-react";
 import { BrandMark } from "./BrandMark";
@@ -84,6 +85,7 @@ const icons: Record<string, typeof Search> = {
   save: Save,
   "rotate-ccw": RotateCcw,
   hash: Hash,
+  code: Code,
 };
 const bytes = (n: number) =>
   n < 1024

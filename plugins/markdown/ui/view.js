@@ -145,7 +145,7 @@ try {
         id: "source",
         kind: "toggle",
         label: raw ? "显示渲染格式" : "显示原始格式",
-        icon: "file-text",
+        icon: "code",
         active: raw,
         run() {
           const anchor = position();

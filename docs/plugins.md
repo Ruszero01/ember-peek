@@ -192,7 +192,7 @@ onVisibility(visible => { /* 暂停或恢复插件渲染循环 */ });
 
 控件对宿主是不透明的：它只负责聚焦插件、把控件 id 转发回去。插件想用这个按钮打开自己的浮层、切换模式还是弹别的东西，都由插件决定。
 
-图标可用 `search/copy/plus/minus/fit/actual/up/down/text-wrap`，未知名称显示通用功能图标。控件最多 16 个。
+图标可用 `search/copy/plus/minus/fit/actual/up/down/text-wrap/save/rotate-ccw/hash/code`，未知名称显示通用功能图标。控件最多 16 个。
 
 `active` 只有显式 `true` 才算点亮，其他值一律视为关闭——这样写错的声明不会让控件被误点亮。
 
