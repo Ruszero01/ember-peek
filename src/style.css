@@ -1504,8 +1504,6 @@ kbd {
 .chip-update:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 24%, transparent); }
 .chip-update:disabled { opacity: .6; cursor: default; }
 .group-manage { margin-left: auto; font-size: 10px; padding: 3px 6px; }
-.group-toggle { display: flex; align-items: center; justify-content: center; gap: 5px; width: 100%; margin-top: 10px; padding: 7px; font-size: 10.5px; color: var(--faint); border: 1px dashed var(--border); border-radius: 9px; }
-.group-toggle:hover { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 30%, var(--border)); }
 .plugin-nav-item { position: relative; gap: 5px; min-height: 42px; padding: 7px 8px 7px 5px; cursor: pointer; user-select: none; transition: background .18s, opacity .18s, transform .18s; }
 .plugin-drag-handle { display: inline-flex; align-items: center; justify-content: center; align-self: stretch; min-width: 17px; color: var(--faint); cursor: grab; border-radius: 5px; }
 .plugin-nav-item .plugin-drag-handle:hover:not(:disabled),

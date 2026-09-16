@@ -1,21 +1,10 @@
 import { useEffect, useState } from "react";
-import {
-  Package,
-  Download,
-  RotateCw,
-  ChevronDown,
-  ChevronUp,
-  LoaderCircle,
-} from "lucide-react";
+import { Package, Download, RotateCw, LoaderCircle } from "lucide-react";
 import { call, desktop } from "./bridge";
 import { PluginDetails } from "./PluginDetails";
 import { PluginConfirm, type PluginAction } from "./PluginConfirm";
 import { pluginIcon } from "./pluginIcons";
 import type { MarketEntry, MarketList, MarketSource } from "./types";
-
-/** How many installed plugins stay on screen before the group folds. Two rows of chips at
- *  a normal window width: enough to recognise what is there, not a reason to scroll. */
-const INSTALLED_VISIBLE = 8;
 
 /** Where an entry comes from, spelled for the details panel and the confirm dialog. */
 function sourceLabel(source: MarketSource) {
@@ -76,6 +65,48 @@ function InstalledChip({
   );
 }
 
+/** One plugin the source offers, as a full card: this is what the page is for, and the
+ *  summary, file types and origin are what a decision to install rests on. */
+function AvailableCard({
+  entry,
+  busy,
+  onInstall,
+}: {
+  entry: MarketEntry;
+  busy: boolean;
+  onInstall: () => void;
+}) {
+  const Icon = pluginIcon(entry.icon);
+  return (
+    <section className="market-card">
+      <span className="plugin-icon">
+        <Icon size={23} />
+      </span>
+      <div className="plugin-detail">
+        <h2>
+          {entry.name}
+          <span className="plugin-version">v{entry.version}</span>
+        </h2>
+        <p>{entry.summary}</p>
+        <PluginDetails extensions={entry.extensions}>
+          <p>{entry.publisher} · {entry.id}</p>
+          <p className="source-path">
+            来源：{sourceLabel(entry.source)}{sourceSize(entry.source)}
+          </p>
+        </PluginDetails>
+      </div>
+      <button className="secondary-button" disabled={busy} onClick={onInstall}>
+        {busy ? (
+          <LoaderCircle size={14} className="spinner" />
+        ) : (
+          <Download size={14} />
+        )}
+        {busy ? "安装中…" : "安装"}
+      </button>
+    </section>
+  );
+}
+
 export function Marketplace({
   filter,
   onInstalled,
@@ -92,7 +123,6 @@ export function Marketplace({
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState("");
   const [action, setAction] = useState<PluginAction | null>(null);
-  const [showAllInstalled, setShowAllInstalled] = useState(false);
   async function refresh() {
     const result = await call<MarketList>("market_list");
     setEntries(result.entries);
@@ -181,114 +211,77 @@ export function Marketplace({
       {[
         {
           title: "未安装",
+          installed: false,
           entries: visible.filter((entry) => !entry.installedVersion),
-          compact: false,
         },
         {
           title: "已安装",
-          entries: visible.filter((entry) => !!entry.installedVersion),
-          compact: true,
+          installed: true,
+          // An update is the only thing in this group that asks for action, so those chips
+          // come first and the rest keep the catalog's order. Nothing sits behind a fold:
+          // with dozens of plugins installed, the ones needing attention would be exactly
+          // the ones a fold could hide.
+          entries: visible
+            .filter((entry) => !!entry.installedVersion)
+            .sort(
+              (a, b) =>
+                (b.updateAvailable ? 1 : 0) - (a.updateAvailable ? 1 : 0),
+            ),
         },
       ]
         .filter((group) => group.entries.length > 0)
-        .map((group) => {
-          const overflowing =
-            group.compact && group.entries.length > INSTALLED_VISIBLE;
-          const folded = overflowing && !showAllInstalled;
-          const shown = folded
-            ? group.entries.slice(0, INSTALLED_VISIBLE)
-            : group.entries;
-          return (
-            <section
-              className="market-group"
-              key={group.title}
-              aria-label={group.title}
-            >
-              <h2 className="market-group-title">
-                {group.title}
-                <span>{group.entries.length}</span>
-                {group.compact && onManage && (
-                  <button className="text-button group-manage" onClick={onManage}>
-                    在插件管理中启用或卸载
-                  </button>
-                )}
-              </h2>
-              {group.compact
-                ? (
-                    <div className="installed-chips">
-                      {shown.map((entry) => (
-                        <InstalledChip
-                          key={entry.id}
-                          entry={entry}
-                          busy={busy === entry.id}
-                          onUpdate={() =>
-                            setAction({
-                              name: entry.name,
-                              kind: "update",
-                              detail: `v${entry.version} · ${entry.publisher} · ${sourceLabel(entry.source)}`,
-                              run: (progress) => install(entry, progress),
-                            })
-                          }
-                        />
-                      ))}
-                    </div>
-                  )
-                : shown.map((entry) => {
-                    const Icon = pluginIcon(entry.icon);
-                    return (
-                      <section className="market-card" key={entry.id}>
-                        <span className="plugin-icon">
-                          <Icon size={23} />
-                        </span>
-                        <div className="plugin-detail">
-                          <h2>
-                            {entry.name}
-                            <span className="plugin-version">v{entry.version}</span>
-                          </h2>
-                          <p>{entry.summary}</p>
-                          <PluginDetails extensions={entry.extensions}>
-                            <p>{entry.publisher} · {entry.id}</p>
-                            <p className="source-path">
-                              来源：{sourceLabel(entry.source)}{sourceSize(entry.source)}
-                            </p>
-                          </PluginDetails>
-                        </div>
-                        <button
-                          className="secondary-button"
-                          disabled={!!busy}
-                          onClick={() => setAction({ name: entry.name, kind: "install", detail: `v${entry.version} · ${entry.publisher} · ${sourceLabel(entry.source)}`, run: progress => install(entry, progress) })}
-                        >
-                          {busy === entry.id ? (
-                            <LoaderCircle size={14} className="spinner" />
-                          ) : (
-                            <Download size={14} />
-                          )}
-                          {busy === entry.id ? "安装中…" : "安装"}
-                        </button>
-                      </section>
-                    );
-                  })}
-              {overflowing && (
-                <button
-                  className="text-button group-toggle"
-                  onClick={() => setShowAllInstalled(!showAllInstalled)}
-                >
-                  {folded ? (
-                    <>
-                      展开全部 {group.entries.length} 个
-                      <ChevronDown size={13} />
-                    </>
-                  ) : (
-                    <>
-                      收起
-                      <ChevronUp size={13} />
-                    </>
-                  )}
+        .map((group) => (
+          <section
+            className="market-group"
+            key={group.title}
+            aria-label={group.title}
+          >
+            <h2 className="market-group-title">
+              {group.title}
+              <span>{group.entries.length}</span>
+              {group.installed && onManage && (
+                <button className="text-button group-manage" onClick={onManage}>
+                  在插件管理中启用或卸载
                 </button>
               )}
-            </section>
-          );
-        })}
+            </h2>
+            {group.installed ? (
+              <div className="installed-chips">
+                {group.entries.map((entry) => (
+                  <InstalledChip
+                    key={entry.id}
+                    entry={entry}
+                    busy={busy === entry.id}
+                    onUpdate={() =>
+                      setAction({
+                        name: entry.name,
+                        kind: "update",
+                        detail: `v${entry.version} · ${entry.publisher} · ${sourceLabel(entry.source)}`,
+                        run: (progress) => install(entry, progress),
+                      })
+                    }
+                  />
+                ))}
+              </div>
+            ) : (
+              group.entries.map((entry) => (
+                <AvailableCard
+                  key={entry.id}
+                  entry={entry}
+                  busy={busy === entry.id}
+                  onInstall={() =>
+                    setAction({
+                      name: entry.name,
+                      kind: "install",
+                      detail: `v${entry.version} · ${entry.publisher} · ${sourceLabel(entry.source)}`,
+                      run: (progress) => install(entry, progress),
+                    })
+                  }
+                />
+              ))
+            )}
+          </section>
+        ))}
       {!loading && !error && !loadError && !visible.length && (
         <div className="card empty-plugins">
           <Package size={28} />
