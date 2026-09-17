@@ -19,6 +19,7 @@ function entry(version = "0.1.0") {
 function fixture(version = "0.1.0") {
   const values = new Map(), writes = [];
   const store = {
+    async listV2({ prefix }) { return { objects: [...values.keys()].filter((name) => name.startsWith(prefix)).map((name) => ({ name })), isTruncated: false }; },
     getBucketVersioning: async () => ({}),
     async get(key) { if (!values.has(key)) throw Object.assign(new Error("missing"), { code: "NoSuchKey" }); return { content: values.get(key) }; },
     async put(key, bytes, options) {
@@ -49,11 +50,54 @@ test("read-only plan never uploads or takes a lock", async () => {
   const f = fixture(); const plan = await publishRelease(f);
   assert.equal(plan.packages.length, 1); assert.equal(f.writes.length, 0);
 });
-test("publication verifies packages before switching the catalog and saves history", async () => {
+test("publication verifies packages before switching the catalog without retaining snapshots", async () => {
   const f = fixture(); await publishRelease({ ...f, apply: true });
   assert.equal(f.writes.at(-1), config.key(catalogKey));
-  assert.ok(f.writes.find((key) => key.includes("catalog-history/")));
+  assert.ok(!f.writes.find((key) => key.includes("catalog-history/")));
   assert.ok(!f.values.has(config.key("publish.lock")));
+});
+
+test('cleanup retains only current packages and records, paginates and respects target boundaries', async () => {
+  const f = fixture(); await publishRelease({ ...f, apply: true });
+  const oldPackage = config.key(`${packagesKey}/${entry().artifact}`);
+  const oldRecord = config.key(`registry/${target}/ember.text/0.1.0.json`);
+  const history = config.key('catalog-history/old.json');
+  const otherTarget = config.key('packages/linux-x86_64/keep.zip');
+  f.values.set(history, Buffer.from('{}')); f.values.set(otherTarget, body);
+  f.catalog.entries[0] = entry('0.2.0');
+  const list = f.store.listV2;
+  f.store.listV2 = async (query) => {
+    const all = (await list(query)).objects;
+    const index = Number(query['continuation-token'] || 0);
+    return { objects: all.slice(index, index + 1), isTruncated: index + 1 < all.length, nextContinuationToken: String(index + 1) };
+  };
+  const plan = await publishRelease(f);
+  assert.ok(plan.obsolete.includes(oldPackage)); assert.ok(f.values.has(oldPackage));
+  const remove = f.store.delete;
+  f.store.delete = async (key) => {
+    if (key !== config.key('publish.lock')) assert.equal(JSON.parse(f.values.get(config.key(catalogKey))).entries[0].version, '0.2.0');
+    await remove(key);
+  };
+  await publishRelease({ ...f, apply: true });
+  for (const key of [oldPackage, oldRecord, history]) assert.ok(!f.values.has(key));
+  assert.ok(f.values.has(otherTarget));
+  assert.ok(f.values.has(config.key(`${packagesKey}/${entry('0.2.0').artifact}`)));
+  assert.equal((await planRelease(f)).obsolete.length, 0);
+});
+
+test('catalog verification failure never deletes old packages; cleanup failures can be retried', async () => {
+  const f = fixture(); await publishRelease({ ...f, apply: true });
+  const oldPackage = config.key(`${packagesKey}/${entry().artifact}`);
+  f.catalog.entries[0] = entry('0.2.0');
+  await assert.rejects(publishRelease({ ...f, apply: true, publicGet: async (url, size) => url.endsWith('/catalog.json') ? Buffer.from('stale') : f.publicGet(url, size) }), /公开地址/);
+  assert.ok(f.values.has(oldPackage));
+  const remove = f.store.delete;
+  f.store.delete = async (key) => { if (key === oldPackage) throw Object.assign(new Error('denied'), { code: 'AccessDenied' }); await remove(key); };
+  await assert.rejects(publishRelease({ ...f, apply: true }), /最新目录已生效.*AccessDenied/);
+  assert.ok(f.values.has(oldPackage)); assert.ok(!f.values.has(config.key('publish.lock')));
+  f.store.delete = remove;
+  await publishRelease({ ...f, apply: true });
+  assert.ok(!f.values.has(oldPackage));
 });
 test("same-version rebuild reuses original immutable package", async () => {
   const f = fixture(); await publishRelease({ ...f, apply: true });

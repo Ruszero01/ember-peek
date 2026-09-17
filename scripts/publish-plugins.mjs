@@ -98,14 +98,33 @@ export async function planRelease({ store, config, catalog, inputs, readArtifact
   for (const entry of previous?.entries || []) {
     if (!entries.some((candidate) => candidate.id === entry.id)) throw new Error(`发布目录缺少已上架插件：${entry.id}`);
   }
-  return { catalog: { api: 1, entries }, packages, records, previousBytes };
+  const keep = new Set(entries.flatMap((entry) => [
+    config.key(`${packagesKey}/${entry.artifact}`),
+    config.key(`registry/${target}/${entry.id}/${entry.version}.json`),
+  ]));
+  const obsolete = [];
+  // Only this distribution target and the retired catalog snapshots are managed here.
+  for (const prefix of [config.key(`${packagesKey}/`), config.key(`registry/${target}/`), config.key('catalog-history/')]) {
+    let token;
+    do {
+      const page = await store.listV2({ prefix, 'max-keys': 1000, ...(token ? { 'continuation-token': token } : {}) });
+      for (const object of page.objects || []) {
+        if (!object.name.startsWith(prefix)) throw new Error('OSS 列举结果超出清理范围');
+        if (!keep.has(object.name)) obsolete.push(object.name);
+      }
+      const next = page.isTruncated ? page.nextContinuationToken : undefined;
+      if (page.isTruncated && (!next || next === token)) throw new Error('OSS 列举分页异常');
+      token = next;
+    } while (token);
+  }
+  return { catalog: { api: 1, entries }, packages, records, obsolete };
 }
 
 export async function publishRelease({ store, config, catalog, inputs, readArtifact, apply = false, publicGet = anonymousGet, log = console.log }) {
   const versioning = await store.getBucketVersioning(config.bucket);
   // OSS ignores forbid-overwrite on versioned/suspended buckets. A dedicated unversioned
   // distribution bucket gives both immutable records and the publisher lock real meaning.
-  if (versioning.versionStatus) throw new Error("发布桶必须从未启用版本控制；Enabled/Suspended 不支持。目录历史由 catalog-history 保存。");
+  if (versioning.versionStatus) throw new Error("发布桶必须从未启用版本控制；Enabled/Suspended 不支持。");
   const lock = config.key("publish.lock");
   const owner = randomUUID();
   let locked = false;
@@ -117,22 +136,23 @@ export async function publishRelease({ store, config, catalog, inputs, readArtif
     const plan = await planRelease({ store, config, catalog, inputs, readArtifact });
     log(`${apply ? "发布" : "只读预演"}：${plan.catalog.entries.length} 个插件，上传 ${plan.packages.length} 个包，新增 ${plan.records.length} 个版本记录`);
     for (const entry of plan.catalog.entries) log(`${entry.id} ${entry.version} ${entry.artifact}`);
+    log(`目录验证成功后清理 ${plan.obsolete.length} 个旧对象`);
+    for (const key of plan.obsolete) log(`清理：${key}`);
     if (!apply) return plan;
     for (const item of plan.packages) await store.put(item.key, item.body, { headers: immutable, mime: "application/zip" });
     // Verify anonymous reads before advertising anything to a fresh installation.
     for (const entry of plan.catalog.entries) verify(await publicGet(`${config.base}/${packagesKey}/${entry.artifact}`, entry.size), entry);
     for (const item of plan.records) await store.put(item.key, item.body, { headers: immutable, mime: "application/json" });
     const body = json(plan.catalog);
-    for (const snapshot of [plan.previousBytes, body].filter(Boolean)) {
-      const key = config.key(`catalog-history/${sha256(snapshot)}.json`);
-      const existing = await get(store, key);
-      if (existing && !existing.equals(snapshot)) throw new Error("目录快照内容冲突");
-      if (!existing) await store.put(key, snapshot, { headers: immutable, mime: "application/json" });
-    }
     // The only mutable publication object. Packages and version records already exist.
     await store.put(config.key(catalogKey), body, { headers: { "Cache-Control": "no-cache" }, mime: "application/json" });
     const publicCatalog = await publicGet(`${config.base}/${catalogKey}`, 1024 * 1024);
     if (!publicCatalog.equals(body)) throw new Error("目录已发布，但公开地址仍返回旧内容；检查 CDN 缓存后重试，勿删除已上传的包");
+    // A failed cleanup leaves a valid latest catalog; retrying completes cleanup.
+    for (const key of plan.obsolete) {
+      try { await store.delete(key); }
+      catch (error) { throw new Error(`最新目录已生效，但旧对象清理失败：${key}（${error.code || '网络错误'}）；请检查删除权限并重试发布`); }
+    }
     log(`已发布：${config.base}/${catalogKey}`);
     return plan;
   } finally {

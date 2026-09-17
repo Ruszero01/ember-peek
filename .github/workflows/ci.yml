@@ -1,8 +1,7 @@
 name: Baseline checks
 on:
   push:
-    branches: [dev, main]
-  pull_request:
+    tags: ['v*']
 permissions:
   contents: read
 jobs:

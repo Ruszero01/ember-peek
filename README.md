@@ -70,7 +70,7 @@ Ctrl+C 退出整组开发服务，由 Tauri CLI 管理后端与开发钩子的�
 npm run plugins:dist
 ```
 
-产物在 `.release/`（目录、ZIP 和源码指纹）。先运行 `npm run plugins:validate` 和 `npm run plugins:plan`，再运行 `npm run plugins:publish` 上传 OSS。本地输出清理旧包，线上历史包始终保留；`plugins:dist` 不会改开发镜像。
+产物在 `.release/`（目录、ZIP 和源码指纹）。先运行 `npm run plugins:validate` 和 `npm run plugins:plan`，再运行 `npm run plugins:publish` 上传 OSS。本地输出清理旧包，线上在新目录验证成功后清理旧包，仅保留最新版本；`plugins:dist` 不会改开发镜像。
 
 开发版已安装插件位于 `.plugins`，市场是最近一次构建的本地镜像（`.marketplace/`）；开发环境不读官方源，优先用本地构建。调试首次启动流程用托盘右键的“重置为首次启动”（仅开发构建）：它把运行时恢复成首次启动状态并直接打开引导页。需要验证真实远程源时，把 `EMBER_MARKET_SOURCES` 指向一个来源文件。发行版的插件位于系统应用数据目录的 `org.emberpeek.desktop/plugins`。每个包都包含独立可执行程序和网页视图。
 

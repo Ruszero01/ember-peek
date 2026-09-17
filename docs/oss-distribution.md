@@ -16,7 +16,7 @@
 
 示例 Region 不代表必须选香港，按已有资源和用户访问位置选择。初期可以直接用 OSS 公网域名，不要求自有域名、CDN、数据库或服务器。自有域名必须配置有效 HTTPS，公开地址的路径必须与 `OSS_PREFIX` 一致，当前不支持 CDN 路径重写或限时签名 URL。
 
-建议使用**独立、标准存储、从未开启过版本控制**的分发 Bucket。当前脚本拒绝版本控制为 Enabled 或 Suspended 的桶：OSS 对这两种桶会忽略 `x-oss-forbid-overwrite`，无法保证发布锁和版本记录不被覆盖。目录回退由 `catalog-history/` 实现，不依赖 Bucket 版本控制。已有业务桶开启过版本控制时，新建专用分发桶即可，不要为发布修改业务桶的设置。
+建议使用**独立、标准存储、从未开启过版本控制**的分发 Bucket。当前脚本拒绝版本控制为 Enabled 或 Suspended 的桶：OSS 对这两种桶会忽略 `x-oss-forbid-overwrite`，无法保证发布锁和版本记录不被覆盖。分发端仅保留最新包，不保留目录历史。已有业务桶开启过版本控制时，新建专用分发桶即可，不要为发布修改业务桶的设置。
 
 Bucket 保持私有，仅用 Bucket Policy 允许匿名 `GetObject` 访问以下两类对象：
 
@@ -25,13 +25,13 @@ ember-peek/channels/*
 ember-peek/packages/*
 ```
 
-`registry/`、`catalog-history/` 和 `publish.lock` 不需要匿名访问；不开放匿名写入或列举 Bucket。请检查 Bucket/账号层的“阻止公共访问”是否拦截上述读取策略。本工具不会修改 Bucket ACL、公共访问设置、生命周期或账户策略。
+`registry/` 和 `publish.lock` 不需要匿名访问；不开放匿名写入或列举 Bucket。请检查 Bucket/账号层的“阻止公共访问”是否拦截上述读取策略。本工具不会修改 Bucket ACL、公共访问设置、生命周期或账户策略。
 
 宿主用 Rust HTTP 客户端下载，发布器用 Node 下载，均不依赖浏览器 CORS。不要启用只接受网站 Referer 的防盗链规则，也不要让插件包自动转为需要解冻的归档存储。建议配置下载流量告警。
 
 ## 发布身份的最小权限
 
-将下面模板里的 `YOUR_BUCKET` 和前缀替换为实际值，再绑定给发布专用 RAM 身份。`DeleteObject` 只用于释放发布锁，不需要删除历史包的权限。
+将下面模板里的 `YOUR_BUCKET` 和前缀替换为实际值，再绑定给发布专用 RAM 身份。发布身份需要列举受管前缀，以及删除旧包、旧版本记录、旧目录快照和释放发布锁的权限。匿名下载权限不变。
 
 ```json
 {
@@ -49,8 +49,14 @@ ember-peek/packages/*
     },
     {
       "Effect": "Allow",
+      "Action": ["oss:ListObjects"],
+      "Resource": ["acs:oss:*:*:YOUR_BUCKET"],
+      "Condition": {"StringLike": {"oss:Prefix": ["ember-peek/packages/windows-x86_64/*", "ember-peek/registry/windows-x86_64/*", "ember-peek/catalog-history/*"]}}
+    },
+    {
+      "Effect": "Allow",
       "Action": ["oss:DeleteObject"],
-      "Resource": ["acs:oss:*:*:YOUR_BUCKET/ember-peek/publish.lock"]
+      "Resource": ["acs:oss:*:*:YOUR_BUCKET/ember-peek/publish.lock", "acs:oss:*:*:YOUR_BUCKET/ember-peek/packages/windows-x86_64/*", "acs:oss:*:*:YOUR_BUCKET/ember-peek/registry/windows-x86_64/*", "acs:oss:*:*:YOUR_BUCKET/ember-peek/catalog-history/*"]
     }
   ]
 }
@@ -91,8 +97,8 @@ npm run build:desktop
 
 - `plugins:dist` 只生成 `.release/`，不改开发镜像 `.marketplace/`。
 - `plugins:validate` 不需要 OSS 配置，使用宿主自己的解析器、SHA-256 校验、ZIP 解包和清单检查验证全部 release 包，不运行插件程序。
-- `plugins:plan` 读取 OSS 目录、版本登记和现有包，列出最终版本、复用包和待上传包，不写 OSS。
-- `plugins:publish` 才执行上传。上传完成后还会验证公开目录是否已生效。
+- `plugins:plan` 读取 OSS 目录、版本登记和现有包，列出最终版本、复用包、待上传包和待清理对象，不写 OSS。
+- `plugins:publish` 才执行上传。上传完成后验证公开目录是否已生效，再清理旧对象。
 - `source:configure` 只需要公开地址，写入 `src-tauri/plugin-sources.json`。公开配置可以提交 Git；它不包含密钥。
 - 未配置官方源时，`source:check` 阻止桌面发行构建。开发模式仍然读取本地镜像。
 
@@ -100,9 +106,9 @@ npm run build:desktop
 
 ## GitHub Actions
 
-已有两个工作流：
+插件相关工作流：
 
-- `Baseline checks`：dev/main 推送和 PR 时运行测试、前端构建、workspace 检查、插件 release 构建及包校验。
+- `Baseline checks`：仅推送 `v*` 版本标签时运行测试、前端构建、workspace 检查、插件 release 构建及包校验；分支推送和 PR 不触发。
 - `Publish official plugins`：手动触发。创建名为 `plugin-production` 的 GitHub Environment，在里面配置上表的 Variables 和 Secrets。工作流先构建并归档 `.release/`，再在发布任务中取用凭据。
 
 第一次触发保留 `publish=false`，查看只读预演结果；实际发布设为 `true`。工作流配置了串行发布，OSS 发布锁还会拦截来自其他机器的并发发布。工作流文件需要先存在于 GitHub 默认分支，才能从 Actions 页面使用 `workflow_dispatch`。
@@ -118,13 +124,12 @@ ember-peek/
   channels/stable/api-1/windows-x86_64/catalog.json
   packages/windows-x86_64/<id>-<version>-<buildId24>.zip
   registry/windows-x86_64/<id>/<version>.json
-  catalog-history/<sha256>.json
   publish.lock
 ```
 
-发布依次执行：获得锁 → 校验完整目录与历史版本登记 → 上传缺少的包 → 匿名下载并验证哈希/大小 → 写入不可变版本记录 → 保存新旧目录快照 → 最后切换 stable 目录 → 验证公开目录 → 释放锁。
+发布依次执行：获得锁 → 校验完整目录与现有版本登记并列出待清理对象 → 上传缺少的包 → 匿名下载并验证哈希/大小 → 写入不可变版本记录 → 最后切换 stable 目录 → 验证公开目录 → 删除不再引用的包和版本记录、迁移清除旧 catalog-history → 释放锁。
 
-ZIP 和版本记录禁止同名覆盖；目录使用 `Cache-Control: no-cache`，内容寻址的包使用一年缓存。脚本不删除历史包，不以“本次构建没有引用”为理由删除线上对象。源目录格式仍为 `api:1`，新增发布元数据放在私有的版本记录中，不往现有目录塞入客户端不认识的字段。
+ZIP 和版本记录禁止同名覆盖；目录使用 `Cache-Control: no-cache`，内容寻址的包使用一年缓存。每个插件只保留当前目录引用的最新包与对应源码指纹记录；清理仅覆盖当前平台的 packages/registry 和旧 catalog-history，不触及其他平台或业务对象。目录切换失败时不清理，下次成功发布会清理失败任务的残留。源目录格式仍为 `api:1`，新增发布元数据放在私有的版本记录中，不往现有目录塞入客户端不认识的字段。
 
 同一份构建产物可从 GitHub Actions artifact 下载归档，但目前不配置第二个下载源。后续做镜像时应复制这份原包，不能让镜像重新编译生成另一份哈希。
 
@@ -133,8 +138,10 @@ ZIP 和版本记录禁止同名覆盖；目录使用 `Cache-Control: no-cache`�
 - 上传、哈希或匿名读取失败：stable 目录不切换。已上传的不可变包可以保留，下次重试复用。
 - 目录写入后的网络校验失败：目录可能已经生效。检查 OSS 与公开 URL 后重试，不能假定发布被回滚。
 - 程序被终止：锁可能保留。确认没有任何发布任务运行后，由运维查看 `publish.lock` 中的 owner、时间和 run，手动删除该锁；脚本不按超时擅自抢锁。
-- 错误版本上线：可由运维从 `catalog-history` 恢复之前的完整目录，引用的旧包必须保留。暂停所有发布操作再恢复。正常发布器拒绝目录降级，也拒绝意外移除已上架插件。
-- 已安装坏版本的客户端不会因目录回滚自动降级，需要发更高版本的修复包。已经登记的版本号不会被回收，即使该次发布最终没有切换目录。
+- 错误版本上线：从 GitHub 源码历史恢复需要的实现，提升插件版本后重新发布；OSS 不提供历史包回滚。正常发布器拒绝目录降级，也拒绝意外移除已上架插件。
+- 清理失败：最新目录已生效，命令报错并保留未删除对象；修复列举/删除权限后重跑发布即可。
+- 用户持有十分钟缓存的旧目录时，旧包可能已删除；刷新插件市场后重新安装/更新。已安装插件不受影响。
+- 已安装坏版本的客户端不会因目录回滚自动降级，需要发更高版本的修复包。当前版本继续禁止同版本更换源码；失败任务的记录可供重试使用，后续成功发布时清理未引用记录。
 - 首启或市场读取失败：页面提供重试/刷新，绕过客户端十分钟远程缓存。本地开发镜像缓存一秒，通常在下一次两秒同步时被发现。
 
 0.1.0 仍无目录签名、无 OS 插件沙箱，只发布可信官方插件。HTTPS 与目录中的 SHA-256 保护下载一致性，不等于发布者数字签名。
