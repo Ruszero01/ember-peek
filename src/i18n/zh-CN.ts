@@ -1,0 +1,189 @@
+// The Chinese catalog. Chinese does not inflect for number, so a message the English
+// catalog writes as `{ one, other }` is a single string here.
+import type { Catalog } from "./en";
+
+export const zhCN: Catalog = {
+  "window.minimize": "最小化",
+  "window.maximize": "最大化 / 还原",
+  "window.close": "关闭",
+  "error.dismiss": "关闭提示",
+
+  "browser.banner": "界面预览 · 文件和插件功能请使用桌面窗口",
+
+  "empty.title": "即刻一览",
+  "empty.note": "拖入文件，或选择一个文件开始预览",
+  "empty.open": "打开文件",
+  "empty.pluginsReady": "{count} 个预览插件已就绪",
+  "empty.noPlugins": "尚未安装预览插件",
+  "empty.manage": "管理插件",
+
+  "loading.title": "正在加载 {name}",
+  "loading.note": "可以继续打开其他文件，此任务会在后台完成",
+  "loading.file": "文件",
+
+  "preview.failed": "插件预览失败",
+  "preview.openOther": "打开其他文件",
+  "preview.tagline": "由插件提供每一种预览能力",
+
+  "footer.openFile": "打开文件",
+  "footer.settings": "设置",
+  "footer.openPlugin": "打开{label}",
+
+  "nav.heading": "设置",
+  "nav.about": "关于",
+  "nav.general": "通用",
+  "nav.plugins": "插件",
+  "nav.pluginSettings": "插件设置",
+  "nav.reorderHint": "拖动左侧手柄调整顺序",
+
+  "plugin.enabled": "已启用",
+  "plugin.disabled": "已停用",
+  "plugin.disabledNote":
+    "已停用：插件停用期间无法打开对应格式，设置仍然保留",
+  "plugin.disabledTitle": "{name}（已停用）",
+  "plugin.enableLabel": "启用{name}",
+  "plugin.disabledBadge": "已停用",
+  "plugin.dragHint": "拖动调整顺序",
+  "plugin.dragLabel": "拖动排序 {name}",
+  "plugin.order": "加载顺序 {index}",
+  "plugin.activation": "自动激活",
+  "plugin.activationHint":
+    "自动激活：打开文件时按左侧列表顺序选择；没有自动激活的视口时使用可用视口。",
+  "plugin.settings.unavailable": "该插件已不可用，请刷新插件列表。",
+  "plugin.settings.none": "此插件暂无额外设置。",
+  "plugin.pidRunning": "后台进程 PID：{pids}",
+  "plugin.pidOnDemand": "尚未启动后台进程，使用插件时按需启动",
+  "plugin.runtimeRunning": "运行中",
+  "plugin.runtimeOnDemand": "按需启动",
+
+  "settings.increase": "增大{label}",
+  "settings.decrease": "减小{label}",
+
+  "appearance.title": "外观",
+  "appearance.subtitle": "界面主题",
+  "theme.light": "浅色",
+  "theme.dark": "深色",
+  "theme.system": "跟随系统",
+
+  "language.title": "语言",
+  "language.subtitle": "界面语言",
+  "language.system": "跟随系统",
+  "language.systemWith": "跟随系统（{name}）",
+  "language.note":
+    "选择“跟随系统”时使用系统语言。插件名称及其设置项按插件提供的语言显示。",
+
+  "interface.title": "界面",
+  "interface.subtitle": "预览窗口显示方式",
+  "immersive.label": "沉浸模式",
+  "immersive.note":
+    "关闭时视口只占标题栏与功能栏之间；开启后视口铺满窗口，鼠标移到顶部或底部时浮出操作栏，栏间空隙不挡插件操作。",
+
+  "plugins.market": "插件市场",
+  "plugins.manage": "插件管理",
+  "plugins.installedCount": "{count} 个已安装插件",
+  "plugins.refresh": "刷新",
+  "plugins.installFromFolder": "从目录安装",
+  "plugins.searchPlaceholder": "搜索插件或扩展名",
+  "plugins.uninstall": "卸载",
+  "plugins.uninstallLabel": "卸载{name}",
+  "plugins.empty.title": "让插件带来新的预览能力",
+  "plugins.empty.note":
+    "安装文本、图片或其他格式的插件后，即可打开对应文件。",
+  "plugins.trustWarning":
+    "插件包含本机可执行程序，请仅安装可信来源的插件。",
+  "plugins.localName": "本地插件",
+
+  "progress.installLocal": "正在校验并安装本地插件…",
+  "progress.refreshPlugins": "正在刷新插件列表…",
+
+  "about.tagline": "轻量预览，一切皆插件。",
+  "about.installed": "已安装插件",
+  "about.directory": "插件目录",
+  "about.desktopOnly": "桌面版中可用",
+
+  "welcome.title": "欢迎使用 Ember Peek",
+  "welcome.note":
+    "选择要安装的插件，装好后即可预览对应文件；之后随时可以在“插件市场”里增减。",
+  "welcome.loading": "正在获取插件列表…",
+  "welcome.retry": "重新获取插件列表",
+  "welcome.allInstalled": "推荐的基础插件都已安装。",
+  "welcome.none": "这个来源没有可安装的插件。",
+  "welcome.installing": "正在安装 {name}（{index}/{total}）…",
+  "welcome.failure": "{name}：{error}",
+  "list.separator": "；",
+  "welcome.installingShort": "正在安装…",
+  "welcome.installSelected": "安装所选（{count}）",
+  "welcome.market": "去插件市场",
+  "welcome.later": "稍后再说",
+
+  "market.update": "更新",
+  "market.updateFrom": "从 v{from} 更新到 v{to}",
+  "market.source": "来源",
+  "market.sourceLine": "来源：{source} · {size}",
+  "market.install": "安装",
+  "market.installing": "安装中…",
+  "market.progress.download": "正在下载并校验插件包…",
+  "market.progress.install": "正在安装插件…",
+  "market.progress.refresh": "正在刷新插件列表…",
+  "market.refreshSources": "刷新插件源",
+  "market.title": "插件市场",
+  "market.sources": "{count} 个来源",
+  "market.loading": "正在读取市场…",
+  "market.group.available": "未安装",
+  "market.group.installed": "已安装",
+  "market.manageHint": "在插件管理中启用或卸载",
+  "market.desktopOnly": "请在桌面窗口中浏览和安装插件",
+  "market.noMatch": "没有匹配的插件",
+  "market.empty": "暂时没有可安装的插件，请稍后重试。",
+
+  "confirm.install": "安装",
+  "confirm.update": "更新",
+  "confirm.uninstall": "卸载",
+  "confirm.working.install": "正在安装…",
+  "confirm.working.update": "正在更新…",
+  "confirm.working.uninstall": "正在卸载…",
+  "confirm.title": "{action}{name}？",
+  "confirm.uninstallNote":
+    "卸载后将无法使用此插件的预览能力，可随时从市场重新安装。",
+  "confirm.installNote":
+    "确认后将校验插件包并安装到本机。插件可执行本机程序，请确认来源可信。",
+  "confirm.cancel": "取消",
+  "confirm.processing": "处理中…",
+  "confirm.retry": "重试",
+  "confirm.submit": "确认{action}",
+
+  "details.allFiles": "所有文件",
+  "details.extensionCount": "共支持 {count} 种文件类型",
+  "details.show": "查看详情",
+
+  "stage.overlays": "插件浮层",
+  "stage.dragHint": "拖动调整位置，双击恢复默认位置",
+  "stage.loading": "加载中…",
+
+  "scrub.hint": "{label} · 按住向上放大、向下缩小",
+
+  "view.disconnected": "插件视图未建立连接，请检查插件入口和脚本",
+  "view.panelNoControls": "浮层不能声明工具栏控件，控件属于插件视图",
+  "view.panelNoStatus": "浮层不能上报状态，状态属于插件视图",
+  "view.searchNotHost":
+    "搜索进度不再是宿主能力，请在插件自己的浮层里显示",
+  "view.tooManyRequests": "插件请求过多或请求 ID 无效",
+  "view.panelNoSession": "浮层不能改动会话状态或文档，请交给插件视图",
+  "view.onlyPrimaryNavigates": "只有主视图拥有导航状态",
+  "view.invalidPending": "未提交变更标志无效",
+  "view.invalidMethod": "方法无效",
+  "view.invalidReadRange": "文件读取范围无效",
+  "view.peerTarget": "插件内部消息的目标必须是 view 或 panel",
+  "view.peerTooLarge": "插件内部消息过大",
+  "view.invalidSettingKey": "设置项名称无效",
+  "view.invalidPluginMethod": "插件方法无效",
+  "view.clipboardTooLarge": "剪贴板内容超出限制",
+  "view.unsupportedCapability": "不支持的宿主能力",
+
+  "protocol.tooManyControls": "插件最多可提供 16 个控件",
+  "protocol.invalidControlId": "插件控件 ID 无效",
+  "protocol.invalidControl": "插件控件声明无效",
+  "protocol.invalidScrubRange": "数值拖动控件范围无效",
+
+  "bridge.desktopOnly": "文件与插件进程功能需要在桌面窗口中使用",
+};

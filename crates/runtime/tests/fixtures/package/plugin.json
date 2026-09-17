@@ -1,0 +1,22 @@
+{
+  "api": 1,
+  "id": "fixture.one",
+  "name": "Fixture",
+  "version": "1.0.0",
+  "extensions": ["one"],
+  "fileNames": ["FIXTURE"],
+  "icon": "file-text",
+  "executable": "bin/one.exe",
+  "entry": "ui/index.html",
+  "capabilities": ["view", "controls"],
+  "permissions": ["readFile"],
+  "provides": "fixture.one/1",
+  "settings": [
+    {
+      "key": "wrap",
+      "type": "bool",
+      "label": "换行",
+      "default": true
+    }
+  ]
+}

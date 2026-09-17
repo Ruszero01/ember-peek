@@ -1,0 +1,140 @@
+{
+  "api": 1,
+  "id": "ember.text-editor",
+  "name": "文本编辑",
+  "i18n": {
+    "en": {
+      "name": "Text Editor",
+      "settings": {
+        "lineNumbers": {
+          "label": "Line numbers",
+          "help": "Show line numbers down the left edge, the same standard the text preview uses."
+        }
+      }
+    }
+  },
+  "version": "0.1.0",
+  "extensions": [
+    "txt",
+    "text",
+    "log",
+    "csv",
+    "tsv",
+    "nfo",
+    "asc",
+    "js",
+    "mjs",
+    "cjs",
+    "ts",
+    "tsx",
+    "jsx",
+    "json",
+    "jsonc",
+    "rs",
+    "py",
+    "pyw",
+    "html",
+    "htm",
+    "css",
+    "scss",
+    "sass",
+    "less",
+    "toml",
+    "yaml",
+    "yml",
+    "xml",
+    "svg",
+    "cs",
+    "cpp",
+    "cc",
+    "cxx",
+    "c",
+    "h",
+    "hpp",
+    "java",
+    "kt",
+    "kts",
+    "go",
+    "rb",
+    "php",
+    "swift",
+    "lua",
+    "sh",
+    "bash",
+    "zsh",
+    "ps1",
+    "psm1",
+    "bat",
+    "cmd",
+    "sql",
+    "ini",
+    "conf",
+    "cfg",
+    "properties",
+    "env",
+    "vue",
+    "svelte",
+    "r",
+    "dart",
+    "ex",
+    "exs",
+    "erl",
+    "hs",
+    "clj",
+    "lisp",
+    "cmake",
+    "gradle",
+    "dockerfile",
+    "makefile",
+    "md",
+    "markdown",
+    "mdown",
+    "mkd"
+  ],
+  "icon": "file-pen",
+  "executable": "bin/ember-text-editor-plugin.exe",
+  "entry": "ui/index.html",
+  "capabilities": [
+    "view",
+    "overlay",
+    "controls"
+  ],
+  "overlay": {
+    "width": 340,
+    "height": 36,
+    "anchor": "bottomRight"
+  },
+  "permissions": [
+    "writeFile"
+  ],
+  "settings": [
+    {
+      "key": "lineNumbers",
+      "type": "bool",
+      "label": "显示行号",
+      "help": "在正文左侧显示行号。与文本预览同一套标准。",
+      "default": true
+    }
+  ],
+  "activation": {
+    "mode": "manual",
+    "priority": 0
+  },
+  "provides": "ember.text/1",
+  "fileNames": [
+    "Dockerfile",
+    "Containerfile",
+    "Makefile",
+    "CMakeLists.txt",
+    ".gitignore",
+    ".gitattributes",
+    ".editorconfig",
+    ".env",
+    ".bashrc",
+    ".zshrc",
+    "LICENSE",
+    "NOTICE",
+    "README",
+    "CHANGELOG"
+  ]
+}

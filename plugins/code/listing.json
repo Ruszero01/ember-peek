@@ -1,0 +1,10 @@
+{
+  "summary": "按语言显示语法高亮、共享行号和阅读位置。",
+  "i18n": {
+    "en": {
+      "summary": "Syntax highlighting per language, with line numbers and a reading position shared across text plugins."
+    }
+  },
+  "publisher": "Ember Peek",
+  "recommended": true
+}

@@ -1,0 +1,11 @@
+{
+  "identifier": "main",
+  "windows": ["preview", "settings"],
+  "permissions": [
+    "core:event:default",
+    "core:window:allow-close",
+    "core:window:allow-start-dragging",
+    "core:window:allow-minimize",
+    "core:window:allow-toggle-maximize"
+  ]
+}

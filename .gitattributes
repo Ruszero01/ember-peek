@@ -1,0 +1,19 @@
+* text=auto
+*.rs text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
+*.js text eol=lf
+*.mjs text eol=lf
+*.json text eol=lf
+*.toml text eol=lf
+*.md text eol=lf
+*.png binary
+*.jpg binary
+*.ico binary
+# Plugin packages are read byte for byte by the host's extractor and by the
+# packaging fixtures, so they must never be normalized.
+*.zip binary
+# The fixture package is packed byte for byte, and the packaging test rebuilds its zip
+# from these files and compares the result. A checkout that rewrote a line ending here
+# would change the archive, so no conversion may touch this tree.
+crates/runtime/tests/fixtures/package/** -text

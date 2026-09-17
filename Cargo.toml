@@ -1,0 +1,16 @@
+[workspace]
+members = ["src-tauri", "crates/runtime", "crates/file-store", "crates/text-document", "sdk/native", "plugins/text/native", "plugins/code/native", "plugins/markdown/native", "plugins/image/native", "plugins/text-editor/native", "plugins/metadata/native"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "io-util", "sync", "time", "fs"] }
+
+[profile.release]
+lto = "thin"
+strip = true

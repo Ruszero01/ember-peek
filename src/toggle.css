@@ -1,0 +1,86 @@
+/* The switch reads as movement, not as a jump: the track carries the state in colour and the knob
+   carries it in position, and both change over the same beat as the rest of the window. Without a
+   transition the knob teleports 15 px and the eye has to compare two stills to see what happened. */
+.toggle {
+  width: 34px;
+  height: 19px;
+  background: var(--faint);
+  padding: 3px;
+  border-radius: 15px;
+  justify-content: flex-start;
+  flex-shrink: 0;
+  transition:
+    background-color 0.18s ease,
+    filter 0.18s ease;
+}
+/* Hover is the same promise in both states: one step more present than at rest. The global button
+   rule would otherwise paint the track with --hover, which is darker than --faint in the dark theme
+   — a switch that dims when pointed at. */
+.toggle:hover:not(:disabled) {
+  background: var(--muted);
+}
+.toggle.on {
+  background: var(--accent);
+}
+.toggle.on:hover:not(:disabled) {
+  background: var(--accent);
+  filter: brightness(1.08);
+}
+.toggle-knob {
+  width: 13px;
+  height: 13px;
+  background: #fff;
+  border-radius: 50%;
+  box-shadow: 0 1px 3px #0002;
+  transition:
+    transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1),
+    width 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.toggle.on .toggle-knob {
+  transform: translateX(15px);
+}
+/* Holding the switch stretches the knob towards the far end while its near edge stays put, so the
+   direction of travel is legible before the click lands. A held key answers the same way. */
+.toggle:active:not(:disabled) .toggle-knob {
+  width: 16px;
+}
+.toggle.on:active:not(:disabled) .toggle-knob {
+  width: 16px;
+  transform: translateX(12px);
+}
+/* Blocked comes in two kinds, and only one of them deserves to look faded. A switch that is
+   unavailable — its plugin is stopped, or the option cannot apply here — is drawn dim; a switch that
+   is merely waiting for a write to come back is not, because a settings form marks all of its
+   options busy during one save and the whole block would blink. That second kind gets a slow pulse
+   instead: enough to say "in flight", small enough not to move anything. */
+.toggle.is-disabled {
+  opacity: 0.4;
+}
+@keyframes toggle-busy-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+.toggle.busy:not(.is-disabled) {
+  animation: toggle-busy-pulse 1s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .toggle,
+  .toggle-knob {
+    transition: none;
+  }
+  .toggle.busy:not(.is-disabled) {
+    animation: none;
+  }
+  .toggle:active:not(:disabled) .toggle-knob {
+    width: 13px;
+  }
+  .toggle.on:active:not(:disabled) .toggle-knob {
+    width: 13px;
+    transform: translateX(15px);
+  }
+}

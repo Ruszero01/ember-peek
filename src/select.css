@@ -1,0 +1,126 @@
+/* The dropdown, in the host's control language: a 1px border on a card surface with an 8px
+   radius and 12px text, the same surface `.setting-control input` and `.search-box` use.
+   The list is drawn from the host's tokens too, because a platform-painted popup is exactly
+   how a dark window ends up with a white menu.
+
+   Two paths, one look:
+   - `appearance: none` everywhere: the surface is ours, the popup is the platform's (it
+     follows `color-scheme`, which the host sets per theme).
+   - `appearance: base-select` where Chromium has it: the <select> stays a real <select> for
+     the keyboard, type-ahead and the accessibility tree, and the popup becomes an element we
+     can style (`::picker(select)`).
+
+   The plugin-side twin of these rules is `.ui-select` in sdk/web/ui.css. */
+
+.select-control {
+  position: relative;
+  display: inline-flex;
+  /* A mask rather than a picture, so the chevron's colour is a token: a baked-in grey stops
+     matching the moment either theme's `--faint` moves. */
+  --select-chevron: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6' fill='none' stroke='%23000' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1 1l4 4 4-4'/%3E%3C/svg%3E");
+}
+
+.select-control select {
+  appearance: none;
+  height: 32px;
+  min-width: 132px;
+  padding: 0 32px 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.select-control::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: 11px;
+  width: 10px;
+  height: 6px;
+  margin-top: -3px;
+  background: var(--faint);
+  -webkit-mask: var(--select-chevron) center / contain no-repeat;
+  mask: var(--select-chevron) center / contain no-repeat;
+  pointer-events: none;
+  transition: rotate 0.18s ease;
+}
+
+.select-control select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-bg);
+}
+
+.select-control select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+@supports (appearance: base-select) {
+  .select-control select {
+    appearance: base-select;
+    /* The list is ours now and the arrow sits in the flow, so the room the fallback chevron
+       needed is not padding any more. */
+    display: inline-flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding-right: 10px;
+  }
+  /* The select draws its own icon; the masked one would be a second chevron. */
+  .select-control::after {
+    content: none;
+  }
+  .select-control select::picker-icon {
+    color: var(--faint);
+    transition: rotate 0.18s ease;
+  }
+  .select-control select:open::picker-icon {
+    rotate: 180deg;
+  }
+  /* The popup: the card surface in the app's own corners, floating above everything. The
+     picker has to opt in as well — `appearance: base-select` on the control alone leaves the
+     list platform-drawn, which is how a styled control ended up opening a plain rectangle. */
+  .select-control select::picker(select) {
+    appearance: base-select;
+    margin-top: 4px;
+    padding: 4px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--raised);
+    box-shadow: var(--shadow);
+    color: var(--text);
+    font-family: inherit;
+    font-size: 12px;
+  }
+  .select-control option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    border-radius: 5px;
+    color: var(--text);
+    cursor: pointer;
+  }
+  .select-control option:hover,
+  .select-control option:focus-visible {
+    background: var(--hover);
+  }
+  /* The chosen row reads as chosen without shouting: the same accent surface the rest of
+     the interface puts behind a selected thing. */
+  .select-control option:checked {
+    background: var(--accent-bg);
+    color: var(--accent);
+  }
+  .select-control option::checkmark {
+    color: var(--accent);
+    order: 1;
+  }
+}

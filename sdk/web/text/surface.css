@@ -1,0 +1,47 @@
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--canvas);
+  color: var(--text);
+  font-family: var(--font-ui, "Segoe UI", sans-serif);
+}
+body {
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+#notice {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+#notice:empty {
+  display: none;
+}
+#surface {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.cm-scroller,
+#rendered,
+#outline {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) var(--canvas);
+}
+body.panel {
+  padding: 0;
+}
+body.panel #surface,
+body.panel #notice {
+  display: none;
+}
+body:not(.panel) #search {
+  display: none;
+}

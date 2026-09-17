@@ -1,0 +1,59 @@
+{
+  "api": 1,
+  "id": "ember.markdown",
+  "name": "Markdown 预览",
+  "i18n": {
+    "en": {
+      "name": "Markdown Preview",
+      "settings": {
+        "lineNumbers": {
+          "label": "Line numbers",
+          "help": "Show line numbers down the left edge, the same standard the text editor uses."
+        },
+        "wrap": {
+          "label": "Wrap long lines",
+          "help": "Off, long lines scroll sideways instead of folding."
+        }
+      }
+    }
+  },
+  "version": "0.1.0",
+  "extensions": [
+    "md",
+    "markdown",
+    "mdown",
+    "mkd"
+  ],
+  "icon": "file-type",
+  "settings": [
+    {
+      "key": "lineNumbers",
+      "type": "bool",
+      "label": "显示行号",
+      "help": "在正文左侧显示行号。与文本编辑同一套标准。",
+      "default": true
+    },
+    {
+      "key": "wrap",
+      "type": "bool",
+      "label": "自动换行",
+      "help": "关闭后长行横向滚动，不折断。",
+      "default": true
+    }
+  ],
+  "executable": "bin/ember-markdown-plugin.exe",
+  "entry": "ui/index.html",
+  "capabilities": [
+    "view",
+    "controls"
+  ],
+  "permissions": [
+    "readFile",
+    "clipboard"
+  ],
+  "provides": "ember.text/1",
+  "activation": {
+    "mode": "auto",
+    "priority": 100
+  }
+}

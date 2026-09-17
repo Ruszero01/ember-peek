@@ -1,0 +1,36 @@
+[package]
+name = "ember-runtime"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+ember-file-store = { path = "../file-store" }
+semver = "1"
+tempfile = { version = "3", optional = true }
+reqwest = { version = "0.13.5", features = ["stream"] }
+serde.workspace = true
+serde_json.workspace = true
+sha2 = "0.10"
+tokio.workspace = true
+zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
+
+[dev-dependencies]
+# The integration test publishes a package the way the build script does: it packs a
+# zip and writes the catalog entry that indexes it, then lets the host fetch it back.
+sha2 = "0.10"
+tempfile = "3"
+zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
+
+[features]
+test-worker = []
+release-tools = ["dep:tempfile"]
+
+[[bin]]
+name = "runtime-test-worker"
+path = "tests/support/worker.rs"
+required-features = ["test-worker"]
+
+[[bin]]
+name = "validate-catalog"
+path = "src/bin/validate-catalog.rs"
+required-features = ["release-tools"]

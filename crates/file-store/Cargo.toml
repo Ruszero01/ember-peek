@@ -1,0 +1,10 @@
+[package]
+name = "ember-file-store"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+tempfile = "3"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem"] }

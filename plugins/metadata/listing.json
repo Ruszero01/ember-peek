@@ -1,0 +1,9 @@
+{
+  "summary": "所有文件通用的信息浮层，用于验证全类型匹配和宿主浮层槽位。",
+  "i18n": {
+    "en": {
+      "summary": "An information panel for every file, which also exercises wildcard matching and the host's panel slot."
+    }
+  },
+  "publisher": "Ember Peek"
+}

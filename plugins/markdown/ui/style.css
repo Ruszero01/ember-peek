@@ -1,0 +1,123 @@
+#layout {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 12px;
+}
+#surface {
+  min-width: 0;
+}
+#source,
+#rendered {
+  height: 100%;
+}
+#rendered {
+  overflow: auto;
+  padding: 24px 32px;
+  line-height: 1.8;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+#rendered > :first-child {
+  margin-top: 0;
+}
+#rendered h1,
+#rendered h2,
+#rendered h3 {
+  line-height: 1.4;
+  margin: 1.4em 0 0.6em;
+}
+#rendered h1,
+#rendered h2 {
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.4em;
+}
+#rendered pre {
+  overflow: auto;
+  padding: 14px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+#rendered code {
+  font-family: Consolas, monospace;
+  background: var(--panel);
+  border-radius: 4px;
+  padding: 2px 4px;
+}
+#rendered pre code {
+  padding: 0;
+}
+#rendered blockquote {
+  margin-left: 0;
+  padding-left: 16px;
+  color: var(--muted);
+  border-left: 3px solid var(--accent);
+}
+#rendered table {
+  border-collapse: collapse;
+  display: block;
+  overflow: auto;
+}
+#rendered th,
+#rendered td {
+  border: 1px solid var(--border);
+  padding: 6px 12px;
+}
+#rendered a {
+  color: var(--accent);
+}
+#outline {
+  width: 210px;
+  max-width: 28%;
+  overflow: auto;
+  padding: 12px 6px;
+  font-size: 12px;
+}
+#outline h2 {
+  color: var(--muted);
+  margin: 0 8px 10px;
+  font-size: 11px;
+  font-weight: 500;
+}
+#outline button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  padding: 7px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  font: inherit;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#outline button.active {
+  color: var(--accent);
+  background: var(--accent-bg);
+}
+#outline button:hover {
+  background: var(--panel);
+}
+@media (max-width: 700px) {
+  #outline {
+    width: 140px;
+  }
+  #rendered {
+    padding: 16px;
+  }
+}
+
+#rendered {
+  padding-top: calc(var(--safe-top, 0px) + 12px);
+  padding-bottom: calc(var(--safe-bottom, 0px) + 12px);
+  scroll-padding-top: calc(var(--safe-top, 0px) + 12px);
+  scroll-padding-bottom: calc(var(--safe-bottom, 0px) + 12px);
+}
+#outline {
+  padding-top: calc(var(--safe-top, 0px) + 12px);
+  padding-bottom: calc(var(--safe-bottom, 0px) + 12px);
+}

@@ -1,0 +1,16 @@
+[package]
+name = "ember-text-editor-plugin"
+# A plugin's version is its own: it ships independently of the host's version, and the
+# packaging step refuses a crate that disagrees with the package's plugin.json.
+version = "0.1.0"
+edition.workspace = true
+
+[dependencies]
+ember-file-store = { path = "../../../crates/file-store" }
+ember-text-document = { path = "../../../crates/text-document" }
+ember-plugin-sdk = { path = "../../../sdk/native" }
+serde_json.workspace = true
+sha2 = "0.10"
+
+[dev-dependencies]
+tempfile = "3"

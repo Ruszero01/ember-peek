@@ -1,0 +1,10 @@
+plugins/
+sdk/
+.plugins/
+.marketplace/
+.release/
+.plugin-cache/
+tests/
+scripts/
+
+crates/text-document/**

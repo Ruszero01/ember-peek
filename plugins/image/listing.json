@@ -1,0 +1,10 @@
+{
+  "summary": "支持缩放、适应窗口和拖动。",
+  "i18n": {
+    "en": {
+      "summary": "Zoom, fit-to-window and panning."
+    }
+  },
+  "publisher": "Ember Peek",
+  "recommended": true
+}

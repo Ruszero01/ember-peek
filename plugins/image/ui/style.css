@@ -1,0 +1,47 @@
+:root {
+  background: var(--canvas, #141519);
+  color: var(--text, #e5e5e6);
+  font:
+    13px "Segoe UI",
+    sans-serif;
+}
+body {
+  margin: 0;
+}
+main {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  background-image: radial-gradient(
+    var(--border, #303137) 0.7px,
+    transparent 0.7px
+  );
+  background-size: 16px 16px;
+  touch-action: none;
+  cursor: grab;
+}
+main:active {
+  cursor: grabbing;
+}
+img {
+  position: absolute;
+  max-width: none;
+  user-select: none;
+  box-shadow: 0 8px 32px #0002;
+  transform-origin: center;
+  background: repeating-conic-gradient(#8882 0% 25%, #8880 0% 50%) 50% / 16px
+    16px;
+}
+img.settling {
+  transition: transform 280ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  img.settling {
+    transition-duration: 1ms;
+  }
+}
+p {
+  color: var(--muted, #8e909b);
+}
