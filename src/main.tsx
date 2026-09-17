@@ -40,9 +40,11 @@ import {
   Hash,
   Code,
   GripVertical,
+  Languages,
 } from "lucide-react";
 import { BrandMark } from "./BrandMark";
 import { ScrubControl } from "./ScrubControl";
+import { Select } from "./Select";
 import { Toggle } from "./Toggle";
 import { PluginView } from "./PluginView";
 import { PluginStage } from "./PluginStage";
@@ -53,6 +55,18 @@ import { Welcome } from "./Welcome";
 import { call, desktop, windowAction } from "./bridge";
 import { Selection, isContributionCurrent } from "./protocol.mjs";
 import { pluginIcon } from "./pluginIcons";
+import {
+  LOCALE_NAMES,
+  LOCALES,
+  formatBytes,
+  isLocalePreference,
+  resolveLocale,
+  setLocale,
+  systemLocale,
+  useT,
+  type Locale,
+  type LocalePreference,
+} from "./i18n";
 import type {
   Plugin,
   PluginSetting,
@@ -87,22 +101,22 @@ const icons: Record<string, typeof Search> = {
   hash: Hash,
   code: Code,
 };
-const bytes = (n: number) =>
-  n < 1024
-    ? `${n} B`
-    : n < 1024 ** 2
-      ? `${(n / 1024).toFixed(1)} KB`
-      : `${(n / 1024 ** 2).toFixed(1)} MB`;
-type Settings = { theme: "light" | "dark" | "system"; immersive: boolean };
+type Settings = {
+  theme: "light" | "dark" | "system";
+  immersive: boolean;
+  /** Interface language; "system" follows the language the WebView reports. */
+  locale: LocalePreference;
+};
 function savedSettings(): Settings {
   try {
     const v = JSON.parse(localStorage.getItem("ember.settings") || "{}");
     return {
       theme: ["light", "dark", "system"].includes(v.theme) ? v.theme : "system",
       immersive: v.immersive !== false,
+      locale: isLocalePreference(v.locale) ? v.locale : "system",
     };
   } catch {
-    return { theme: "system", immersive: true };
+    return { theme: "system", immersive: true, locale: "system" };
   }
 }
 
@@ -125,6 +139,7 @@ function SettingField({
   busy: boolean;
   onChange: (value: unknown) => void;
 }) {
+  const t = useT();
   const current = value === undefined ? setting.default : value;
   const numeric = setting.type === "number";
   const displayMultiplier = numeric ? (setting.displayMultiplier ?? 1) : 1;
@@ -165,18 +180,13 @@ function SettingField({
       <div className="setting-row">
         <SettingLabel setting={setting} />
         <div className="setting-control">
-          <select
-            aria-label={setting.label}
-            disabled={busy}
+          <Select
             value={String(current ?? "")}
-            onChange={(event) => onChange(event.target.value)}
-          >
-            {setting.options.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
+            choices={setting.options}
+            label={setting.label}
+            busy={busy}
+            onChange={onChange}
+          />
         </div>
       </div>
     );
@@ -247,7 +257,7 @@ function SettingField({
               <button
                 type="button"
                 tabIndex={-1}
-                aria-label={`增大${setting.label}`}
+                aria-label={t("settings.increase", { label: setting.label })}
                 disabled={busy || (displayMax !== undefined && Number(draft) >= displayMax)}
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => stepNumber(1)}
@@ -257,7 +267,7 @@ function SettingField({
               <button
                 type="button"
                 tabIndex={-1}
-                aria-label={`减小${setting.label}`}
+                aria-label={t("settings.decrease", { label: setting.label })}
                 disabled={busy || (displayMin !== undefined && Number(draft) <= displayMin)}
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => stepNumber(-1)}
@@ -287,6 +297,7 @@ function SettingLabel({ setting }: { setting: PluginSetting }) {
  * plugin never ships settings markup.
  */
 function ActivationSettings({ plugin }: { plugin: Plugin }) {
+  const t = useT();
   const [activation, setActivation] = useState(plugin.activation);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -310,17 +321,17 @@ function ActivationSettings({ plugin }: { plugin: Plugin }) {
   return (
     <div
       className="plugin-activation"
-      title="自动激活：打开文件时按左侧列表顺序选择；没有自动激活的视口时使用可用视口。"
+      title={t("plugin.activationHint")}
     >
       <Toggle
-        label="自动激活"
+        label={t("plugin.activation")}
         checked={activation.mode === "auto"}
         busy={busy}
         onChange={(value) =>
           void update({ ...activation, mode: value ? "auto" : "manual" })
         }
       />
-      <span className="plugin-activation-label">自动激活</span>
+      <span className="plugin-activation-label">{t("plugin.activation")}</span>
       {error && (
         <p className="warning" role="alert">
           {error}
@@ -331,6 +342,7 @@ function ActivationSettings({ plugin }: { plugin: Plugin }) {
 }
 
 function PluginSettingsPane({ plugin }: { plugin: Plugin | undefined }) {
+  const t = useT();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   // Values the user just chose, kept until a snapshot confirms them.
@@ -363,7 +375,7 @@ function PluginSettingsPane({ plugin }: { plugin: Plugin | undefined }) {
   if (!plugin)
     return (
       <section className="card">
-        <p className="quiet-note">该插件已不可用，请刷新插件列表。</p>
+        <p className="quiet-note">{t("plugin.settings.unavailable")}</p>
       </section>
     );
   const Icon = pluginIcon(plugin.icon);
@@ -402,9 +414,7 @@ function PluginSettingsPane({ plugin }: { plugin: Plugin | undefined }) {
               <span className="plugin-version">v{plugin.version}</span>
             </h2>
             <p>
-              {plugin.enabled
-                ? "已启用"
-                : "已停用：插件停用期间无法打开对应格式，设置仍然保留"}
+              {plugin.enabled ? t("plugin.enabled") : t("plugin.disabledNote")}
             </p>
           </div>
           <ActivationSettings key={plugin.id} plugin={plugin} />
@@ -426,7 +436,7 @@ function PluginSettingsPane({ plugin }: { plugin: Plugin | undefined }) {
             ))}
           </div>
         ) : (
-          <p className="quiet-note">此插件暂无额外设置。</p>
+          <p className="quiet-note">{t("plugin.settings.none")}</p>
         )}
       </section>
       {error && (
@@ -446,6 +456,7 @@ type DesktopStatus = {
 };
 
 function DelayedLoading({ visible, name }: { visible: boolean; name: string }) {
+  const t = useT();
   const [shown, setShown] = useState(false);
   useEffect(() => {
     if (!visible) {
@@ -459,13 +470,14 @@ function DelayedLoading({ visible, name }: { visible: boolean; name: string }) {
   return (
     <div className="surface-state">
       <LoaderCircle size={25} className="spinner" />
-      <strong>正在加载 {name}</strong>
-      <p>可以继续打开其他文件，此任务会在后台完成</p>
+      <strong>{t("loading.title", { name })}</strong>
+      <p>{t("loading.note")}</p>
     </div>
   );
 }
 
 function App() {
+  const t = useT();
   const [snapshot, setSnapshot] = useState(initial);
   const [active, setActive] = useState<string | null>(null);
   const [page, setPage] = useState<
@@ -475,6 +487,11 @@ function App() {
   // plugin does not have to encode the plugin id into the page state itself.
   const [pluginPage, setPluginPage] = useState<string | null>(null);
   const [settings, setSettings] = useState(savedSettings);
+  // The language the WebView reports, kept current so "follow system" reacts to a change
+  // without the user having to restart the window.
+  const [systemLanguage, setSystemLanguage] = useState<Locale>(systemLocale);
+  const language: Locale =
+    settings.locale === "system" ? systemLanguage : settings.locale;
   const [theme, setTheme] = useState<Theme>({});
   const [reports, setReports] = useState<Record<string, ViewReport>>({});
   const [error, setError] = useState("");
@@ -801,6 +818,7 @@ function App() {
             "accent",
             "accent-bg",
             "canvas",
+            "color-scheme",
             "radius-control",
             "radius-pill",
             "radius-card",
@@ -830,6 +848,20 @@ function App() {
     addEventListener("storage", changed);
     return () => removeEventListener("storage", changed);
   }, []);
+  useEffect(() => {
+    const changed = () => setSystemLanguage(systemLocale());
+    addEventListener("languagechange", changed);
+    return () => removeEventListener("languagechange", changed);
+  }, []);
+  // The host is told the language it should speak: it builds the tray menu, its own dialogs
+  // and every plugin mount, so it has to know. Applying it in a layout effect means the
+  // text that changes is the text of the frame the click produced — a switch that paints
+  // once in the old language and then corrects itself is a flash that costs nothing to
+  // avoid.
+  useLayoutEffect(() => {
+    setLocale(language);
+    if (desktop) void guard(() => call("set_locale", { locale: language }));
+  }, [language]);
   function settingsPage(page: "general" | "plugins") {
     if (desktop) void guard(() => call("show_settings", { page }));
     else setPage(page);
@@ -939,8 +971,8 @@ function App() {
   async function install() {
     await manage(async () => {
       const path = await call<string | null>("pick_path", { folder: true });
-      if (path) setPluginAction({ name: "本地插件", detail: path, kind: "install", run: async progress => {
-        progress("正在校验并安装本地插件…"); await call("install_plugin", { path }); progress("正在刷新插件列表…"); await refresh();
+      if (path) setPluginAction({ name: t("plugins.localName"), detail: path, kind: "install", run: async progress => {
+        progress(t("progress.installLocal")); await call("install_plugin", { path }); progress(t("progress.refreshPlugins")); await refresh();
       } });
     });
   }
@@ -970,18 +1002,18 @@ function App() {
         }}
       />
       <div className="window-buttons">
-        <button title="最小化" onClick={() => void windowAction("minimize")}>
+        <button title={t("window.minimize")} onClick={() => void windowAction("minimize")}>
           <Minus size={15} />
         </button>
         <button
-          title="最大化 / 还原"
+          title={t("window.maximize")}
           onClick={() => void windowAction("toggleMaximize")}
         >
           <Square size={12} />
         </button>
         <button
           className="window-close"
-          title="关闭"
+          title={t("window.close")}
           onClick={() => void windowAction("close")}
         >
           <X size={16} />
@@ -1045,14 +1077,14 @@ function App() {
       {error && (
         <div className="error-toast" role="alert">
           <span>{error}</span>
-          <button title="关闭提示" onClick={() => setError("")}>
+          <button title={t("error.dismiss")} onClick={() => setError("")}>
             <X size={14} />
           </button>
         </div>
       )}
       {!desktop && (
         <div className="browser-banner">
-          界面预览 · 文件和插件功能请使用桌面窗口
+          {t("browser.banner")}
         </div>
       )}
       <div
@@ -1082,6 +1114,7 @@ function App() {
                   (role === "panel" || session.id === active)
                 }
                 theme={role === "panel" ? theme : viewTheme}
+                locale={language}
                 settings={pluginSettings[session.pluginId]}
                 controls={
                   secondary ? [] : (reports[session.id]?.controls ?? [])
@@ -1118,21 +1151,23 @@ function App() {
             <div className="empty-art">
               <BrandMark size={43} />
             </div>
-            <h1>即刻一览</h1>
-            <p>拖入文件，或选择一个文件开始预览</p>
+            <h1>{t("empty.title")}</h1>
+            <p>{t("empty.note")}</p>
             <button className="primary-button" onClick={() => void pick()}>
               <FolderOpen size={16} />
-              打开文件<kbd>Ctrl O</kbd>
+              {t("empty.open")}<kbd>Ctrl O</kbd>
             </button>
             <div className="format-hints">
               {snapshot.plugins.filter((p) => p.enabled).length
-                ? `${snapshot.plugins.filter((p) => p.enabled).length} 个预览插件已就绪`
-                : "尚未安装预览插件"}
+                ? t("empty.pluginsReady", {
+                    count: snapshot.plugins.filter((p) => p.enabled).length,
+                  })
+                : t("empty.noPlugins")}
               <button
                 className="text-button"
                 onClick={() => settingsPage("plugins")}
               >
-                管理插件
+                {t("empty.manage")}
               </button>
             </div>
           </div>
@@ -1147,15 +1182,15 @@ function App() {
                 !viewReport?.error,
             )
           }
-          name={current?.name || "文件"}
+          name={current?.name || t("loading.file")}
         />
         {(current?.status === "error" || viewReport?.error) && (
           <div className="surface-state">
             <Package size={30} />
-            <strong>插件预览失败</strong>
+            <strong>{t("preview.failed")}</strong>
             <p>{current?.error || viewReport?.error}</p>
             <button className="secondary-button" onClick={() => void pick()}>
-              打开其他文件
+              {t("preview.openOther")}
             </button>
           </div>
         )}
@@ -1194,8 +1229,8 @@ function App() {
                 <strong>{current?.name || "Ember Peek"}</strong>
                 <span>
                   {current
-                    ? `${bytes(current.size)} · ${viewReport?.status || current.pluginId}`
-                    : "由插件提供每一种预览能力"}
+                    ? `${formatBytes(current.size)} · ${viewReport?.status || current.pluginId}`
+                    : t("preview.tagline")}
                 </span>
               </div>
             </div>
@@ -1216,7 +1251,7 @@ function App() {
                     <button
                       className="plugin-activate"
                       aria-pressed={isCurrent}
-                      title={contributor.error || `打开${contributor.label}`}
+                      title={contributor.error || t("footer.openPlugin", { label: contributor.label })}
                       onClick={() =>
                         void guard(async () => {
                           if (
@@ -1294,10 +1329,10 @@ function App() {
                 );
               })}
               <div className="toolbar-host-actions">
-                <button title="打开文件" onClick={() => void pick()}>
+                <button title={t("footer.openFile")} onClick={() => void pick()}>
                   <FolderOpen size={16} />
                 </button>
-                <button title="设置" onClick={() => settingsPage("general")}>
+                <button title={t("footer.settings")} onClick={() => settingsPage("general")}>
                   <Settings2 size={16} />
                 </button>
               </div>
@@ -1317,12 +1352,12 @@ function App() {
           <div className="settings-layout">
             <aside className="sidebar">
               <div className="sidebar-content">
-                <div className="sidebar-heading">设置</div>
+                <div className="sidebar-heading">{t("nav.heading")}</div>
                 {(
                   [
-                    { id: "about", name: "关于", icon: Info },
-                    { id: "general", name: "通用", icon: Palette },
-                    { id: "plugins", name: "插件", icon: Package },
+                    { id: "about", name: t("nav.about"), icon: Info },
+                    { id: "general", name: t("nav.general"), icon: Palette },
+                    { id: "plugins", name: t("nav.plugins"), icon: Package },
                   ] as const
                 ).map((item) => (
                   <button
@@ -1339,8 +1374,8 @@ function App() {
                   <div className="plugin-sidebar-section">
                     <div className="plugin-sidebar-scroll">
                       <div className="plugin-sidebar-heading">
-                        <h2>插件设置</h2>
-                        <p>拖动左侧手柄调整顺序</p>
+                        <h2>{t("nav.pluginSettings")}</h2>
+                        <p>{t("nav.reorderHint")}</p>
                       </div>
                       {orderedPlugins.map((plugin, index) => {
                         const selected =
@@ -1386,10 +1421,10 @@ function App() {
                             title={
                               plugin.enabled
                                 ? plugin.name
-                                : `${plugin.name}（已停用）`
+                                : t("plugin.disabledTitle", { name: plugin.name })
                             }
                           >
-                            <button type="button" className="plugin-drag-handle" title="拖动调整顺序" aria-label={`拖动排序 ${plugin.name}`} disabled={sortingPlugins}
+                            <button type="button" className="plugin-drag-handle" title={t("plugin.dragHint")} aria-label={t("plugin.dragLabel", { name: plugin.name })} disabled={sortingPlugins}
                               onClick={e => e.stopPropagation()}
                               onKeyDown={e => { if (e.key === "ArrowUp" || e.key === "ArrowDown") { e.preventDefault(); e.stopPropagation(); const target = orderedPlugins[index + (e.key === "ArrowUp" ? -1 : 1)]; if (target) void reorderPlugin(target.id, e.key === "ArrowDown", plugin.id); } }}
                             draggable={!sortingPlugins}
@@ -1409,12 +1444,12 @@ function App() {
                             <strong>
                               {plugin.name}
                               {!plugin.enabled && (
-                                <span className="nav-note">已停用</span>
+                                <span className="nav-note">{t("plugin.disabledBadge")}</span>
                               )}
                             </strong>
                             <span
                               className="plugin-order-number"
-                              aria-label={`加载顺序 ${index + 1}`}
+                              aria-label={t("plugin.order", { index: index + 1 })}
                             >
                               {String(index + 1).padStart(2, "0")}
                             </span>
@@ -1434,12 +1469,12 @@ function App() {
               <div className="page-top">
                 <h1>
                   {page === "general"
-                    ? "通用"
+                    ? t("nav.general")
                     : page === "plugins"
-                      ? "插件"
+                      ? t("nav.plugins")
                       : page === "plugin"
-                        ? (currentPlugin?.name ?? "插件设置")
-                        : "关于"}
+                        ? (currentPlugin?.name ?? t("nav.pluginSettings"))
+                        : t("nav.about")}
                 </h1>
               </div>
               {page === "plugin" && (
@@ -1453,26 +1488,26 @@ function App() {
                         <Sun size={18} />
                       </span>
                       <div>
-                        <h2>外观</h2>
-                        <p>界面主题</p>
+                        <h2>{t("appearance.title")}</h2>
+                        <p>{t("appearance.subtitle")}</p>
                       </div>
                     </div>
                     <div className="theme-options">
                       {(
                         [
-                          { id: "light", label: "浅色", icon: Sun },
-                          { id: "dark", label: "深色", icon: Moon },
-                          { id: "system", label: "跟随系统", icon: Monitor },
+                          { id: "light", label: t("theme.light"), icon: Sun },
+                          { id: "dark", label: t("theme.dark"), icon: Moon },
+                          { id: "system", label: t("theme.system"), icon: Monitor },
                         ] as const
-                      ).map((t) => (
+                      ).map((t2) => (
                         <button
-                          key={t.id}
-                          className={`theme-option ${settings.theme === t.id ? "selected" : ""}`}
+                          key={t2.id}
+                          className={`theme-option ${settings.theme === t2.id ? "selected" : ""}`}
                           onClick={() =>
-                            setSettings({ ...settings, theme: t.id })
+                            setSettings({ ...settings, theme: t2.id })
                           }
                         >
-                          <div className={`theme-preview theme-${t.id}`}>
+                          <div className={`theme-preview theme-${t2.id}`}>
                             <div className="mock-sidebar" />
                             <div className="mock-content">
                               <i />
@@ -1482,9 +1517,9 @@ function App() {
                             </div>
                           </div>
                           <span>
-                            <t.icon size={15} />
-                            {t.label}
-                            {settings.theme === t.id && <Check size={14} />}
+                            <t2.icon size={15} />
+                            {t2.label}
+                            {settings.theme === t2.id && <Check size={14} />}
                           </span>
                         </button>
                       ))}
@@ -1493,23 +1528,64 @@ function App() {
                   <section className="card">
                     <div className="section-heading">
                       <span className="section-icon">
-                        <Monitor size={18} />
+                        <Languages size={18} />
                       </span>
                       <div>
-                        <h2>界面</h2>
-                        <p>预览窗口显示方式</p>
+                        <h2>{t("language.title")}</h2>
+                        <p>{t("language.subtitle")}</p>
                       </div>
                     </div>
                     <div className="setting-row">
                       <div>
-                        <strong>沉浸模式</strong>
+                        <strong>{t("language.title")}</strong>
+                        <p>{t("language.note")}</p>
+                      </div>
+                      <div className="setting-control">
+                        <Select
+                          value={settings.locale}
+                          label={t("language.title")}
+                          choices={[
+                            {
+                              value: "system",
+                              label: t("language.systemWith", {
+                                name: LOCALE_NAMES[systemLanguage],
+                              }),
+                            },
+                            ...LOCALES.map((id) => ({
+                              value: id,
+                              label: LOCALE_NAMES[id],
+                            })),
+                          ]}
+                          onChange={(locale) =>
+                            setSettings({
+                              ...settings,
+                              locale: locale as LocalePreference,
+                            })
+                          }
+                        />
+                      </div>
+                    </div>
+                  </section>
+                  <section className="card">
+                    <div className="section-heading">
+                      <span className="section-icon">
+                        <Monitor size={18} />
+                      </span>
+                      <div>
+                        <h2>{t("interface.title")}</h2>
+                        <p>{t("interface.subtitle")}</p>
+                      </div>
+                    </div>
+                    <div className="setting-row">
+                      <div>
+                        <strong>{t("immersive.label")}</strong>
                         <p>
-                          关闭时视口只占标题栏与功能栏之间；开启后视口铺满窗口，鼠标移到顶部或底部时浮出操作栏，栏间空隙不挡插件操作。
+                          {t("immersive.note")}
                         </p>
                       </div>
                       <Toggle
                         checked={settings.immersive}
-                        label="沉浸模式"
+                        label={t("immersive.label")}
                         onChange={(immersive) =>
                           setSettings({ ...settings, immersive })
                         }
@@ -1525,17 +1601,17 @@ function App() {
                       className={pluginTab === "market" ? "selected" : ""}
                       onClick={() => setPluginTab("market")}
                     >
-                      插件市场
+                      {t("plugins.market")}
                     </button>
                     <button
                       className={pluginTab === "installed" ? "selected" : ""}
                       onClick={() => setPluginTab("installed")}
                     >
-                      插件管理
+                      {t("plugins.manage")}
                     </button>
                   </div>
                   <div className="list-toolbar">
-                    <span>{snapshot.plugins.length} 个已安装插件</span>
+                    <span>{t("plugins.installedCount", { count: snapshot.plugins.length })}</span>
                     <div>
                       <button
                         className="text-button"
@@ -1545,7 +1621,7 @@ function App() {
                         }
                       >
                         <RotateCw size={14} />
-                        刷新
+                        {t("plugins.refresh")}
                       </button>
                       <button
                         className="secondary-button"
@@ -1553,14 +1629,14 @@ function App() {
                         onClick={() => void install()}
                       >
                         <Download size={14} />
-                        从目录安装
+                        {t("plugins.installFromFolder")}
                       </button>
                     </div>
                   </div>
                   <label className="search-box">
                     <Search size={15} />
                     <input
-                      placeholder="搜索插件或扩展名"
+                      placeholder={t("plugins.searchPlaceholder")}
                       value={filter}
                       onChange={(e) => setFilter(e.target.value)}
                     />
@@ -1596,18 +1672,18 @@ function App() {
                                 <span
                                   className={`plugin-runtime-badge${plugin.processIds.length ? " is-running" : ""}`}
                                   title={plugin.processIds.length
-                                    ? `后台进程 PID：${plugin.processIds.join(", ")}`
-                                    : "尚未启动后台进程，使用插件时按需启动"}
+                                    ? t("plugin.pidRunning", { pids: plugin.processIds.join(", ") })
+                                    : t("plugin.pidOnDemand")}
                                 >
                                   <span className="runtime-status-dot" aria-hidden="true" />
-                                  {plugin.processIds.length ? "运行中" : "按需启动"}
+                                  {plugin.processIds.length ? t("plugin.runtimeRunning") : t("plugin.runtimeOnDemand")}
                                 </span>
                                 <PluginDetails extensions={plugin.extensions}><p>{plugin.id}</p></PluginDetails>
                               </div>
-                              <div className="plugin-enable"><span className={`enabled-label ${plugin.enabled ? "enabled" : ""}`}>{plugin.enabled ? "已启用" : "已停用"}</span>
+                              <div className="plugin-enable"><span className={`enabled-label ${plugin.enabled ? "enabled" : ""}`}>{plugin.enabled ? t("plugin.enabled") : t("plugin.disabled")}</span>
                                 <Toggle
                                   checked={plugin.enabled}
-                                  label={`启用${plugin.name}`}
+                                  label={t("plugin.enableLabel", { name: plugin.name })}
                                   busy={busy}
                                   onChange={(enabled) =>
                                     void manage(() =>
@@ -1620,13 +1696,13 @@ function App() {
                                 />
                                 <button
                                   className="text-button"
-                                  title={`卸载${plugin.name}`}
+                                  title={t("plugins.uninstallLabel", { name: plugin.name })}
                                   disabled={busy}
                                   onClick={() =>
-                                    setPluginAction({ name: plugin.name, detail: `${plugin.id} · v${plugin.version}`, kind: "uninstall", run: async progress => { await call("uninstall_plugin", { id: plugin.id }); progress("正在刷新插件列表…"); await refresh(); } })
+                                    setPluginAction({ name: plugin.name, detail: `${plugin.id} · v${plugin.version}`, kind: "uninstall", run: async progress => { await call("uninstall_plugin", { id: plugin.id }); progress(t("progress.refreshPlugins")); await refresh(); } })
                                   }
                                 >
-                                  <Trash2 size={14} /> 卸载
+                                  <Trash2 size={14} /> {t("plugins.uninstall")}
                                 </button>
                               </div>
                             </section>
@@ -1635,16 +1711,16 @@ function App() {
                       {!snapshot.plugins.length && (
                         <div className="card empty-plugins">
                           <Package size={28} />
-                          <h2>让插件带来新的预览能力</h2>
+                          <h2>{t("plugins.empty.title")}</h2>
                           <p>
-                            安装文本、图片或其他格式的插件后，即可打开对应文件。
+                            {t("plugins.empty.note")}
                           </p>
                         </div>
                       )}
                     </>
                   )}
                   <p className="quiet-note">
-                    插件包含本机可执行程序，请仅安装可信来源的插件。
+                    {t("plugins.trustWarning")}
                   </p>
                   {snapshot.warnings.map((w) => (
                     <p className="warning" key={w}>
@@ -1657,15 +1733,15 @@ function App() {
                 <section className="card about">
                   <BrandMark size={58} />
                   <h1>Ember Peek</h1>
-                  <p>轻量预览，一切皆插件。</p>
+                  <p>{t("about.tagline")}</p>
                   <span className="version">{APP_VERSION}</span>
                   <div className="about-details">
                     <span>
-                      已安装插件 <strong>{snapshot.plugins.length}</strong>
+                      {t("about.installed")} <strong>{snapshot.plugins.length}</strong>
                     </span>
                     <span>
-                      插件目录{" "}
-                      <code>{snapshot.pluginDirectory || "桌面版中可用"}</code>
+                      {t("about.directory")}{" "}
+                      <code>{snapshot.pluginDirectory || t("about.desktopOnly")}</code>
                     </span>
                   </div>
                 </section>
@@ -1677,4 +1753,7 @@ function App() {
     </div>
   );
 }
+// Resolve the interface language before the first paint: a window that renders one frame
+// in the wrong language and then swaps is worse than one that starts in it.
+setLocale(resolveLocale(savedSettings().locale));
 createRoot(document.getElementById("root")!).render(<App />);

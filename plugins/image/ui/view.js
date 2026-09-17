@@ -7,18 +7,41 @@ import {
   configuration,
   onSettings,
   onTheme,
+  translate,
+  onLocale,
 } from "./sdk.js";
 
 const { data } = await ready;
 const image = document.querySelector("img");
 const message = document.querySelector("#message");
+
+/** The plugin's own wording, in the language the host is showing. */
+const say = translate({
+  "zh-CN": {
+    zoom: "缩放比例",
+    fit: "适应窗口",
+    actual: "原始尺寸",
+    decoding: "正在解码图片…",
+    failed: "图片加载失败：{error}",
+  },
+  en: {
+    zoom: "Zoom",
+    fit: "Fit the window",
+    actual: "Actual size",
+    decoding: "Decoding the image…",
+    failed: "The image could not be loaded: {error}",
+  },
+});
+// The page ships no wording of its own: what is on screen is decided here, in the
+// language the host is showing.
+message.textContent = say("decoding");
 let zoom = 1,
   x = 0,
   y = 0,
   fitting = true,
   drag;
 // Whether the user has zoomed or panned this session. Kept apart from `fitting`
-// because clicking "适应窗口" is an interaction that still wants resize to re-fit.
+// because clicking "fit the window" is an interaction that still wants resize to re-fit.
 let touched = false;
 let publishedZoom;
 const EDGE_PEEK = 56;
@@ -79,14 +102,14 @@ function publishControls() {
   publishedZoom = zoom;
   controls([
     {
-      id: "zoom", kind: "scrub", label: "缩放比例",
+      id: "zoom", kind: "scrub", label: say("zoom"),
       value: zoom * 100, min: Math.min(2, zoom * 100), max: 2000, suffix: "%",
       run: value => { if (typeof value === "number" && Number.isFinite(value)) scale(value / (zoom * 100)); },
     },
     {
       id: "fit",
       kind: "button",
-      label: "适应窗口",
+      label: say("fit"),
       icon: "fit",
       run() {
         touched = true;
@@ -96,7 +119,7 @@ function publishControls() {
     {
       id: "actual",
       kind: "button",
-      label: "原始尺寸",
+      label: say("actual"),
       icon: "actual",
       run() {
         touched = true;
@@ -158,6 +181,12 @@ try {
   onSettings(() => {
     if (!touched) applyDefaultView();
   });
+  onLocale(() => {
+    // The toolbar labels are this plugin's own text: republish them even when the zoom
+    // they are published with has not moved.
+    publishedZoom = undefined;
+    publishControls();
+  });
   addEventListener("resize", () => {
     if (fitting) fit();
     else settlePan();
@@ -211,7 +240,7 @@ try {
   image.addEventListener("transitionend", () => image.classList.remove("settling"));
   await presented();
 } catch (error) {
-  message.textContent = `图片加载失败：${error.message}`;
+  message.textContent = say("failed", { error: error.message });
   status(message.textContent);
   await presented(message.textContent);
 }

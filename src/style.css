@@ -18,6 +18,11 @@
   --hover: #2c2d34;
   --canvas: #141519;
   --shadow: 0 14px 40px #0003;
+  /* What the platform draws for us — the scrollbar, a dropdown list, autofill — is told
+     which theme it is in, so nothing native stays light inside a dark window. Plugins get
+     this token too and set the same property on their own document. */
+  --color-scheme: dark;
+  color-scheme: var(--color-scheme);
   /* Shape and type tokens, injected into every plugin next to the colours. Keeping them
      here is what makes a skin more than a palette swap: radius, control height, spacing and
      fonts all move together for every plugin that uses the shared kit. */
@@ -53,6 +58,7 @@
   --hover: #e9eaef;
   --canvas: #f0f1f4;
   --shadow: 0 14px 40px #3030400d;
+  --color-scheme: light;
 }
 * {
   box-sizing: border-box;
@@ -624,10 +630,9 @@ h2 {
 }
 /* One control language for the whole settings surface, matching `.search-box`:
    1px border on a card surface, 8px radius, 12px label text. Native form chrome
-   (spinners, the select arrow, autofill) is redrawn so nothing falls back to the
-   browser's light defaults on a dark theme. */
-.setting-control input,
-.setting-control select {
+   (spinners, autofill) is redrawn so nothing falls back to the browser's light
+   defaults on a dark theme. The dropdown is a component of its own: src/select.css. */
+.setting-control input {
   height: 32px;
   padding: 0 10px;
   border: 1px solid var(--border);
@@ -652,26 +657,10 @@ h2 {
   appearance: none;
   display: none;
 }
-/* A dropdown needs an arrow of its own once the native one is removed. */
-.setting-control select {
-  appearance: none;
-  min-width: 132px;
-  padding-right: 32px;
-  cursor: pointer;
-  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6' fill='none' stroke='%23777e8c' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1 1l4 4 4-4'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 11px center;
-  background-size: 10px 6px;
-}
-.setting-control select option {
-  background: var(--raised);
-  color: var(--text);
-}
 .setting-control input::placeholder {
   color: var(--faint);
 }
-.setting-control input:focus,
-.setting-control select:focus {
+.setting-control input:focus {
   outline: none;
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-bg);
@@ -682,8 +671,7 @@ h2 {
 .setting-input:focus-within input {
   box-shadow: none;
 }
-.setting-control input:disabled,
-.setting-control select:disabled {
+.setting-control input:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }

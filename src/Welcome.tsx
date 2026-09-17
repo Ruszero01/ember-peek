@@ -3,6 +3,7 @@ import { Check, LoaderCircle, ArrowRight } from "lucide-react";
 import { call, desktop, windowAction } from "./bridge";
 import { BrandMark } from "./BrandMark";
 import { pluginIcon } from "./pluginIcons";
+import { useT } from "./i18n";
 import type { MarketEntry, MarketList } from "./types";
 
 /** How many plugins to suggest when a source marks none, rather than listing everything. */
@@ -16,6 +17,7 @@ const SUGGESTION_LIMIT = 3;
  * the ids.
  */
 export function Welcome({ onDone }: { onDone: () => Promise<unknown> }) {
+  const t = useT();
   const [entries, setEntries] = useState<MarketEntry[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [warnings, setWarnings] = useState<string[]>([]);
@@ -82,18 +84,24 @@ export function Welcome({ onDone }: { onDone: () => Promise<unknown> }) {
     const failures: string[] = [];
     const chosen = entries.filter((entry) => selected.has(entry.id));
     for (const [index, entry] of chosen.entries()) {
-      setProgress(`正在安装 ${entry.name}（${index + 1}/${chosen.length}）…`);
+      setProgress(
+        t("welcome.installing", {
+          name: entry.name,
+          index: index + 1,
+          total: chosen.length,
+        }),
+      );
       try {
         const path = await call<string>("market_prepare", { id: entry.id });
         await call("install_plugin", { path });
       } catch (e) {
-        failures.push(`${entry.name}：${e}`);
+        failures.push(t("welcome.failure", { name: entry.name, error: String(e) }));
       }
     }
     try {
       await answer();
       await onDone();
-      if (failures.length) setError(failures.join("；"));
+      if (failures.length) setError(failures.join(t("list.separator")));
     } finally {
       setBusy(false);
       setProgress("");
@@ -125,12 +133,12 @@ export function Welcome({ onDone }: { onDone: () => Promise<unknown> }) {
     <div className="welcome">
       <div className="welcome-heading">
         <BrandMark size={30} />
-        <h1>欢迎使用 Ember Peek</h1>
-        <p>选择要安装的插件，装好后即可预览对应文件；之后随时可以在“插件市场”里增减。</p>
+        <h1>{t("welcome.title")}</h1>
+        <p>{t("welcome.note")}</p>
       </div>
       {loading && (
         <p className="quiet-note">
-          <LoaderCircle size={16} className="spinner" /> 正在获取插件列表…
+          <LoaderCircle size={16} className="spinner" /> {t("welcome.loading")}
         </p>
       )}
       {warnings.map((warning, index) => (
@@ -144,13 +152,11 @@ export function Welcome({ onDone }: { onDone: () => Promise<unknown> }) {
         </p>
       )}
       {!loading && (warnings.length > 0 || error || !entries.length) && (
-        <button className="text-button" disabled={busy || !desktop} onClick={() => setAttempt((n) => n + 1)}>重新获取插件列表</button>
+        <button className="text-button" disabled={busy || !desktop} onClick={() => setAttempt((n) => n + 1)}>{t("welcome.retry")}</button>
       )}
       {!loading && !entries.length && !warnings.length && (
         <p className="quiet-note">
-          {suggestions
-            ? "推荐的基础插件都已安装。"
-            : "这个来源没有可安装的插件。"}
+          {suggestions ? t("welcome.allInstalled") : t("welcome.none")}
         </p>
       )}
       {entries.length > 0 && (
@@ -193,7 +199,7 @@ export function Welcome({ onDone }: { onDone: () => Promise<unknown> }) {
             ) : (
               <Check size={15} />
             )}
-            {busy ? progress || "正在安装…" : `安装所选（${selected.size}）`}
+            {busy ? progress || t("welcome.installingShort") : t("welcome.installSelected", { count: selected.size })}
           </button>
         )}
         <button
@@ -201,7 +207,7 @@ export function Welcome({ onDone }: { onDone: () => Promise<unknown> }) {
           disabled={busy}
           onClick={() => void browseMarket()}
         >
-          去插件市场
+          {t("welcome.market")}
           <ArrowRight size={15} />
         </button>
       </div>
@@ -211,7 +217,7 @@ export function Welcome({ onDone }: { onDone: () => Promise<unknown> }) {
         disabled={busy}
         onClick={() => void later()}
       >
-        稍后再说
+        {t("welcome.later")}
       </button>
     </div>
   );

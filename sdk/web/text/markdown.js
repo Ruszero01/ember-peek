@@ -1,5 +1,12 @@
 import MarkdownIt from "markdown-it";
 import DOMPurify from "dompurify";
+import { translate } from "../index.js";
+
+/** Text the renderer supplies for a document that has none of its own. */
+const say = translate({
+  "zh-CN": { image: "图片", untitled: "无标题" },
+  en: { image: "Image", untitled: "Untitled" },
+});
 const parser = new MarkdownIt({
   html: false,
   linkify: false,
@@ -7,7 +14,7 @@ const parser = new MarkdownIt({
 });
 // Files cannot inject scripts, navigation or network fetches into the preview.
 parser.renderer.rules.image = (tokens, index) =>
-  parser.utils.escapeHtml(tokens[index].content || "图片");
+  parser.utils.escapeHtml(tokens[index].content || say("image"));
 export function renderMarkdown(text) {
   const tokens = parser.parse(text, {});
   const headings = [];
@@ -22,7 +29,7 @@ export function renderMarkdown(text) {
         id,
         level: Number(token.tag.slice(1)),
         line: token.map[0] + 1,
-        title: tokens[i + 1]?.content || "无标题",
+        title: tokens[i + 1]?.content || say("untitled"),
       });
     }
   }

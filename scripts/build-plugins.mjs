@@ -434,6 +434,7 @@ async function publish(release, { dist = false } = {}) {
       await rm(staging, { recursive: true, force: true });
     }
     const zip = await readFile(destination);
+    const i18n = localizedText(manifest, listing);
     catalog.push({
       id: manifest.id,
       artifact,
@@ -449,6 +450,7 @@ async function publish(release, { dist = false } = {}) {
       targets: [target],
       summary: listing.summary,
       publisher: listing.publisher,
+      ...(Object.keys(i18n).length ? { i18n } : {}),
       ...(listing.recommended ? { recommended: true } : {}),
     });
     console.log(
@@ -471,6 +473,27 @@ async function publish(release, { dist = false } = {}) {
     await writeFile(path.join(releaseRoot, "release-inputs.json"), JSON.stringify({ api: 1, target, inputs, catalogSha256 }, null, 2));
     console.log(`Release: ${catalog.length} packages in .release/, ready to upload`);
   }
+}
+
+/**
+ * The display text a catalog entry carries per language: the name the plugin declares for
+ * itself, and the summary the listing describes it with. Both live in the plugin's own
+ * files, so publishing a translation is publishing the plugin, and a card can be drawn in
+ * the reader's language without downloading anything.
+ */
+function localizedText(manifest, listing) {
+  const entries = new Map();
+  const put = (tag, field, value) => {
+    if (typeof value !== "string" || !value) return;
+    entries.set(tag, { ...(entries.get(tag) || {}), [field]: value });
+  };
+  for (const [tag, text] of Object.entries(manifest.i18n || {}))
+    put(tag, "name", text?.name);
+  for (const [tag, text] of Object.entries(listing.i18n || {}))
+    put(tag, "summary", text?.summary);
+  return Object.fromEntries(
+    [...entries].filter(([, text]) => Object.keys(text).length > 0),
+  );
 }
 
 /**

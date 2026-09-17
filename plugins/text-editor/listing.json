@@ -1,4 +1,9 @@
 {
   "summary": "可单独使用的文本编辑器；与文本预览共存时共享解析，支持编码保留与保存冲突检测。",
+  "i18n": {
+    "en": {
+      "summary": "A text editor that works on its own; sharing parsing with the text preview, it keeps the encoding and detects save conflicts."
+    }
+  },
   "publisher": "Ember Peek"
 }

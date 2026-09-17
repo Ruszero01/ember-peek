@@ -1,8 +1,27 @@
-// Shared plugin-side UI, copied into each package next to sdk.js.
+// Shared plugin-side UI, copied into each package next to sdk.js, which is where the
+// interface language and the translator come from.
 //
 // The host has no search component: a plugin that wants search opens its own floating panel
 // and mounts this bar inside it. Sharing one implementation is what keeps every plugin's
 // search identical in look and behaviour without the host knowing what search is.
+
+import { translate } from "./sdk.js";
+
+/** The bar's own wording, in the language the host is showing. */
+const say = translate({
+  "zh-CN": {
+    placeholder: "搜索文本",
+    previous: "上一个匹配",
+    next: "下一个匹配",
+    close: "关闭搜索",
+  },
+  en: {
+    placeholder: "Search text",
+    previous: "Previous match",
+    next: "Next match",
+    close: "Close search",
+  },
+});
 
 const icons = {
   search: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>`,
@@ -51,7 +70,7 @@ function button(label, icon, handler) {
  */
 export function mountSearchBar({
   root,
-  placeholder = "搜索文本",
+  placeholder = say("placeholder"),
   onQuery,
   onStep,
   onClose,
@@ -88,9 +107,9 @@ export function mountSearchBar({
     icon,
     input,
     count,
-    button("上一个匹配", "previous", () => onStep?.("previous")),
-    button("下一个匹配", "next", () => onStep?.("next")),
-    button("关闭搜索", "close", () => onClose?.()),
+    button(say("previous"), "previous", () => onStep?.("previous")),
+    button(say("next"), "next", () => onStep?.("next")),
+    button(say("close"), "close", () => onClose?.()),
   );
   let filled = false;
   return {

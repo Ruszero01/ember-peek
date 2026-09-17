@@ -121,6 +121,128 @@
   );
 }
 
+/* --- dropdown ------------------------------------------------------------- */
+/* A native <select> with its list drawn from the host's tokens, so a plugin's menu belongs
+   to the same surface as the rest of the interface instead of the platform's light one.
+   The markup is a select inside a wrapper, and nothing else:
+
+     <span class="ui-select">
+       <select><option value="a">A</option></select>
+     </span>
+
+   Behaviour is not reimplemented: this is a real <select>, so the keyboard, type-ahead and
+   the accessibility tree are the browser's. Two rendering paths, one look — where Chromium
+   has the customizable select (`appearance: base-select`) the popup is an element we can
+   style; where it does not, only the closed control is ours and the platform draws the list
+   in whichever theme `color-scheme` reports (the host injects it with the tokens).
+
+   The host's own twin of these rules is `.select-control` in src/select.css. */
+.ui-select {
+  position: relative;
+  display: inline-flex;
+  /* A mask rather than a picture, so the chevron's colour is a token. */
+  --ui-chevron: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6' fill='none' stroke='%23000' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1 1l4 4 4-4'/%3E%3C/svg%3E");
+}
+.ui-select select {
+  appearance: none;
+  height: var(--ui-h);
+  min-width: 96px;
+  padding: 0 30px 0 var(--space-3, 12px);
+  border: 1px solid var(--border, #303137);
+  border-radius: var(--ui-radius);
+  background: var(--panel, #1d1e22);
+  color: var(--text, #e5e5e6);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
+}
+.ui-select::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: 11px;
+  width: 10px;
+  height: 6px;
+  margin-top: -3px;
+  background: var(--faint, #666975);
+  -webkit-mask: var(--ui-chevron) center / contain no-repeat;
+  mask: var(--ui-chevron) center / contain no-repeat;
+  pointer-events: none;
+  transition: rotate 0.18s ease;
+}
+.ui-select select:focus {
+  outline: none;
+  border-color: color-mix(
+    in srgb,
+    var(--accent, #f4a477) 45%,
+    var(--border, #303137)
+  );
+}
+.ui-select select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+@supports (appearance: base-select) {
+  .ui-select select {
+    appearance: base-select;
+    display: inline-flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2, 8px);
+    padding-right: var(--space-3, 12px);
+  }
+  .ui-select::after {
+    content: none;
+  }
+  .ui-select select::picker-icon {
+    color: var(--faint, #666975);
+    transition: rotate 0.18s ease;
+  }
+  .ui-select select:open::picker-icon {
+    rotate: 180deg;
+  }
+  /* The popup is a surface of its own, in the same corners as the panel it opens from. The
+     picker opts in as well: `appearance: base-select` on the control alone leaves the list
+     platform-drawn, which is how a styled control ends up opening a plain rectangle. */
+  .ui-select select::picker(select) {
+    appearance: base-select;
+    margin-top: 4px;
+    padding: 4px;
+    border: 1px solid var(--border, #303137);
+    border-radius: var(--ui-radius);
+    background: var(--raised, #27282e);
+    box-shadow: var(--shadow, 0 14px 40px #0003);
+    color: var(--text, #e5e5e6);
+    font: inherit;
+    font-size: 12px;
+  }
+  .ui-select option {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2, 8px);
+    padding: 6px 8px;
+    border-radius: 5px;
+    color: var(--text, #e5e5e6);
+    cursor: pointer;
+  }
+  .ui-select option:hover,
+  .ui-select option:focus-visible {
+    background: var(--hover, var(--raised, transparent));
+  }
+  .ui-select option:checked {
+    background: var(--accent-bg, #352920);
+    color: var(--accent, #f4a477);
+  }
+  .ui-select option::checkmark {
+    color: var(--accent, #f4a477);
+    order: 1;
+  }
+}
+
 /* --- label/value list ----------------------------------------------------- */
 /* The file-information panel's shape, and the one any plugin showing "a few facts about
    this file" needs. Rows are dl/dt/dd so the markup stays semantic. */

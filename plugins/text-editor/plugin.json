@@ -2,6 +2,17 @@
   "api": 1,
   "id": "ember.text-editor",
   "name": "文本编辑",
+  "i18n": {
+    "en": {
+      "name": "Text Editor",
+      "settings": {
+        "lineNumbers": {
+          "label": "Line numbers",
+          "help": "Show line numbers down the left edge, the same standard the text preview uses."
+        }
+      }
+    }
+  },
   "version": "0.1.0",
   "extensions": [
     "txt",

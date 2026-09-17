@@ -1,6 +1,10 @@
+use crate::i18n::{msg, text, Locale};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
-use std::path::{Component, Path, PathBuf};
+use std::{
+    collections::BTreeMap,
+    path::{Component, Path, PathBuf},
+};
 
 /// One declared plugin setting. The host renders the matching control from this
 /// declaration alone, so a plugin never ships form markup of its own.
@@ -52,7 +56,93 @@ pub struct SettingOption {
     pub label: String,
 }
 
+/// The text one language replaces, for a manifest that is shown in more than one.
+///
+/// Authored beside the declarations it translates rather than in a separate catalogue, so a
+/// translator sees the field they are translating and a plugin only writes what it can
+/// actually translate: a field left out keeps the base declaration.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ManifestText {
+    #[serde(default)]
+    pub name: Option<String>,
+    /// Setting key to its translated wording.
+    #[serde(default)]
+    pub settings: BTreeMap<String, SettingText>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SettingText {
+    #[serde(default)]
+    pub label: Option<String>,
+    #[serde(default)]
+    pub help: Option<String>,
+    /// Option value to its translated label, for a `select`.
+    #[serde(default)]
+    pub options: BTreeMap<String, String>,
+}
+
 pub const MAX_SETTINGS: usize = 32;
+
+/// Languages one manifest may translate itself into.
+pub const MAX_LOCALES: usize = 16;
+
+/// Whether a declaration is a language tag this host is willing to look up: `zh-CN`, `en`,
+/// `pt-BR`. Anything narrower is a lookup that would never match, so it is refused.
+fn valid_locale_tag(tag: &str) -> bool {
+    (2..=16).contains(&tag.len())
+        && tag
+            .bytes()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-')
+        && !tag.starts_with('-')
+        && !tag.ends_with('-')
+}
+
+/// A translation is validated as strictly as the declaration it overrides: it is rendered
+/// by the same code, and a name that is too long or a setting that does not exist would
+/// otherwise show up as a wrong or missing control rather than as a rejected package.
+fn validate_i18n(manifest_locales: &BTreeMap<String, ManifestText>, settings: &[Setting]) -> Result<(), String> {
+    if manifest_locales.len() > MAX_LOCALES {
+        return Err(msg!(text().i18n_limit, max = MAX_LOCALES));
+    }
+    for (tag, messages) in manifest_locales {
+        if !valid_locale_tag(tag) {
+            return Err(msg!(text().i18n_tag_invalid, tag = tag));
+        }
+        if messages.name.as_ref().is_some_and(|name| name.is_empty() || name.chars().count() > 80) {
+            return Err(msg!(text().i18n_name_invalid, tag = tag));
+        }
+        for (key, translated) in &messages.settings {
+            if !settings.iter().any(|setting| &setting.key == key) {
+                return Err(msg!(text().i18n_setting_undeclared, tag = tag, key = key));
+            }
+            if translated.label.as_ref().is_some_and(|label| label.is_empty() || label.chars().count() > 80) {
+                return Err(msg!(text().i18n_label_invalid, tag = tag, key = key));
+            }
+            if translated.help.as_ref().is_some_and(|help| help.chars().count() > 400) {
+                return Err(msg!(text().i18n_help_invalid, tag = tag, key = key));
+            }
+            if let Some(option_labels) = settings
+                .iter()
+                .find(|setting| &setting.key == key)
+                .and_then(|setting| setting.options.as_ref())
+            {
+                for (value, label) in &translated.options {
+                    if !option_labels.iter().any(|option| &option.value == value) {
+                        return Err(msg!(text().i18n_option_undeclared, tag = tag, key = key, value = value));
+                    }
+                    if label.is_empty() || label.chars().count() > 80 {
+                        return Err(msg!(text().i18n_option_invalid, tag = tag, key = key, value = value));
+                    }
+                }
+            } else if !translated.options.is_empty() {
+                return Err(msg!(text().i18n_options_unexpected, tag = tag, key = key));
+            }
+        }
+    }
+    Ok(())
+}
 
 impl Setting {
     /// The value a plugin sees when the user has not chosen anything.
@@ -80,13 +170,13 @@ impl Setting {
             SettingKind::Bool => value
                 .as_bool()
                 .map(Value::Bool)
-                .ok_or_else(|| format!("{} 需要布尔值", self.key)),
+                .ok_or_else(|| msg!(text().coerce_bool, key = self.key)),
             SettingKind::Number => {
                 let mut number = value
                     .as_f64()
-                    .ok_or_else(|| format!("{} 需要数字", self.key))?;
+                    .ok_or_else(|| msg!(text().coerce_number, key = self.key))?;
                 if !number.is_finite() {
-                    return Err(format!("{} 需要有限数字", self.key));
+                    return Err(msg!(text().coerce_finite, key = self.key));
                 }
                 if let Some(min) = self.min {
                     number = number.max(min);
@@ -103,21 +193,21 @@ impl Setting {
             SettingKind::Select => {
                 let selected = value
                     .as_str()
-                    .ok_or_else(|| format!("{} 需要字符串选项", self.key))?;
+                    .ok_or_else(|| msg!(text().coerce_option_string, key = self.key))?;
                 let options = self.options.as_deref().unwrap_or_default();
                 if !options.iter().any(|option| option.value == selected) {
-                    return Err(format!("{} 的取值不在选项中", self.key));
+                    return Err(msg!(text().coerce_option_unknown, key = self.key));
                 }
                 Ok(Value::String(selected.to_owned()))
             }
             SettingKind::Text => {
-                let text = value
+                let content = value
                     .as_str()
-                    .ok_or_else(|| format!("{} 需要文本", self.key))?;
-                if text.chars().count() > 4096 {
-                    return Err(format!("{} 超出 4096 字符", self.key));
+                    .ok_or_else(|| msg!(text().coerce_text, key = self.key))?;
+                if content.chars().count() > 4096 {
+                    return Err(msg!(text().coerce_text_too_long, key = self.key));
                 }
-                Ok(Value::String(text.to_owned()))
+                Ok(Value::String(content.to_owned()))
             }
         }
     }
@@ -126,7 +216,7 @@ impl Setting {
 /// Validate every declaration at load time so later coercion can trust the schema.
 fn validate_settings(settings: &[Setting]) -> Result<(), String> {
     if settings.len() > MAX_SETTINGS {
-        return Err(format!("设置项最多 {MAX_SETTINGS} 个"));
+        return Err(msg!(text().settings_limit, max = MAX_SETTINGS));
     }
     let mut seen = std::collections::HashSet::new();
     for setting in settings {
@@ -137,46 +227,46 @@ fn validate_settings(settings: &[Setting]) -> Result<(), String> {
                 .bytes()
                 .all(|c| c.is_ascii_alphanumeric() || b"._-".contains(&c))
         {
-            return Err(format!("设置项 key 无效：{}", setting.key));
+            return Err(msg!(text().setting_key_invalid, key = setting.key));
         }
         if !seen.insert(setting.key.as_str()) {
-            return Err(format!("设置项 key 重复：{}", setting.key));
+            return Err(msg!(text().setting_key_duplicate, key = setting.key));
         }
         if setting.label.is_empty() || setting.label.chars().count() > 80 {
-            return Err(format!("设置项 {} 的名称无效", setting.key));
+            return Err(msg!(text().setting_label_invalid, key = setting.key));
         }
         if setting
             .help
             .as_ref()
             .is_some_and(|h| h.chars().count() > 400)
         {
-            return Err(format!("设置项 {} 的说明过长", setting.key));
+            return Err(msg!(text().setting_help_invalid, key = setting.key));
         }
         if let Some(multiplier) = setting.display_multiplier {
             if setting.kind != SettingKind::Number
                 || !multiplier.is_finite()
                 || multiplier <= 0.0
             {
-                return Err(format!("设置项 {} 的显示倍率无效", setting.key));
+                return Err(msg!(text().setting_multiplier_invalid, key = setting.key));
             }
         }
         if setting.suffix.as_ref().is_some_and(|suffix| {
             setting.kind != SettingKind::Number || suffix.chars().count() > 8
         }) {
-            return Err(format!("设置项 {} 的单位无效", setting.key));
+            return Err(msg!(text().setting_suffix_invalid, key = setting.key));
         }
         if !setting.default.is_null() {
             setting
                 .coerce(&setting.default)
-                .map_err(|e| format!("设置项 {} 的默认值无效：{e}", setting.key))?;
+                .map_err(|e| msg!(text().setting_default_invalid, key = setting.key, error = e))?;
         }
         if setting.kind == SettingKind::Select && setting.options.as_ref().is_none_or(Vec::is_empty)
         {
-            return Err(format!("设置项 {} 需要 options", setting.key));
+            return Err(msg!(text().setting_needs_options, key = setting.key));
         }
         if let Some(options) = &setting.options {
             if options.len() > 64 {
-                return Err(format!("设置项 {} 的选项过多", setting.key));
+                return Err(msg!(text().setting_options_limit, key = setting.key));
             }
             let mut values = std::collections::HashSet::new();
             for option in options {
@@ -184,10 +274,10 @@ fn validate_settings(settings: &[Setting]) -> Result<(), String> {
                     || option.value.chars().count() > 64
                     || option.label.chars().count() > 80
                 {
-                    return Err(format!("设置项 {} 的选项无效", setting.key));
+                    return Err(msg!(text().setting_option_invalid, key = setting.key));
                 }
                 if !values.insert(option.value.as_str()) {
-                    return Err(format!("设置项 {} 的选项重复", setting.key));
+                    return Err(msg!(text().setting_option_duplicate, key = setting.key));
                 }
             }
         }
@@ -280,6 +370,10 @@ pub struct Manifest {
     pub permissions: Vec<Permission>,
     #[serde(default)]
     pub settings: Vec<Setting>,
+    /// Text per language, for a plugin shown in more than one. Resolved by the host
+    /// against the interface language before anything is drawn.
+    #[serde(default)]
+    pub i18n: BTreeMap<String, ManifestText>,
     #[serde(default)]
     pub revision: u64,
     #[serde(default)]
@@ -325,6 +419,60 @@ impl Manifest {
         self.targets.is_empty() || self.targets.iter().any(|t| t == HOST_TARGET)
     }
 
+    /// The declaration this language replaces, if the plugin wrote one. A tag like `zh-CN`
+    /// falls back to a declared `zh`.
+    fn text_for(&self, locale: Locale) -> Option<&ManifestText> {
+        let tag = locale.tag();
+        self.i18n.get(tag).or_else(|| {
+            let language = tag.split('-').next().unwrap_or(tag);
+            self.i18n.get(language)
+        })
+    }
+
+    /// The plugin's name in one language, without copying the rest of the declaration.
+    ///
+    /// A session's label is refreshed from this on every snapshot: a name is shown for as
+    /// long as the session lives, so resolving it once, when the session opens, would leave
+    /// one plugin speaking the language the application used before it was switched.
+    pub fn localized_name(&self, locale: Locale) -> String {
+        self.text_for(locale)
+            .and_then(|text| text.name.clone())
+            .unwrap_or_else(|| self.name.clone())
+    }
+
+    /// This manifest with one language's text folded in.
+    ///
+    /// A language the plugin does not declare, or a field it leaves out, keeps the base
+    /// declaration: a plugin only writes what it can actually translate, and a host that
+    /// speaks a language the plugin never heard of shows the declared text rather than
+    /// nothing. A tag like `zh-CN` falls back to a declared `zh`.
+    pub fn localized(&self, locale: Locale) -> Manifest {
+        let Some(text) = self.text_for(locale) else {
+            return self.clone();
+        };
+        let mut manifest = self.clone();
+        if let Some(name) = &text.name {
+            manifest.name = name.clone();
+        }
+        for setting in &mut manifest.settings {
+            let Some(translated) = text.settings.get(&setting.key) else {
+                continue;
+            };
+            if let Some(label) = &translated.label {
+                setting.label = label.clone();
+            }
+            if let Some(help) = &translated.help {
+                setting.help = Some(help.clone());
+            }
+            for option in setting.options.iter_mut().flatten() {
+                if let Some(label) = translated.options.get(&option.value) {
+                    option.label = label.clone();
+                }
+            }
+        }
+        manifest
+    }
+
     pub fn matches(&self, extension: &str) -> bool {
         self.extensions.is_empty()
             || self.extensions.iter().any(|e| {
@@ -363,7 +511,7 @@ impl Manifest {
             .settings
             .iter()
             .find(|setting| setting.key == key)
-            .ok_or_else(|| format!("插件未声明设置项 {key}"))?;
+            .ok_or_else(|| msg!(text().setting_undeclared, key = key))?;
         setting.coerce(value)
     }
 }
@@ -428,6 +576,7 @@ impl Package {
             return Err("Extensions must be nonempty alphanumeric strings".into());
         }
         validate_settings(&manifest.settings)?;
+        validate_i18n(&manifest.i18n, &manifest.settings)?;
         if let Some(icon) = &manifest.icon {
             if icon.is_empty()
                 || icon.len() > 40
@@ -700,6 +849,127 @@ mod tests {
             {"key": "good_key-1", "type": "bool", "label": "Good"}
         ]));
         assert!(validate_settings(&ok.settings).is_ok());
+    }
+
+    /// A manifest with the given settings and language table, loaded the way a package is.
+    fn load_with(settings: Value, i18n: Value) -> Result<Manifest, String> {
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::write(directory.path().join("worker.exe"), "").unwrap();
+        std::fs::create_dir_all(directory.path().join("ui")).unwrap();
+        std::fs::write(directory.path().join("ui/index.html"), "").unwrap();
+        std::fs::write(
+            directory.path().join("plugin.json"),
+            json!({
+                "api": 1,
+                "id": "test.plugin",
+                "name": "测试插件",
+                "version": "1.0.0",
+                "extensions": ["txt"],
+                "executable": "worker.exe",
+                "entry": "ui/index.html",
+                "capabilities": ["view"],
+                "settings": settings,
+                "i18n": i18n,
+            })
+            .to_string(),
+        )
+        .unwrap();
+        Package::load(directory.path()).map(|package| package.manifest)
+    }
+
+    /// The settings the language tests translate: one switch and one select.
+    fn translatable() -> Value {
+        json!([
+            {"key": "wrap", "type": "bool", "label": "自动换行", "help": "关闭后不折断。", "default": true},
+            {"key": "mode", "type": "select", "label": "模式", "default": "a",
+             "options": [{"value": "a", "label": "甲"}, {"value": "b", "label": "乙"}]}
+        ])
+    }
+
+    #[test]
+    fn a_manifest_speaks_the_language_the_host_is_showing() {
+        let manifest = load_with(
+            translatable(),
+            json!({"en": {
+                "name": "Test Plugin",
+                "settings": {"wrap": {"label": "Wrap long lines"}, "mode": {"options": {"b": "Second"}}}
+            }}),
+        )
+        .unwrap();
+
+        let english = manifest.localized(Locale::En);
+        assert_eq!(english.name, "Test Plugin");
+        assert_eq!(english.settings[0].label, "Wrap long lines");
+        // A field the translation leaves out keeps the declaration: a plugin writes only
+        // what it can actually translate.
+        assert_eq!(
+            english.settings[0].help.as_deref(),
+            Some("关闭后不折断。")
+        );
+        // Options are translated one by one, and the ones left out stay as declared.
+        let options = english.settings[1].options.as_ref().unwrap();
+        assert_eq!(options[0].label, "甲");
+        assert_eq!(options[1].label, "Second");
+        // The declaration itself is untouched: this is a copy, not a rewrite.
+        assert_eq!(manifest.name, "测试插件");
+        assert_eq!(manifest.settings[0].label, "自动换行");
+    }
+
+    #[test]
+    fn a_language_tag_falls_back_to_its_bare_language_and_then_to_nothing() {
+        // Declared as `zh`, asked for as `zh-CN`: the same language, and the host is the
+        // side that spells it with a region.
+        let bare = load_with(translatable(), json!({"zh": {"name": "简体名"}})).unwrap();
+        assert_eq!(bare.localized(Locale::Zh).name, "简体名");
+
+        // Nothing declared for this language: the manifest stands as written, which is
+        // what a plugin that never translated itself relies on.
+        let manifest = load_with(translatable(), json!({"en": {"name": "Test Plugin"}})).unwrap();
+        let chinese = manifest.localized(Locale::Zh);
+        assert_eq!(chinese.name, "测试插件");
+        assert_eq!(chinese.settings[1].label, "模式");
+    }
+
+    #[test]
+    fn a_translation_must_name_what_the_manifest_declares() {
+        for rejected in [
+            // Not a language tag: it could never be looked up.
+            json!({"zh_CN": {"name": "x"}}),
+            // A name nobody can draw.
+            json!({"en": {"name": ""}}),
+            // A setting that does not exist, which would translate nothing at all.
+            json!({"en": {"settings": {"gone": {"label": "Gone"}}}}),
+            // An option the select does not declare, and options on a setting without any.
+            json!({"en": {"settings": {"mode": {"options": {"c": "Third"}}}}}),
+            json!({"en": {"settings": {"wrap": {"options": {"a": "A"}}}}}),
+            // Labels that are empty or too long.
+            json!({"en": {"settings": {"wrap": {"label": ""}}}}),
+            json!({"en": {"name": "x".repeat(81)}}),
+            // More languages than a manifest may carry.
+            serde_json::json!({"en": {"name": "x"}, "zh": {"name": "x"}, "fr": {"name": "x"},
+                "de": {"name": "x"}, "es": {"name": "x"}, "it": {"name": "x"}, "pt": {"name": "x"},
+                "nl": {"name": "x"}, "pl": {"name": "x"}, "sv": {"name": "x"}, "da": {"name": "x"},
+                "fi": {"name": "x"}, "no": {"name": "x"}, "cs": {"name": "x"}, "el": {"name": "x"},
+                "tr": {"name": "x"}, "ja": {"name": "x"}}),
+        ] {
+            assert!(
+                load_with(translatable(), rejected.clone()).is_err(),
+                "expected {rejected} to be rejected"
+            );
+        }
+
+        // A translation of everything that exists is what a package should carry.
+        assert!(load_with(
+            translatable(),
+            json!({"en": {
+                "name": "Test Plugin",
+                "settings": {
+                    "wrap": {"label": "Wrap long lines", "help": "Off, lines are not folded."},
+                    "mode": {"label": "Mode", "options": {"a": "First", "b": "Second"}}
+                }
+            }}),
+        )
+        .is_ok());
     }
 
     #[test]

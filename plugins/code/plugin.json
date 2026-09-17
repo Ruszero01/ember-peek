@@ -2,6 +2,25 @@
   "api": 1,
   "id": "ember.code",
   "name": "代码预览",
+  "i18n": {
+    "en": {
+      "name": "Code Preview",
+      "settings": {
+        "lineNumbers": {
+          "label": "Line numbers",
+          "help": "Show line numbers down the left edge, the same standard the text editor uses."
+        },
+        "wrap": {
+          "label": "Wrap long lines",
+          "help": "Off, long lines scroll sideways instead of folding."
+        },
+        "tabSize": {
+          "label": "Tab width",
+          "help": "How many spaces wide one tab is drawn."
+        }
+      }
+    }
+  },
   "version": "0.1.0",
   "extensions": [
     "js",

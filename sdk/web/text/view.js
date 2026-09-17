@@ -1,4 +1,4 @@
-import { onTheme } from "../index.js";
+import { onLocale, onTheme, translate } from "../index.js";
 import { textGutter } from "../gutter.js";
 import { EditorState, Compartment } from "@codemirror/state";
 import {
@@ -16,6 +16,20 @@ import {
 } from "@codemirror/language";
 import { tags } from "@lezer/highlight";
 import { languages } from "@codemirror/language-data";
+
+/** What a screen reader calls this surface, in the language the host is showing. */
+const say = translate({
+  "zh-CN": { preview: "文本预览", editor: "文本编辑" },
+  en: { preview: "Text preview", editor: "Text editor" },
+});
+/** The attributes the surface is announced with, in the current language. */
+function surfaceLabels(editable) {
+  return EditorView.contentAttributes.of({
+    "aria-label": editable ? say("editor") : say("preview"),
+    spellcheck: "false",
+  });
+}
+
 function safeInset(edge) {
   return (
     parseFloat(
@@ -42,6 +56,9 @@ export async function createTextView({
     highlight && LanguageDescription.matchFilename(languages, name);
   const support = language ? await language.load() : [];
   const writable = new Compartment(),
+    // The label a screen reader announces is written once, at construction, so it is a
+    // compartment like the rest: a language change has to reach text that is already up.
+    labels = new Compartment(),
     gutter = new Compartment(),
     wrapping = new Compartment(),
     tabs = new Compartment(),
@@ -93,10 +110,7 @@ export async function createTextView({
           ]),
         ),
         searchMarks.of([]),
-        EditorView.contentAttributes.of({
-          "aria-label": editable ? "文本编辑" : "文本预览",
-          spellcheck: "false",
-        }),
+        labels.of(surfaceLabels(editable)),
         EditorView.theme({
           "&": {
             height: "100%",
@@ -150,6 +164,9 @@ export async function createTextView({
     }),
   });
   onTheme(() => view.requestMeasure());
+  onLocale(() =>
+    view.dispatch({ effects: labels.reconfigure(surfaceLabels(editable)) }),
+  );
   return {
     view,
     get text() {

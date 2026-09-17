@@ -1,11 +1,13 @@
 use crate::{
     artifact,
+    i18n::{self, msg, text},
     manifest::{Package, HOST_TARGET},
     Runtime,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
+    collections::BTreeMap,
     path::{Path, PathBuf},
     sync::Arc,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
@@ -56,25 +58,29 @@ struct SourceConfig {
 /// Read and check a sources file into the list a `Market` takes.
 pub fn read_sources(path: &Path) -> Result<Vec<Source>, String> {
     let bytes = std::fs::read(path)
-        .map_err(|error| format!("读取插件来源配置失败 {}：{error}", path.display()))?;
+        .map_err(|error| msg!(text().sources_read_failed, path = path.display(), error = error))?;
     if bytes.len() > 64 * 1024 {
-        return Err("插件来源配置超过 64 KiB".into());
+        return Err(msg!(text().sources_too_large));
     }
     let config: SourceConfig =
-        serde_json::from_slice(&bytes).map_err(|error| format!("插件来源配置无效：{error}"))?;
+        serde_json::from_slice(&bytes).map_err(|error| msg!(text().sources_invalid, error = error))?;
     if config.api != 1 {
-        return Err("不支持的插件来源配置版本".into());
+        return Err(msg!(text().sources_api));
     }
     if config.sources.len() > MAX_SOURCES {
-        return Err(format!("插件来源最多 {MAX_SOURCES} 个"));
+        return Err(msg!(text().sources_limit, max = MAX_SOURCES));
     }
-    if config.sources.is_empty() { return Err("尚未配置插件来源，请先配置官方 OSS 地址".into()); }
+    if config.sources.is_empty() { return Err(msg!(text().sources_empty)); }
     Ok(config.sources)
 }
 
 #[derive(Clone)]
 pub struct Market {
     sources: Vec<Source>,
+    /// Catalog of the source the host contributes itself — the development mirror. Its label
+    /// is the host's own wording, so it is resolved in the interface language whenever the
+    /// market is read, instead of being frozen into the configuration at startup.
+    local_catalog: Option<String>,
     /// Content-addressed cache for downloaded packages, keyed by artifact sha256.
     cache: PathBuf,
     /// Whatever was wrong with the sources file, reported with every listing so a
@@ -133,10 +139,25 @@ struct Listing {
     recommended: bool,
     #[serde(default)]
     name: Option<String>,
+    /// The entry's display text per language, published from the plugin's own manifest and
+    /// listing. A language that is absent reads as the base fields, so a catalog published
+    /// before a plugin had a translation still works.
+    #[serde(default)]
+    i18n: BTreeMap<String, ListingText>,
     #[serde(default)]
     extensions: Option<Vec<String>>,
     #[serde(default)]
     icon: Option<String>,
+}
+
+/// The display text one language replaces in a catalog entry.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ListingText {
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    summary: Option<String>,
 }
 
 /// A catalog entry resolved into what the host can actually do with it.
@@ -213,18 +234,38 @@ impl Market {
     pub fn new(sources: Result<Vec<Source>, String>, cache: PathBuf) -> Result<Self, String> {
         let client = reqwest::Client::builder()
             .build()
-            .map_err(|error| format!("无法初始化下载客户端：{error}"))?;
+            .map_err(|error| msg!(text().client_failed, error = error))?;
         let (sources, config_warning) = match sources {
             Ok(sources) => (sources, None),
             Err(error) => (Vec::new(), Some(error)),
         };
         Ok(Self {
             sources,
+            local_catalog: None,
             cache,
             config_warning,
             client,
             remote: Arc::new(Mutex::new(RemoteIndex::default())),
         })
+    }
+
+    /// Name the source the host contributes itself, so its label can be the host's own text
+    /// in the language the interface is in now rather than in the one that was in force when
+    /// the process started.
+    pub fn with_local_source(mut self, catalog: &str) -> Self {
+        self.local_catalog = Some(catalog.to_owned());
+        self
+    }
+
+    /// What to call a source right now. Every name but one comes from a configuration file
+    /// and is shown exactly as its author wrote it; the host's own mirror is named by the
+    /// host, so it is a message like any other — resolved per request, in the language the
+    /// interface is in, rather than frozen into the catalog that was read.
+    fn label(&self, source: &Source) -> String {
+        match &self.local_catalog {
+            Some(catalog) if &source.catalog == catalog => text().dev_source_name.to_owned(),
+            _ => source.label(),
+        }
     }
 
     /// Every configured source, fetched at most once per `CATALOG_TTL`. A source that
@@ -241,13 +282,16 @@ impl Market {
         } else { CATALOG_TTL };
         if let Some(at) = index.at {
             if at.elapsed() < ttl {
-                return (offerings_of(&index.fetched), index.warnings.clone());
+                return (
+                    offerings_of(&index.fetched, &|source| self.label(source)),
+                    index.warnings.clone(),
+                );
             }
         }
         let previous = index.fetched.clone();
         let mut fetched = Vec::new();
         for source in &self.sources {
-            if let Err(error) = validate_source(source) {
+            if let Err(error) = validate_source(source, &self.label(source)) {
                 warnings.push(error);
                 continue;
             }
@@ -262,13 +306,13 @@ impl Market {
                 {
                     Some(cached) => {
                         fetched.push(cached.clone());
-                        warnings.push(format!("{error}（沿用上次读取到的目录）"));
+                        warnings.push(msg!(text().catalog_stale, error = error));
                     }
                     None => warnings.push(error),
                 },
             }
         }
-        let (offerings, unreadable) = collect(&fetched);
+        let (offerings, unreadable) = collect(&fetched, &|source| self.label(source));
         warnings.extend(unreadable);
         index.at = Some(Instant::now());
         index.fetched = fetched;
@@ -282,10 +326,11 @@ impl Market {
         let mut entries = Vec::new();
         for offering in offerings {
             if !runs_here(&offering.targets) {
-                warnings.push(format!(
-                    "{} 面向 {}，已跳过（当前平台 {HOST_TARGET}）",
-                    offering.name,
-                    offering.targets.join("、")
+                warnings.push(msg!(
+                    text().target_skipped,
+                    name = offering.name,
+                    targets = offering.targets.join(text().list_separator),
+                    host = HOST_TARGET
                 ));
                 continue;
             }
@@ -335,11 +380,12 @@ impl Market {
         let offering = offerings
             .into_iter()
             .find(|offering| offering.id == id)
-            .ok_or("插件不在市场目录中")?;
+            .ok_or_else(|| msg!(text().not_in_catalog))?;
         if !runs_here(&offering.targets) {
-            return Err(format!(
-                "该插件面向 {}，无法在当前平台（{HOST_TARGET}）运行",
-                offering.targets.join("、")
+            return Err(msg!(
+                text().target_unsupported,
+                targets = offering.targets.join(text().list_separator),
+                host = HOST_TARGET
             ));
         }
         self.materialize(&offering).await
@@ -367,9 +413,9 @@ impl Market {
             match artifact::fetch(&self.client, url).await {
                 Ok(bytes) => {
                     if artifact::sha256_hex(&bytes) != remote.sha256 {
-                        failures.push(format!("{url}：插件包校验失败，sha256 不符"));
+                        failures.push(msg!(text().package_hash_mismatch, url = url));
                     } else if bytes.len() as u64 != remote.size {
-                        failures.push(format!("{url}：插件包大小与目录记录不符"));
+                        failures.push(msg!(text().package_size_mismatch, url = url));
                     } else {
                         body = Some(bytes);
                         break;
@@ -379,7 +425,7 @@ impl Market {
             }
         }
         let Some(bytes) = body else {
-            return Err(format!("下载插件包失败：{}", failures.join("；")));
+            return Err(msg!(text().download_failed, failures = failures.join(text().semicolon)));
         };
         // The selected mirror passed both transfer checks. After unpacking, confirm
         // that its manifest declares the same build and version as the catalog.
@@ -409,7 +455,7 @@ impl Market {
             }
             Err(error) => {
                 let _ = std::fs::remove_dir_all(&staging);
-                Err(format!("无法写入插件缓存：{error}"))
+                Err(msg!(text().cache_write_failed, error = error))
             }
         }
     }
@@ -507,33 +553,35 @@ fn check_signature(signature: Option<&Value>) -> Result<(), String> {
             let algorithm = value
                 .get("algorithm")
                 .and_then(Value::as_str)
-                .unwrap_or("形状未知");
-            Err(format!(
-                "该市场目录声明了签名（{algorithm}），但当前版本尚未实现签名校验，\
-                 因此拒绝使用它；请改用未签名的目录，或等待签名支持"
-            ))
+                .unwrap_or(text().shape_unknown);
+            Err(msg!(text().catalog_signed, algorithm = algorithm))
         }
     }
 }
 
-fn validate_source(source: &Source) -> Result<(), String> {
-    for (label, value) in [("catalog", &source.catalog), ("base", &source.base)] {
+fn validate_source(source: &Source, label: &str) -> Result<(), String> {
+    // `label` is what to call this source; `field` is which of its two locations is wrong.
+    for (field, value) in [("catalog", &source.catalog), ("base", &source.base)] {
         if value.is_empty()
             || value.len() > 2048
             || value.chars().any(|c| c.is_control() || c.is_whitespace())
         {
-            return Err(format!(
-                "市场来源 {} 的 {label} 无效：{value}",
-                source.label()
+            return Err(msg!(
+                text().source_field_invalid,
+                label = label,
+                field = field,
+                value = value
             ));
         }
         // A relative location would resolve against whatever directory the host happens
         // to run in, which is not a mirror anyone can rely on.
         if !artifact::is_http(value) && !value.starts_with("file://") && !Path::new(value).is_absolute()
         {
-            return Err(format!(
-                "市场来源 {} 的 {label} 必须是 http(s) 地址、file:// 或绝对路径：{value}",
-                source.label()
+            return Err(msg!(
+                text().source_field_scheme,
+                label = label,
+                field = field,
+                value = value
             ));
         }
     }
@@ -547,29 +595,29 @@ async fn read_source(client: &reqwest::Client, source: &Source) -> Result<Vec<Li
             .timeout(CATALOG_TIMEOUT)
             .send()
             .await
-            .map_err(|error| format!("读取市场目录 {} 失败：{error}", source.catalog))?;
+            .map_err(|error| msg!(text().catalog_read_failed, catalog = source.catalog, error = error))?;
         if !response.status().is_success() {
-            return Err(format!(
-                "读取市场目录 {} 失败：HTTP {}",
-                source.catalog,
-                response.status()
+            return Err(msg!(
+                text().catalog_http,
+                catalog = source.catalog,
+                status = response.status()
             ));
         }
         let mut body = Vec::new();
         while let Some(chunk) = response
             .chunk()
             .await
-            .map_err(|error| format!("读取市场目录 {} 中断：{error}", source.catalog))?
+            .map_err(|error| msg!(text().catalog_interrupted, catalog = source.catalog, error = error))?
         {
             if body.len() + chunk.len() > MAX_CATALOG_BYTES {
-                return Err(format!("市场目录 {} 超过 1 MiB", source.catalog));
+                return Err(msg!(text().catalog_too_large, catalog = source.catalog));
             }
             body.extend_from_slice(&chunk);
         }
         body
     } else {
         std::fs::read(local_catalog_path(&source.catalog))
-            .map_err(|error| format!("读取市场目录 {} 失败：{error}", source.catalog))?
+            .map_err(|error| msg!(text().catalog_read_failed, catalog = source.catalog, error = error))?
     };
     Ok(parse_catalog(&bytes)?.entries)
 }
@@ -586,17 +634,20 @@ fn local_catalog_path(location: &str) -> PathBuf {
 /// One card per plugin id. A second source naming the same artifact adds a mirror instead
 /// of a duplicate card; sources that disagree about the hash are a conflict, which is
 /// reported rather than resolved quietly.
-fn collect(catalogs: &[RemoteCatalog]) -> (Vec<Offering>, Vec<String>) {
+fn collect(
+    catalogs: &[RemoteCatalog],
+    label_of: &dyn Fn(&Source) -> String,
+) -> (Vec<Offering>, Vec<String>) {
     let mut offerings: Vec<Offering> = Vec::new();
     let mut warnings = Vec::new();
     for catalog in catalogs {
         for listing in &catalog.entries {
-            let offering = match resolve(listing, &catalog.source) {
+            let offering = match resolve(listing, &catalog.source, &label_of(&catalog.source)) {
                 Ok(offering) => offering,
                 // An entry the host cannot read is reported rather than dropped: a market
                 // silently missing a plugin is the failure this path exists to avoid.
                 Err(error) => {
-                    warnings.push(format!("{}：{error}", catalog.source.label()));
+                    warnings.push(msg!(text().file_error, file = label_of(&catalog.source), error = error));
                     continue;
                 }
             };
@@ -604,9 +655,11 @@ fn collect(catalogs: &[RemoteCatalog]) -> (Vec<Offering>, Vec<String>) {
                 Some(known) if known.remote.sha256 == offering.remote.sha256 => {
                     known.remote.urls.extend(offering.remote.urls)
                 }
-                Some(known) => warnings.push(format!(
-                    "插件 {} 在来源 {} 与 {} 声明的 sha256 不一致，已忽略后者",
-                    offering.id, known.remote.name, offering.remote.name
+                Some(known) => warnings.push(msg!(
+                    text().entry_duplicate_hash,
+                    id = offering.id,
+                    first = known.remote.name,
+                    second = offering.remote.name
                 )),
                 None => offerings.push(offering),
             }
@@ -615,35 +668,56 @@ fn collect(catalogs: &[RemoteCatalog]) -> (Vec<Offering>, Vec<String>) {
     (offerings, warnings)
 }
 
-fn offerings_of(catalogs: &[RemoteCatalog]) -> Vec<Offering> {
-    collect(catalogs).0
+fn offerings_of(catalogs: &[RemoteCatalog], label_of: &dyn Fn(&Source) -> String) -> Vec<Offering> {
+    collect(catalogs, label_of).0
 }
 
-fn resolve(listing: &Listing, source: &Source) -> Result<Offering, String> {
+/// One entry's display text in the language the host is showing.
+///
+/// A tag like `zh-CN` falls back to a published `zh`, then to the base fields, which the
+/// catalog always carries so that an entry is never nameless.
+fn wording(listing: &Listing) -> (String, String) {
+    let tag = i18n::locale().tag();
+    let text = listing.i18n.get(tag).or_else(|| {
+        let language = tag.split('-').next().unwrap_or(tag);
+        listing.i18n.get(language)
+    });
+    let name = text
+        .and_then(|text| text.name.clone())
+        .or_else(|| listing.name.clone())
+        .unwrap_or_else(|| listing.id.clone());
+    let summary = text
+        .and_then(|text| text.summary.clone())
+        .unwrap_or_else(|| listing.summary.clone());
+    (name, summary)
+}
+
+fn resolve(listing: &Listing, source: &Source, label: &str) -> Result<Offering, String> {
     if listing.sha256.len() != 64
         || !listing
             .sha256
             .bytes()
             .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
     {
-        return Err(format!("目录条目 {} 的 sha256 无效", listing.id));
+        return Err(msg!(text().entry_sha_invalid, id = listing.id));
     }
     if listing.size == 0 || listing.size > artifact::MAX_ARTIFACT_BYTES {
-        return Err(format!("目录条目 {} 的 size 无效", listing.id));
+        return Err(msg!(text().entry_size_invalid, id = listing.id));
     }
     if listing.build_id.is_empty() || listing.build_id.len() > 128 {
-        return Err(format!("目录条目 {} 的 buildId 无效", listing.id));
+        return Err(msg!(text().entry_build_invalid, id = listing.id));
     }
     if listing.version.len() > 64 || semver::Version::parse(&listing.version).is_err() {
-        return Err(format!("目录条目 {} 的 version 无效", listing.id));
+        return Err(msg!(text().entry_version_invalid, id = listing.id));
     }
+    let (name, summary) = wording(listing);
     Ok(Offering {
         id: listing.id.clone(),
-        name: listing.name.clone().unwrap_or_else(|| listing.id.clone()),
+        name,
         version: listing.version.clone(),
         extensions: listing.extensions.clone().unwrap_or_default(),
         icon: listing.icon.clone(),
-        summary: listing.summary.clone(),
+        summary,
         publisher: listing.publisher.clone(),
         targets: listing.targets.clone(),
         recommended: listing.recommended,
@@ -652,7 +726,7 @@ fn resolve(listing: &Listing, source: &Source) -> Result<Offering, String> {
             sha256: listing.sha256.clone(),
             size: listing.size,
             build_id: listing.build_id.clone(),
-            name: source.label(),
+            name: label.to_owned(),
             catalog: source.catalog.clone(),
         },
     })
@@ -667,7 +741,7 @@ fn artifact_url(base: &str, artifact: &str) -> Result<String, String> {
         || !artifact.ends_with(".zip")
         || artifact.contains(['/', '\\', ':', '?', '#'])
     {
-        return Err(format!("目录中的 artifact 名无效：{artifact}"));
+        return Err(msg!(text().entry_artifact_invalid, artifact = artifact));
     }
     let base = base.strip_suffix('/').unwrap_or(base);
     if Path::new(base).is_absolute() && !base.starts_with("file://") {
@@ -693,27 +767,31 @@ fn newer_version(candidate: &str, installed: &str) -> bool {
 fn confirm(directory: &Path, offering: &Offering) -> Result<(), String> {
     let manifest = Package::load(directory)?.manifest;
     if manifest.id != offering.id {
-        return Err(format!(
-            "插件包内的插件是 {}，与目录中的 {} 不符",
-            manifest.id, offering.id
+        return Err(msg!(
+            text().package_id_mismatch,
+            found = manifest.id,
+            expected = offering.id
         ));
     }
     if !offering.remote.build_id.is_empty() && manifest.build_id != offering.remote.build_id {
-        return Err(format!(
-            "插件包内容不是目录记录的那次构建：包内 {}，目录 {}",
-            manifest.build_id, offering.remote.build_id
+        return Err(msg!(
+            text().package_build_mismatch,
+            found = manifest.build_id,
+            expected = offering.remote.build_id
         ));
     }
     if manifest.version != offering.version {
-        return Err(format!(
-            "插件包版本与目录记录不符：包内 {}，目录 {}",
-            manifest.version, offering.version
+        return Err(msg!(
+            text().package_version_mismatch,
+            found = manifest.version,
+            expected = offering.version
         ));
     }
     if !manifest.runs_here() {
-        return Err(format!(
-            "插件包面向 {}，无法在当前平台（{HOST_TARGET}）运行",
-            manifest.targets.join("、")
+        return Err(msg!(
+            text().package_target_unsupported,
+            targets = manifest.targets.join(text().list_separator),
+            host = HOST_TARGET
         ));
     }
     Ok(())
@@ -732,6 +810,11 @@ mod tests {
         assert!(!newer_version("1.0.0-rc.1", "1.0.0"));
         assert!(newer_version("1.0.0", "1.0.0-rc.1"));
         assert!(!newer_version("invalid", "0.1.0"));
+    }
+
+    /// The label a test's sources are read with: the name as configured, unchanged.
+    fn plain(source: &Source) -> String {
+        source.label()
     }
 
     fn source() -> Source {
@@ -830,7 +913,7 @@ mod tests {
 
     #[test]
     fn requires_every_source_to_name_a_real_location() {
-        assert!(validate_source(&source()).is_ok());
+        assert!(validate_source(&source(), &source().label()).is_ok());
         for (catalog, base) in [
             ("https://host/catalog.json", "mirror"),
             ("", "https://host"),
@@ -841,7 +924,7 @@ mod tests {
                 catalog: catalog.into(),
                 base: base.into(),
             };
-            assert!(validate_source(&broken).is_err(), "{catalog} {base}");
+            assert!(validate_source(&broken, &broken.label()).is_err(), "{catalog} {base}");
         }
     }
 
@@ -862,7 +945,7 @@ mod tests {
         let mut broken = listing("test.two", "b.zip");
         broken.sha256 = "not-a-hash".into();
         let catalogs = vec![catalog(source(), vec![listing("test.one", "a.zip"), broken])];
-        let (offerings, warnings) = collect(&catalogs);
+        let (offerings, warnings) = collect(&catalogs, &plain);
         assert_eq!(offerings.len(), 1);
         assert_eq!(offerings[0].id, "test.one");
         assert_eq!(
@@ -884,10 +967,13 @@ mod tests {
             catalog: "https://mirror/catalog.json".into(),
             base: "https://mirror/".into(),
         };
-        let (same, warnings) = collect(&[
-            catalog(source(), vec![mirrored.clone()]),
-            catalog(other.clone(), vec![mirrored.clone()]),
-        ]);
+        let (same, warnings) = collect(
+            &[
+                catalog(source(), vec![mirrored.clone()]),
+                catalog(other.clone(), vec![mirrored.clone()]),
+            ],
+            &plain,
+        );
         assert_eq!(same.len(), 1);
         assert_eq!(same[0].remote.urls.len(), 2);
         assert!(warnings.is_empty(), "{warnings:?}");
@@ -895,7 +981,10 @@ mod tests {
         let mut conflicting = mirrored.clone();
         conflicting.sha256 = "b".repeat(64);
         let (conflicted, warnings) =
-            collect(&[catalog(source(), vec![mirrored]), catalog(other, vec![conflicting])]);
+            collect(
+                &[catalog(source(), vec![mirrored]), catalog(other, vec![conflicting])],
+                &plain,
+            );
         assert_eq!(conflicted.len(), 1);
         assert_eq!(conflicted[0].remote.urls.len(), 1);
         assert_eq!(warnings.len(), 1, "{warnings:?}");

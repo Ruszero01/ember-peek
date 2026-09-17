@@ -11,10 +11,46 @@ import {
   onMessage,
   configuration,
   onSettings,
+  translate,
+  onLocale,
 } from "./sdk.js";
 import { mountSearchBar, findOccurrences } from "./sdk-search.js";
 import { createTextView } from "./sdk-view.js";
 import { synchronizePosition } from "./sdk-navigation.js";
+
+/**
+ * The plugin's own wording, in the language the host is showing. This includes the words
+ * the host quotes back: `pending` hands it the phrase its refusal sentence uses, so the
+ * reason a draft blocks an uninstall is written by the plugin, in the reader's language.
+ */
+const say = translate({
+  "zh-CN": {
+    noSource: "缺少兼容的文本数据源",
+    pending: "未保存的编辑",
+    protectFailed: "无法保护草稿：{error}",
+    unsaved: "未保存",
+    saved: "已保存",
+    saveFailed: "保存失败 · 草稿保留",
+    readOnlyNote:
+      "只读：文件过大、编码无效或换行混合，已禁止覆盖。",
+    discard: "撤销未保存修改",
+    save: "保存文本 (Ctrl+S)",
+    search: "搜索文本",
+  },
+  en: {
+    noSource: "No compatible text data source",
+    pending: "unsaved edits",
+    protectFailed: "Could not protect the draft: {error}",
+    unsaved: "Unsaved",
+    saved: "Saved",
+    saveFailed: "Save failed · the draft is kept",
+    readOnlyNote:
+      "Read-only: the file is too large, badly encoded, or mixes line endings, so it will not be overwritten.",
+    discard: "Undo the unsaved changes",
+    save: "Save the text (Ctrl+S)",
+    search: "Search the text",
+  },
+});
 
 // One entry, two mounts: the view edits the text, the panel holds the search controls. They
 // are separate documents, so the query and the match position travel over the host's opaque
@@ -51,9 +87,12 @@ async function mountPanel() {
 
 async function mountEditor(initial) {
   const notice = document.querySelector("#notice");
+  // What the notice is currently saying, so a language change refreshes the one line this
+  // plugin wrote itself without overwriting an error it cannot retranslate.
+  let noticeSays = "none";
   const data = initial.source?.data || initial.data;
   if (!data || (initial.source && initial.source.contract !== "ember.text/1")) {
-    await presented("缺少兼容的文本数据源");
+    await presented(say("noSource"));
     return;
   }
   const endings = new Set(data.text.match(/\r\n|\r|\n/g) || []);
@@ -72,7 +111,7 @@ async function mountEditor(initial) {
     current = -1;
   function mark(value) {
     reports = reports.then(() =>
-      pending(value, value ? "未保存的编辑" : undefined),
+      pending(value, value ? say("pending") : undefined),
     );
     return reports;
   }
@@ -100,9 +139,9 @@ async function mountEditor(initial) {
     if (!surface) return;
     void mark(text !== saved).catch((error) => {
       surface.readOnly(true);
-      notice.textContent = `无法保护草稿：${error}`;
+      notice.textContent = say("protectFailed", { error });
     });
-    status(text !== saved ? "未保存" : data.encoding);
+    status(text !== saved ? say("unsaved") : data.encoding);
     if (query) queueMicrotask(() => find(query, false));
   }
   try {
@@ -115,9 +154,8 @@ async function mountEditor(initial) {
       onChange: changed,
       onPosition: () => navigation?.changed(),
     });
-    notice.textContent = editable
-      ? ""
-      : "只读：文件过大、编码无效或换行混合，已禁止覆盖。";
+    notice.textContent = editable ? "" : say("readOnlyNote");
+    noticeSays = editable ? "none" : "readOnly";
     async function save() {
       if (saving || !editable || surface.text === saved) return;
       saving = true;
@@ -134,12 +172,12 @@ async function mountEditor(initial) {
         fingerprint = result.fingerprint;
         saved = surface.text;
         await mark(false);
-        status("已保存");
+        status(say("saved"));
         notice.textContent = "";
         await fileChanged();
       } catch (error) {
         notice.textContent = String(error);
-        status("保存失败 · 草稿保留");
+        status(say("saveFailed"));
       } finally {
         saving = false;
         surface.readOnly(!editable);
@@ -164,14 +202,14 @@ async function mountEditor(initial) {
               {
                 id: "discard",
                 kind: "button",
-                label: "撤销未保存修改",
+                label: say("discard"),
                 icon: "rotate-ccw",
                 run: discard,
               },
               {
                 id: "save",
                 kind: "button",
-                label: "保存文本 (Ctrl+S)",
+                label: say("save"),
                 icon: "save",
                 run: save,
               },
@@ -180,7 +218,7 @@ async function mountEditor(initial) {
         {
           id: "search",
           kind: "toggle",
-          label: "搜索文本",
+          label: say("search"),
           icon: "search",
           active: panelOpen,
           run: () => setPanel(!panelOpen),
@@ -210,6 +248,12 @@ async function mountEditor(initial) {
     }
     settings();
     onSettings(settings);
+    // The toolbar labels, the search button and the read-only note are this plugin's own
+    // text: the host shows the first two and this page shows the third.
+    onLocale(() => {
+      publishControls();
+      if (noticeSays === "readOnly") notice.textContent = say("readOnlyNote");
+    });
     publishControls();
     navigation = await synchronizePosition(
       () => surface.position(),

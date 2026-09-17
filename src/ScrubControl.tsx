@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import type { Control } from "./types";
+import { useT } from "./i18n";
 
 export function ScrubControl({ control, active, onActiveChange, onChange }: { control: Control; active: boolean; onActiveChange: (active: boolean) => void; onChange: (value: number) => void }) {
+  const t = useT();
   const [dragValue, setDragValue] = useState<number | null>(null);
   const drag = useRef<{ pointer: number; y: number; value: number } | null>(null);
   const min = control.min!, max = control.max!;
@@ -13,7 +15,7 @@ export function ScrubControl({ control, active, onActiveChange, onChange }: { co
   return <button className={`scrub-control ${dragValue !== null ? "scrubbing" : ""}`} role="slider"
     aria-label={control.label} aria-valuemin={min} aria-valuemax={max} aria-valuenow={value}
     aria-valuetext={`${Math.round(value)}${control.suffix || ""}`} tabIndex={active ? 0 : -1}
-    title={`${control.label} · 按住向上放大、向下缩小`}
+    title={t("scrub.hint", { label: control.label })}
     onPointerDown={event => { if (event.button !== 0) return; event.preventDefault(); event.currentTarget.setPointerCapture(event.pointerId); drag.current = { pointer: event.pointerId, y: event.clientY, value }; setDragValue(value); onActiveChange(true); }}
     onPointerMove={event => { const d = drag.current; if (d && d.pointer === event.pointerId) change(d.value * Math.exp((d.y - event.clientY) / 100)); }}
     onPointerUp={finish} onPointerCancel={finish} onLostPointerCapture={finish} onBlur={finish}

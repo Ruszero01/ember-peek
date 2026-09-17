@@ -6,10 +6,32 @@ import {
   status,
   configuration,
   onSettings,
+  translate,
+  onLocale,
 } from "./sdk.js";
 import { createTextView } from "./sdk-view.js";
 import { renderMarkdown } from "./sdk-markdown.js";
 import { synchronizePosition } from "./sdk-navigation.js";
+/** The plugin's own wording, in the language the host is showing. */
+const say = translate({
+  "zh-CN": {
+    outline: "大纲",
+    empty: "暂无标题",
+    copy: "复制 Markdown 源码",
+    toRendered: "显示渲染格式",
+    toSource: "显示原始格式",
+    truncated: " · 仅显示前 2 MiB",
+  },
+  en: {
+    outline: "Outline",
+    empty: "No headings",
+    copy: "Copy the Markdown source",
+    toRendered: "Show the rendered format",
+    toSource: "Show the source format",
+    truncated: " · showing the first 2 MiB",
+  },
+});
+
 const initial = await ready;
 const data = initial.source?.data || initial.data;
 const sourceRoot = document.querySelector("#source"),
@@ -29,8 +51,17 @@ try {
   const output = renderMarkdown(source.text);
   rendered.innerHTML = output.html;
   const nodes = [...rendered.querySelectorAll("[data-line]")];
+  // The outline is this plugin's own surface, so its name is in the interface language.
+  // The heading and the empty note are this plugin's own words and are refreshed below
+  // when the language changes; the entry text comes from the document itself.
   const title = document.createElement("h2");
-  title.textContent = "大纲";
+  let emptyNote = null;
+  function labelOutline() {
+    outline.setAttribute("aria-label", say("outline"));
+    title.textContent = say("outline");
+    if (emptyNote) emptyNote.textContent = say("empty");
+  }
+  labelOutline();
   outline.append(title);
   const buttons = output.headings.map((heading) => {
     const button = document.createElement("button");
@@ -46,9 +77,9 @@ try {
     return button;
   });
   if (!buttons.length) {
-    const empty = document.createElement("p");
-    empty.textContent = "暂无标题";
-    outline.append(empty);
+    emptyNote = document.createElement("p");
+    emptyNote.textContent = say("empty");
+    outline.append(emptyNote);
   }
   let measured = [];
   function measure() {
@@ -137,14 +168,14 @@ try {
       {
         id: "copy",
         kind: "button",
-        label: "复制 Markdown 源码",
+        label: say("copy"),
         icon: "copy",
         run: () => clipboard(source.text),
       },
       {
         id: "source",
         kind: "toggle",
-        label: raw ? "显示渲染格式" : "显示原始格式",
+        label: raw ? say("toRendered") : say("toSource"),
         icon: "code",
         active: raw,
         run() {
@@ -175,10 +206,17 @@ try {
   settings();
   onSettings(settings);
   publish();
+  onLocale(() => {
+    labelOutline();
+    publish();
+    publishStatus();
+  });
   measure();
   navigation = await synchronizePosition(position, reveal);
   updateOutline(position().line);
-  status(`${data.encoding}${data.truncated ? " · 仅显示前 2 MiB" : ""}`);
+  const publishStatus = () =>
+    status(`${data.encoding}${data.truncated ? say("truncated") : ""}`);
+  publishStatus();
   await presented();
 } catch (error) {
   await presented(String(error));

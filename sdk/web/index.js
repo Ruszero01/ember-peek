@@ -9,6 +9,11 @@ const visibilityListeners = new Set();
 const settingsListeners = new Set();
 const themeListeners = new Set();
 const peerListeners = new Set();
+const localeListeners = new Set();
+// The interface language the host is showing. Plugins are independent packages, so the
+// host hands each of them the same tag it uses itself rather than letting a plugin guess
+// from the browser, which would disagree with the host's own setting.
+let language = "en";
 let resolveReady;
 export const ready = new Promise((resolve) => {
   resolveReady = resolve;
@@ -63,6 +68,63 @@ function applySettings(next) {
   });
 }
 
+/** The interface language the host is showing, as a BCP-47 tag ("zh-CN", "en"). */
+export function locale() {
+  return language;
+}
+
+/** Called with the new tag whenever the user changes the interface language. A plugin that
+ *  shows its own text in toolbar controls should re-publish them from here. */
+export function onLocale(fn) {
+  localeListeners.add(fn);
+  return () => localeListeners.delete(fn);
+}
+
+function applyLocale(next) {
+  if (typeof next !== "string" || !next) return;
+  // The document says what it is written in as soon as the host says so, even when that
+  // matches the value this module starts from: the page's own markup cannot know it, and
+  // the first `init` is the only chance to correct it.
+  document.documentElement.lang = next;
+  if (next === language) return;
+  language = next;
+  localeListeners.forEach((fn) => {
+    try {
+      fn(language);
+    } catch (error) {
+      status(String(error));
+    }
+  });
+}
+
+/**
+ * A translator for the plugin's own text, in the language the host is showing.
+ *
+ *   const t = translate({
+ *     "zh-CN": { copy: "复制文本", lines: "共 {count} 行" },
+ *     en:      { copy: "Copy text", lines: "{count} lines" },
+ *   });
+ *   t("copy");                 // the wording of the current language
+ *   t("lines", { count: 12 }); // {name} placeholders are filled in
+ *
+ * A language the plugin does not provide falls back to the bare language ("zh-CN" to
+ * "zh"), then to English, then to the key itself: a half-translated plugin still reads.
+ */
+export function translate(messages) {
+  return (key, values) => {
+    const chosen =
+      messages[language] ||
+      messages[language.split("-")[0]] ||
+      messages.en ||
+      {};
+    const message = chosen[key] ?? messages.en?.[key] ?? key;
+    if (!values) return message;
+    return message.replace(/\{(\w+)\}/g, (placeholder, name) =>
+      name in values ? String(values[name]) : placeholder,
+    );
+  };
+}
+
 export function onTheme(fn) {
   themeListeners.add(fn);
   return () => themeListeners.delete(fn);
@@ -71,6 +133,11 @@ export function onTheme(fn) {
 function theme(tokens) {
   for (const [key, value] of Object.entries(tokens))
     document.documentElement.style.setProperty(`--${key}`, value);
+  // What the platform draws for the plugin — its scrollbars, the list a plain <select>
+  // opens, autofill — is told which theme it is in, so nothing native stays light inside a
+  // dark panel. The host sends this token beside the colours.
+  if (tokens["color-scheme"])
+    document.documentElement.style.colorScheme = tokens["color-scheme"];
   themeListeners.forEach((fn) => fn(tokens));
 }
 window.addEventListener("message", (event) => {
@@ -86,10 +153,13 @@ window.addEventListener("message", (event) => {
     const message = event.data;
     if (message.type === "init") {
       sessionId = message.session || "";
+      // Before anything else: the plugin's first render is already in the right language.
+      applyLocale(message.locale);
       theme(message.theme);
       applySettings(message.settings);
       resolveReady(message);
     } else if (message.type === "theme") theme(message.theme);
+    else if (message.type === "locale") applyLocale(message.locale);
     else if (message.type === "settings") applySettings(message.settings);
     else if (message.type === "peer")
       peerListeners.forEach((fn) => {

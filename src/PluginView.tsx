@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { call, viewUrl } from "./bridge";
 import { validateControls, isSessionOwning, ROLES } from "./protocol.mjs";
+import { useT } from "./i18n";
 import type { Control, Session, Theme, ViewReport } from "./types";
 
 export function PluginView({
@@ -9,6 +10,7 @@ export function PluginView({
   visible,
   interactive,
   theme,
+  locale,
   settings,
   controls,
   report,
@@ -25,6 +27,8 @@ export function PluginView({
   visible: boolean;
   interactive: boolean;
   theme: Theme;
+  /** Interface language, so a plugin can show its own text in the user's language. */
+  locale: string;
   /** Current values of the settings this plugin declared, keyed by setting key. */
   settings: Record<string, unknown> | undefined;
   /** Controls the view declared; only a view mount may declare them. */
@@ -47,6 +51,7 @@ export function PluginView({
   /** Ask the host to show or hide this plugin's floating panel. */
   panel: (open: boolean) => void;
 }) {
+  const t = useT();
   // When one entry owns both a view and a panel, the panel mount is secondary: it renders
   // and talks to the native process, but the view stays the owner of session state
   // (lifecycle, pending changes, toolbar controls) and of writes to the document.
@@ -56,6 +61,7 @@ export function PluginView({
   const channel = useRef<MessageChannel | null>(null);
   const latest = useRef({
     theme,
+    locale,
     visible,
     interactive,
     settings,
@@ -68,6 +74,7 @@ export function PluginView({
   });
   latest.current = {
     theme,
+    locale,
     visible,
     interactive,
     settings,
@@ -85,6 +92,9 @@ export function PluginView({
   useEffect(() => {
     channel.current?.port1.postMessage({ type: "theme", theme });
   }, [theme]);
+  useEffect(() => {
+    channel.current?.port1.postMessage({ type: "locale", locale });
+  }, [locale]);
   useEffect(() => {
     channel.current?.port1.postMessage({
       type: "settings",
@@ -116,7 +126,7 @@ export function PluginView({
     handshake.current = setTimeout(
       () =>
         latest.current.report(session.id, {
-          error: "插件视图未建立连接，请检查插件入口和脚本",
+          error: t("view.disconnected"),
         }),
       10000,
     );
@@ -139,6 +149,7 @@ export function PluginView({
               session: session.id,
               file: { name: session.name, size: session.size },
               theme: latest.current.theme,
+              locale: latest.current.locale,
               visible: latest.current.visible,
               settings: latest.current.settings ?? {},
               // Same entry, two surfaces: the plugin renders its view or its panel.
@@ -146,17 +157,17 @@ export function PluginView({
             });
         } else if (message?.type === "controls") {
           if (secondary)
-            throw new Error("浮层不能声明工具栏控件，控件属于插件视图");
+            throw new Error(t("view.panelNoControls"));
           latest.current.report(instanceId, {
             controls: session.capabilities.includes("controls")
-              ? validateControls(message.items)
+              ? validateControls(message.items, t)
               : [],
           });
         } else if (
           message?.type === "status" &&
           typeof message.text === "string"
         ) {
-          if (secondary) throw new Error("浮层不能上报状态，状态属于插件视图");
+          if (secondary) throw new Error(t("view.panelNoStatus"));
           latest.current.report(instanceId, {
             status: message.text.slice(0, 300),
           });
@@ -164,23 +175,23 @@ export function PluginView({
           message?.type === "searchStatus" &&
           typeof message.text === "string"
         ) {
-          throw new Error("搜索进度不再是宿主能力，请在插件自己的浮层里显示");
+          throw new Error(t("view.searchNotHost"));
         } else if (message?.type === "edge" && latest.current.visible)
           latest.current.edge(message.value);
         else if (message?.type === "shortcut" && latest.current.visible)
           latest.current.shortcut(message.key);
         else if (message?.type === "request") {
           if (!Number.isSafeInteger(message.id) || requests >= 8)
-            throw new Error("插件请求过多或请求 ID 无效");
+            throw new Error(t("view.tooManyRequests"));
           requests++;
           try {
             const params = message.params;
             let value;
             if (secondary && isSessionOwning(message.method))
-              throw new Error("浮层不能改动会话状态或文档，请交给插件视图");
+              throw new Error(t("view.panelNoSession"));
             if (message.method === "viewState") {
               if (secondary)
-                throw new Error("Only the primary view owns navigation state");
+                throw new Error(t("view.onlyPrimaryNavigates"));
               value = await call("view_state", {
                 id: session.id,
                 value: params?.value ?? null,
@@ -195,7 +206,7 @@ export function PluginView({
               });
             } else if (message.method === "pending") {
               if (typeof params?.pending !== "boolean")
-                throw new Error("Invalid pending flag");
+                throw new Error(t("view.invalidPending"));
               value = await call("set_pending", {
                 id: session.id,
                 pending: params.pending,
@@ -219,7 +230,7 @@ export function PluginView({
                 typeof params?.method !== "string" ||
                 params.method.length > 100
               )
-                throw new Error("Invalid method");
+                throw new Error(t("view.invalidMethod"));
               value = await call(
                 message.method === "mutate" ? "plugin_mutate" : "source_call",
                 {
@@ -236,7 +247,7 @@ export function PluginView({
                 params.length < 0 ||
                 params.length > 1024 * 1024
               )
-                throw new Error("文件读取范围无效");
+                throw new Error(t("view.invalidReadRange"));
               value = await call("read_file", {
                 id: session.id,
                 offset: params.offset,
@@ -247,16 +258,16 @@ export function PluginView({
               // without looking inside, so a plugin can build its own features (search,
               // palettes, anything) on top of a view and a panel that cannot see each other.
               if (!ROLES.includes(params?.to))
-                throw new Error("插件内部消息的目标必须是 view 或 panel");
+                throw new Error(t("view.peerTarget"));
               const encoded = JSON.stringify(params.payload ?? null);
               if (typeof encoded !== "string" || encoded.length > 64 * 1024)
-                throw new Error("插件内部消息过大");
+                throw new Error(t("view.peerTooLarge"));
               value = latest.current.peer(params.to, params.payload ?? null);
             } else if (message.method === "setting") {
               // A control that flips a declared setting (the text view's wrap toggle).
               // The host owns validation; the view learns the result through settings.
               if (typeof params?.key !== "string")
-                throw new Error("设置项名称无效");
+                throw new Error(t("view.invalidSettingKey"));
               value = await call("set_plugin_setting", {
                 id: session.pluginId,
                 key: params.key,
@@ -271,7 +282,7 @@ export function PluginView({
                 typeof params?.method !== "string" ||
                 params.method.length > 100
               )
-                throw new Error("插件方法无效");
+                throw new Error(t("view.invalidPluginMethod"));
               value = await call("plugin_call", {
                 id: session.id,
                 method: params.method,
@@ -285,11 +296,11 @@ export function PluginView({
                 typeof params?.text !== "string" ||
                 params.text.length > 2 * 1024 * 1024
               )
-                throw new Error("剪贴板内容超出限制");
+                throw new Error(t("view.clipboardTooLarge"));
               await call("authorize_clipboard", { id: session.id });
               await navigator.clipboard.writeText(params.text);
               value = null;
-            } else throw new Error("不支持的宿主能力");
+            } else throw new Error(t("view.unsupportedCapability"));
             connection.port1.postMessage({
               type: "reply",
               id: message.id,

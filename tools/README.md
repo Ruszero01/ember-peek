@@ -16,7 +16,7 @@
 2. 若 `9222` 已有实例在跑则直接退出，避免重复启动
 3. 否则带 WebView2 调试端口启动应用，调试端点位于 `http://127.0.0.1:9222`
 
-它用 `tauri.external-dev.json`（清空了 `beforeDevCommand`）启动，因此只会附着到已有的前端服务，不会尝试再起一个。
+它用 `tauri.external-dev.json` 启动：那份配置清空 `beforeDevCommand`（不再自己起前端），并把 `devUrl` 再写一遍。**`--config` 是整块替换 `build` 表**，所以少写 `devUrl` 时应用会静默回落到 `frontendDist`（`../dist`）——窗口跑的是上次 `npm run build` 的产物，既没有 HMR，也不是开发服务器上那份代码。调前端时看到"改了没生效"，先确认窗口的 URL 是 `http://127.0.0.1:1420/...` 而不是 `tauri.localhost`。
 
 之所以不用 `npm run dev`，是因为调试端口依赖 `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` 环境变量。**注意：必须直接运行脚本**，`npm run tauri -- dev` 这条链路会把环境变量交给 npm 而不是最终的应用，调试端口不会打开。
 

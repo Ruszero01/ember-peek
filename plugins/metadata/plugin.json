@@ -2,6 +2,11 @@
   "api": 1,
   "id": "ember.metadata",
   "name": "文件信息",
+  "i18n": {
+    "en": {
+      "name": "File Info"
+    }
+  },
   "version": "0.1.0",
   "icon": "info",
   "executable": "bin/ember-metadata-plugin.exe",

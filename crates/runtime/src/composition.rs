@@ -5,12 +5,12 @@ impl Runtime {
     pub async fn open(self: &Arc<Self>, path: PathBuf) -> Result<SessionInfo, String> {
         let path = tokio::fs::canonicalize(path)
             .await
-            .map_err(|e| format!("打开文件失败：{e}"))?;
+            .map_err(|e| msg!(text().open_failed, error = e))?;
         let metadata = tokio::fs::metadata(&path)
             .await
             .map_err(|e| e.to_string())?;
         if !metadata.is_file() {
-            return Err("请选择一个文件".into());
+            return Err(msg!(text().pick_file));
         }
         let extension = path
             .extension()
@@ -18,7 +18,7 @@ impl Runtime {
             .unwrap_or("")
             .to_lowercase();
         let mut inner = self.inner.lock().await;
-        if inner.updating { return Err("插件正在更新，请稍后重试".into()); }
+        if inner.updating { return Err(msg!(text().updating)); }
         let mut packages: Vec<_> = inner
             .packages
             .values()
@@ -50,10 +50,10 @@ impl Runtime {
                 .then(a.manifest.id.cmp(&b.manifest.id))
         });
         if packages.is_empty() {
-            return Err(format!("没有已启用的插件支持 .{extension}，请安装相应插件"));
+            return Err(msg!(text().unsupported_extension, extension = extension));
         }
         if packages.len() > 32 {
-            return Err("一个文件最多同时加载 32 个插件，请停用部分插件".into());
+            return Err(msg!(text().too_many_per_file));
         }
         let stamp = metadata
             .modified()
@@ -143,10 +143,10 @@ impl Runtime {
             .len()
             >= MAX_SESSIONS
         {
-            return Err("后台文件会话已达 16 个，请保存未保存编辑或等待闲置回收".into());
+            return Err(msg!(text().too_many_sessions));
         }
         if inner.sessions.len() + packages.len() > 64 {
-            return Err("后台插件实例已达 64 个，请保存草稿或等待回收".into());
+            return Err(msg!(text().too_many_instances));
         }
         let file_id = format!("f{}", self.sequence.fetch_add(1, Ordering::Relaxed));
         let ids: Vec<_> = (0..packages.len())
@@ -170,16 +170,19 @@ impl Runtime {
             let error = required
                 .filter(|required| Some(*required) != contract.as_ref())
                 .map(|required| {
-                    format!(
-                        "缺少兼容解析源 {}（当前源：{}）",
-                        required,
-                        contract.as_deref().unwrap_or("无")
+                    msg!(
+                        text().missing_source,
+                        contract = required,
+                        current = contract.as_deref().unwrap_or(text().shape_unknown)
                     )
                 });
             let info = SessionInfo {
                 id: ids[index].clone(),
                 file_id: file_id.clone(),
                 plugin_id: package.manifest.id.clone(),
+                // The declared name. What the interface shows is refreshed from the
+                // localized declaration by every snapshot, so a language change reaches a
+                // session that is already open.
                 label: package.manifest.name.clone(),
                 revision: package.manifest.revision,
                 entry: package.manifest.entry.clone(),
@@ -264,7 +267,7 @@ impl Runtime {
                 tokio::spawn(async move {
                     let result = match dependency {
                         Ok(()) => worker.call("open", params).await,
-                        Err(error) => Err(format!("解析源失败：{error}")),
+                        Err(error) => Err(msg!(text().source_failed, error = error)),
                     };
                     runtime.opened(&id, result).await;
                 });
@@ -294,11 +297,11 @@ impl Runtime {
     pub async fn activate(&self, id: Option<String>) -> Result<(), String> {
         let mut inner = self.inner.lock().await;
         let next_file = if let Some(id) = &id {
-            let session = inner.sessions.get(id).ok_or("Session expired")?;
+            let session = inner.sessions.get(id).ok_or_else(|| msg!(text().session_expired))?;
             if inner.disabled.contains(&session.info.plugin_id)
                 || !inner.packages.contains_key(&session.info.plugin_id)
             {
-                return Err("插件已停用".into());
+                return Err(msg!(text().plugin_disabled));
             }
             let file_id = session.info.file_id.clone();
             if session.package.manifest.has(Capability::View) {
@@ -334,7 +337,7 @@ impl Runtime {
 
     pub async fn return_target(&self, id: &str) -> Result<String, String> {
         let inner = self.inner.lock().await;
-        let session = inner.sessions.get(id).ok_or("Session expired")?;
+        let session = inner.sessions.get(id).ok_or_else(|| msg!(text().session_expired))?;
         let available = |s: &&Session| {
             s.info.file_id == session.info.file_id
                 && s.package.manifest.has(Capability::View)
@@ -360,7 +363,7 @@ impl Runtime {
 
     pub async fn source_data(&self, id: &str) -> Result<Value, String> {
         let inner = self.inner.lock().await;
-        let session = inner.sessions.get(id).ok_or("Session expired")?;
+        let session = inner.sessions.get(id).ok_or_else(|| msg!(text().session_expired))?;
         let Some(source) = session
             .source
             .as_ref()

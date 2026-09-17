@@ -4,16 +4,19 @@ import { call, desktop } from "./bridge";
 import { PluginDetails } from "./PluginDetails";
 import { PluginConfirm, type PluginAction } from "./PluginConfirm";
 import { pluginIcon } from "./pluginIcons";
+import { formatBytes, useT } from "./i18n";
 import type { MarketEntry, MarketList, MarketSource } from "./types";
 
 /** Where an entry comes from, spelled for the details panel and the confirm dialog. */
 function sourceLabel(source: MarketSource) {
   return `${source.name} · ${source.urls[0]}`;
 }
-
 function sourceSize(source: MarketSource) {
-  return ` · ${(source.size / 1024 / 1024).toFixed(1)} MiB`;
+  return formatBytes(source.size);
 }
+
+/** The one-line progress each step of an install reports through the confirm dialog. */
+const INSTALL_STEPS = ["market.progress.download", "market.progress.install", "market.progress.refresh"] as const;
 
 /** One installed plugin as a chip.
  *
@@ -30,6 +33,7 @@ function InstalledChip({
   busy: boolean;
   onUpdate: () => void;
 }) {
+  const t = useT();
   const Icon = pluginIcon(entry.icon);
   return (
     <div
@@ -50,7 +54,10 @@ function InstalledChip({
         <button
           className="chip-update"
           disabled={busy}
-          title={`从 v${entry.installedVersion} 更新到 v${entry.version}`}
+          title={t("market.updateFrom", {
+            from: entry.installedVersion ?? "",
+            to: entry.version,
+          })}
           onClick={onUpdate}
         >
           {busy ? (
@@ -58,7 +65,7 @@ function InstalledChip({
           ) : (
             <RotateCw size={12} />
           )}
-          更新
+          {t("market.update")}
         </button>
       )}
     </div>
@@ -76,6 +83,7 @@ function AvailableCard({
   busy: boolean;
   onInstall: () => void;
 }) {
+  const t = useT();
   const Icon = pluginIcon(entry.icon);
   return (
     <section className="market-card">
@@ -91,7 +99,10 @@ function AvailableCard({
         <PluginDetails extensions={entry.extensions}>
           <p>{entry.publisher} · {entry.id}</p>
           <p className="source-path">
-            来源：{sourceLabel(entry.source)}{sourceSize(entry.source)}
+            {t("market.sourceLine", {
+              source: sourceLabel(entry.source),
+              size: sourceSize(entry.source),
+            })}
           </p>
         </PluginDetails>
       </div>
@@ -101,7 +112,7 @@ function AvailableCard({
         ) : (
           <Download size={14} />
         )}
-        {busy ? "安装中…" : "安装"}
+        {busy ? t("market.installing") : t("market.install")}
       </button>
     </section>
   );
@@ -116,6 +127,7 @@ export function Marketplace({
   onInstalled: () => Promise<unknown>;
   onManage?: () => void;
 }) {
+  const t = useT();
   const [entries, setEntries] = useState<MarketEntry[]>([]);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [error, setError] = useState("");
@@ -173,11 +185,11 @@ export function Marketplace({
     setBusy(entry.id);
     setError("");
     try {
-      progress("正在下载并校验插件包…");
+      progress(t(INSTALL_STEPS[0]));
       const path = await call<string>("market_prepare", { id: entry.id });
-      progress("正在安装插件…");
+      progress(t(INSTALL_STEPS[1]));
       await call("install_plugin", { path });
-      progress("正在刷新插件列表…");
+      progress(t(INSTALL_STEPS[2]));
       await onInstalled();
       await refresh();
     } catch (error) {
@@ -198,9 +210,9 @@ export function Marketplace({
     <>
       {action && <PluginConfirm action={action} onClose={() => setAction(null)} />}
       <button className="text-button" disabled={!desktop || loading || !!busy} onClick={() => void retry()}>
-        <RotateCw size={14} /> 刷新插件源
+        <RotateCw size={14} /> {t("market.refreshSources")}
       </button>
-      <div className="market-source"><Package size={16} /><strong>插件市场</strong><span className="source-badge">{sourceNames.length === 1 ? sourceNames[0] : `${sourceNames.length} 个来源`}</span></div>
+      <div className="market-source"><Package size={16} /><strong>{t("market.title")}</strong><span className="source-badge">{sourceNames.length === 1 ? sourceNames[0] : t("market.sources", { count: sourceNames.length })}</span></div>
       {(error || loadError) && (
         <p className="warning" role="alert">
           {error || loadError}
@@ -215,17 +227,17 @@ export function Marketplace({
       ))}
       {loading && (
         <p className="quiet-note">
-          <LoaderCircle size={16} className="spinner" /> 正在读取市场…
+          <LoaderCircle size={16} className="spinner" /> {t("market.loading")}
         </p>
       )}
       {[
         {
-          title: "未安装",
+          title: t("market.group.available"),
           installed: false,
           entries: visible.filter((entry) => !entry.installedVersion),
         },
         {
-          title: "已安装",
+          title: t("market.group.installed"),
           installed: true,
           // An update is the only thing in this group that asks for action, so those chips
           // come first and the rest keep the catalog's order. Nothing sits behind a fold:
@@ -251,7 +263,7 @@ export function Marketplace({
               <span>{group.entries.length}</span>
               {group.installed && onManage && (
                 <button className="text-button group-manage" onClick={onManage}>
-                  在插件管理中启用或卸载
+                  {t("market.manageHint")}
                 </button>
               )}
             </h2>
@@ -297,10 +309,10 @@ export function Marketplace({
           <Package size={28} />
           <p>
             {!desktop
-              ? "请在桌面窗口中浏览和安装插件"
+              ? t("market.desktopOnly")
               : filter
-                ? "没有匹配的插件"
-                : "暂时没有可安装的插件，请稍后重试。"}
+                ? t("market.noMatch")
+                : t("market.empty")}
           </p>
         </div>
       )}

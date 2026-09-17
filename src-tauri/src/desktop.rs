@@ -1,3 +1,4 @@
+use ember_runtime::i18n::{text, Refusal};
 use ember_runtime::{PendingChange, Runtime, Snapshot};
 use serde::Serialize;
 use std::{
@@ -13,6 +14,54 @@ use tauri::{
 };
 
 const IDLE: Duration = Duration::from_secs(120);
+/// The window labels the host creates on demand.
+const WINDOWS: [&str; 2] = ["preview", "settings"];
+/// Title of a window as it appears in the taskbar and the window menu. The settings
+/// window says what it is; the preview window is the application, so it is the brand.
+fn window_title(label: &str) -> &'static str {
+    if label == "settings" {
+        text().window_settings_title
+    } else {
+        "Ember Peek"
+    }
+}
+
+/// The tray menu in the interface language. Rebuilt whenever the language changes, since
+/// a menu item's label is fixed once it is created.
+fn tray_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
+    let t = text();
+    let settings = MenuItem::with_id(app, "settings", t.tray_settings, true, None::<&str>)?;
+    // Development only: the first-run chooser otherwise only comes back by clearing the
+    // app data directory by hand, which is not something to ask of whoever is testing it.
+    #[cfg(debug_assertions)]
+    let reset = MenuItem::with_id(app, "reset", t.tray_reset, true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", t.tray_quit, true, None::<&str>)?;
+    #[cfg(debug_assertions)]
+    let menu = Menu::with_items(app, &[&settings, &reset, &quit])?;
+    #[cfg(not(debug_assertions))]
+    let menu = Menu::with_items(app, &[&settings, &quit])?;
+    Ok(menu)
+}
+
+/// Speak the language the host just switched to: the tray labels and the title of any
+/// window already open. Called after the runtime has stored the new language.
+pub fn apply_locale(app: &AppHandle) {
+    if let Some(tray) = app.tray_by_id("ember-peek") {
+        match tray_menu(app) {
+            Ok(menu) => {
+                if let Err(error) = tray.set_menu(Some(menu)) {
+                    eprintln!("Tray menu language: {error}");
+                }
+            }
+            Err(error) => eprintln!("Tray menu language: {error}"),
+        }
+    }
+    for label in WINDOWS {
+        if let Some(window) = app.get_webview_window(label) {
+            let _ = window.set_title(window_title(label));
+        }
+    }
+}
 #[derive(Default, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Status {
@@ -95,11 +144,7 @@ fn queue_show(app: &AppHandle, label: &'static str, revision: u64) {
                 label,
                 WebviewUrl::App(format!("index.html?window={label}").into()),
             )
-            .title(if label == "settings" {
-                "Ember Peek · 设置"
-            } else {
-                "Ember Peek"
-            })
+            .title(window_title(label))
             .inner_size(1060.0, 740.0)
             .min_inner_size(640.0, 440.0)
             // 创建时居中于主显示器的工作区（避开任务栏）。只在创建时定位，
@@ -255,7 +300,7 @@ pub async fn return_view(app: AppHandle, id: String) -> Result<(), String> {
         .find(|s| s.id == id && s.pending)
         .map(PendingChange::from_info)
     {
-        return Err(change.refusal("返回"));
+        return Err(change.refusal(Refusal::Return));
     }
     let target = runtime.return_target(&id).await?;
     if desktop.current(revision) {
@@ -376,16 +421,7 @@ pub fn reap(app: &AppHandle, pending: bool) {
 }
 pub fn setup(app: &AppHandle) -> tauri::Result<()> {
     app.manage(Desktop::default());
-    let settings = MenuItem::with_id(app, "settings", "设置", true, None::<&str>)?;
-    // Development only: the first-run chooser otherwise only comes back by clearing the
-    // app data directory by hand, which is not something to ask of whoever is testing it.
-    #[cfg(debug_assertions)]
-    let reset = MenuItem::with_id(app, "reset", "重置为首次启动", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
-    #[cfg(debug_assertions)]
-    let menu = Menu::with_items(app, &[&settings, &reset, &quit])?;
-    #[cfg(not(debug_assertions))]
-    let menu = Menu::with_items(app, &[&settings, &quit])?;
+    let menu = tray_menu(app)?;
     let mut tray = TrayIconBuilder::with_id("ember-peek")
         .tooltip("Ember Peek")
         .menu(&menu)
@@ -405,7 +441,7 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
                         eprintln!("Reset to first launch: {error}");
                         let _ = tauri::async_runtime::spawn_blocking(move || {
                             rfd::MessageDialog::new()
-                                .set_title("无法重置为首次启动")
+                                .set_title(text().dialog_reset_failed)
                                 .set_description(error)
                                 .set_buttons(rfd::MessageButtons::Ok)
                                 .show()
@@ -424,10 +460,11 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
                 let app = app.clone();
                 tauri::async_runtime::spawn(async move {
                     if app.state::<Arc<Runtime>>().has_pending().await {
-                        let discard = tauri::async_runtime::spawn_blocking(|| {
+                        let t = text();
+                        let discard = tauri::async_runtime::spawn_blocking(move || {
                             rfd::MessageDialog::new()
-                                .set_title("有未保存的编辑")
-                                .set_description("退出将丢弃所有未保存的编辑，是否继续？")
+                                .set_title(t.dialog_pending_title)
+                                .set_description(t.dialog_pending_note)
                                 .set_buttons(rfd::MessageButtons::YesNo)
                                 .show()
                         })

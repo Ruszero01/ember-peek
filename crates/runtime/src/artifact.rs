@@ -4,6 +4,7 @@
 //! build. Everything here rejects rather than guesses: a package that is not the
 //! shape the build script writes is refused before anything reaches the disk.
 
+use crate::i18n::{msg, text};
 use sha2::{Digest, Sha256};
 use std::{
     collections::HashSet,
@@ -73,9 +74,9 @@ async fn fetch_http(client: &reqwest::Client, url: &str, limit: u64) -> Result<V
         .timeout(FETCH_TIMEOUT)
         .send()
         .await
-        .map_err(|error| format!("下载失败：{error}"))?;
+        .map_err(|error| msg!(text().download_error, error = error))?;
     if !response.status().is_success() {
-        return Err(format!("下载失败：HTTP {}", response.status()));
+        return Err(msg!(text().download_http, status = response.status()));
     }
     if response
         .content_length()
@@ -88,7 +89,7 @@ async fn fetch_http(client: &reqwest::Client, url: &str, limit: u64) -> Result<V
     while let Some(chunk) = response
         .chunk()
         .await
-        .map_err(|error| format!("下载中断：{error}"))?
+        .map_err(|error| msg!(text().download_interrupted, error = error))?
     {
         if body.len() as u64 + chunk.len() as u64 > limit {
             return Err(over_limit(limit));
@@ -101,11 +102,11 @@ async fn fetch_http(client: &reqwest::Client, url: &str, limit: u64) -> Result<V
 fn fetch_file(location: &str, limit: u64) -> Result<Vec<u8>, String> {
     let path = local_path(location);
     let file = std::fs::File::open(&path)
-        .map_err(|error| format!("读取插件包失败 {}：{error}", path.display()))?;
+        .map_err(|error| msg!(text().package_read_failed, path = path.display(), error = error))?;
     let mut body = Vec::new();
     file.take(limit + 1)
         .read_to_end(&mut body)
-        .map_err(|error| format!("读取插件包失败 {}：{error}", path.display()))?;
+        .map_err(|error| msg!(text().package_read_failed, path = path.display(), error = error))?;
     if body.len() as u64 > limit {
         return Err(over_limit(limit));
     }
@@ -123,7 +124,7 @@ fn local_path(location: &str) -> PathBuf {
 }
 
 fn over_limit(limit: u64) -> String {
-    format!("插件包超过 {} MiB 上限", limit / 1024 / 1024)
+    msg!(text().package_too_large, limit = limit / 1024 / 1024)
 }
 
 /// Unpack a verified artifact into `target`, which is created here. A failure never
@@ -141,12 +142,12 @@ pub fn extract(bytes: &[u8], target: &Path) -> Result<(), String> {
 
 fn unpack(bytes: &[u8], target: &Path, limits: Limits) -> Result<(), String> {
     let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes))
-        .map_err(|error| format!("插件包不是可读的 zip：{error}"))?;
+        .map_err(|error| msg!(text().package_not_zip, error = error))?;
     if archive.is_empty() {
-        return Err("插件包是空的".into());
+        return Err(msg!(text().package_empty));
     }
     if archive.len() > limits.entries {
-        return Err(format!("插件包条目超过 {} 个", limits.entries));
+        return Err(msg!(text().package_too_many_entries, limit = limits.entries));
     }
 
     // Names, types and declared sizes come first, so a package that would write too
@@ -158,9 +159,9 @@ fn unpack(bytes: &[u8], target: &Path, limits: Limits) -> Result<(), String> {
         let (name, directory, size) = {
             let entry = archive
                 .by_index(index)
-                .map_err(|error| format!("读取插件包条目失败：{error}"))?;
+                .map_err(|error| msg!(text().entry_read_failed, error = error))?;
             if entry.encrypted() {
-                return Err(format!("插件包条目已加密：{}", entry.name()));
+                return Err(msg!(text().entry_encrypted, name = entry.name()));
             }
             let name = entry_name(entry.name())?;
             check_entry_type(entry.unix_mode(), &name)?;
@@ -170,7 +171,7 @@ fn unpack(bytes: &[u8], target: &Path, limits: Limits) -> Result<(), String> {
             // Unreachable with the reader in use, which collapses duplicate names while
             // indexing; kept because extracting the same path twice is the shape of
             // archive this guard exists for.
-            return Err(format!("插件包存在重复条目：{name}"));
+            return Err(msg!(text().entry_duplicate, name = name));
         }
         declared = declared.saturating_add(size);
         if declared > limits.unpacked {
@@ -179,7 +180,7 @@ fn unpack(bytes: &[u8], target: &Path, limits: Limits) -> Result<(), String> {
         plan.push((name, directory));
     }
     if plan.iter().all(|(_, directory)| *directory) {
-        return Err("插件包里没有文件".into());
+        return Err(msg!(text().package_no_files));
     }
 
     std::fs::create_dir_all(target).map_err(|error| error.to_string())?;
@@ -195,14 +196,14 @@ fn unpack(bytes: &[u8], target: &Path, limits: Limits) -> Result<(), String> {
             std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
         }
         let mut file = std::fs::File::create(&destination)
-            .map_err(|error| format!("无法写入 {name}：{error}"))?;
+            .map_err(|error| msg!(text().write_failed, name = name, error = error))?;
         let mut entry = archive
             .by_index(index)
-            .map_err(|error| format!("读取插件包条目失败：{error}"))?;
+            .map_err(|error| msg!(text().entry_read_failed, error = error))?;
         loop {
             let read = entry
                 .read(&mut buffer)
-                .map_err(|error| format!("解包 {name} 失败：{error}"))?;
+                .map_err(|error| msg!(text().entry_extract_failed, name = name, error = error))?;
             if read == 0 {
                 break;
             }
@@ -213,11 +214,11 @@ fn unpack(bytes: &[u8], target: &Path, limits: Limits) -> Result<(), String> {
                 return Err(over_limit(limits.unpacked));
             }
             file.write_all(&buffer[..read])
-                .map_err(|error| format!("写入 {name} 失败：{error}"))?;
+                .map_err(|error| msg!(text().entry_write_failed, name = name, error = error))?;
         }
     }
     if !target.join("plugin.json").is_file() {
-        return Err("插件包缺少 plugin.json".into());
+        return Err(msg!(text().package_no_manifest));
     }
     Ok(())
 }
@@ -235,7 +236,7 @@ fn entry_name(name: &str) -> Result<String, String> {
             .components()
             .any(|component| !matches!(component, Component::Normal(_)))
     {
-        return Err(format!("插件包条目名越界：{name}"));
+        return Err(msg!(text().entry_path_escapes, name = name));
     }
     Ok(trimmed.to_owned())
 }
@@ -244,10 +245,10 @@ fn entry_name(name: &str) -> Result<String, String> {
 /// package would let one entry redirect a later write outside the package.
 fn check_entry_type(mode: Option<u32>, name: &str) -> Result<(), String> {
     match mode.map(|mode| mode & 0o170000) {
-        Some(0o120000) => Err(format!("插件包不允许符号链接：{name}")),
+        Some(0o120000) => Err(msg!(text().entry_symlink, name = name)),
         // 0 means the archive carries no unix mode at all (a non-unix writer).
         None | Some(0) | Some(0o100000) | Some(0o040000) => Ok(()),
-        Some(_) => Err(format!("插件包条目不是普通文件：{name}")),
+        Some(_) => Err(msg!(text().entry_not_file, name = name)),
     }
 }
 

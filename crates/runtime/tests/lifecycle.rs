@@ -102,21 +102,21 @@ async fn switching_types_does_not_cancel_loading_and_idle_workers_are_collected(
     std::fs::write(&fast_file, "fast").unwrap();
     let slow = runtime.open(slow_file.clone()).await.unwrap();
     runtime.activate(Some(slow.id.clone())).await.unwrap();
+    // The worker is still sleeping on this one, so the session has a call in flight and an
+    // idle pass must leave it alone even though its TTL is 80ms. Asserting that here rather
+    // than after the sleep below is what keeps this test about the idle pass: on a busy
+    // machine the 110ms wait can outlast the worker's 700ms sleep, and then "it is still
+    // loading" says nothing about the reaper.
+    assert_eq!(slow.status, "loading");
     let fast = runtime.open(fast_file).await.unwrap();
     runtime.activate(Some(fast.id.clone())).await.unwrap();
     ready(&runtime, &fast.id).await;
     tokio::time::sleep(Duration::from_millis(110)).await;
     runtime.reap().await;
-    assert_eq!(
-        runtime
-            .snapshot()
-            .await
-            .sessions
-            .iter()
-            .find(|s| s.id == slow.id)
-            .unwrap()
-            .status,
-        "loading"
+    let remaining = runtime.snapshot().await;
+    assert!(
+        remaining.sessions.iter().any(|s| s.id == slow.id),
+        "the idle pass collected a session that still had a call in flight"
     );
     ready(&runtime, &slow.id).await;
     assert_eq!(runtime.snapshot().await.active, Some(fast.id.clone()));

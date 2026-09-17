@@ -1,9 +1,11 @@
 mod artifact;
 mod composition;
+pub mod i18n;
 pub mod manifest;
 pub mod market;
 mod process;
 
+use crate::i18n::{msg, text, Locale, Refusal};
 use manifest::{Activation, ActivationMode, Capability, Manifest, Package, Permission};
 use process::Worker;
 use serde::{Deserialize, Serialize};
@@ -90,14 +92,14 @@ impl PendingChange {
             reason: info
                 .pending_reason
                 .clone()
-                .unwrap_or_else(|| "尚未提交的变更".into()),
+                .unwrap_or_else(|| text().pending_fallback.to_owned()),
         }
     }
 
     /// The sentence every refusing path uses, so uninstalling, switching off and replacing a
     /// plugin all explain the same situation in the same words.
-    pub fn refusal(&self, action: &str) -> String {
-        format!("“{}”有{}，请先保存或放弃后再{action}", self.file, self.reason)
+    pub fn refusal(&self, action: Refusal) -> String {
+        text().refusal(&self.file, &self.reason, action)
     }
 }
 
@@ -162,6 +164,9 @@ struct Inner {
     /// but it lives in this file because this file is the app's persisted state, and the
     /// host has to decide before any window exists.
     onboarded: bool,
+    /// The interface language the host last spoke. Persisted because the tray menu is
+    /// built before any window exists, from the language the previous session ended in.
+    locale: Locale,
 }
 
 pub struct Runtime {
@@ -181,6 +186,8 @@ struct StoredState {
     preferred: BTreeMap<String, String>,
     activation: BTreeMap<String, Activation>,
     onboarded: bool,
+    /// The language tag the host last spoke, absent before anything has chosen one.
+    locale: Option<String>,
 }
 
 fn read_state(root: &Path) -> Result<StoredState, String> {
@@ -194,7 +201,7 @@ fn read_state(root: &Path) -> Result<StoredState, String> {
     match read(&path) {
         Ok(state) => Ok(state),
         Err(error) => {
-            let state = read(&backup).map_err(|backup_error| format!("宿主状态损坏或不可读：{error}；备份也不可用：{backup_error}。原文件已保留。"))?;
+            let state = read(&backup).map_err(|backup_error| msg!(text().state_corrupt, error = error, backup = backup_error))?;
             let bytes = std::fs::read(&backup).map_err(|e| e.to_string())?;
             ember_file_store::atomic_write(&path, &bytes).map_err(|e| e.to_string())?;
             eprintln!("宿主状态读取失败，已从备份恢复：{error}");
@@ -211,6 +218,15 @@ impl Runtime {
         std::fs::create_dir_all(&root).map_err(|e| e.to_string())?;
         let root = root.canonicalize().map_err(|e| e.to_string())?;
         let state = read_state(&root)?;
+        let locale = state
+            .locale
+            .as_deref()
+            .map(Locale::from_tag)
+            .unwrap_or_default();
+        // The persisted language takes effect before anything can ask for a message: the
+        // tray is built from it, and the first window corrects it if the system says
+        // otherwise.
+        i18n::set_locale(locale);
         let inner = Inner {
             disabled: state.disabled,
             removed: state.removed,
@@ -218,6 +234,7 @@ impl Runtime {
             preferred: state.preferred,
             activation: state.activation,
             onboarded: state.onboarded,
+            locale,
             ..Default::default()
         };
         Ok(Arc::new(Self {
@@ -237,38 +254,65 @@ impl Runtime {
             "preferred": inner.preferred,
             "activation": inner.activation,
             "onboarded": inner.onboarded,
+            "locale": inner.locale.tag(),
         }))
         .map_err(|e| e.to_string())?;
         let path = self.root.join("host-state.json");
         let backup = self.root.join("host-state.backup.json");
         match std::fs::read(&path) {
             Ok(previous) => {
-                serde_json::from_slice::<StoredState>(&previous).map_err(|e| format!("宿主状态无效，拒绝覆盖：{e}"))?;
+                serde_json::from_slice::<StoredState>(&previous).map_err(|e| msg!(text().state_invalid, error = e))?;
                 ember_file_store::atomic_write(&backup, &previous).map_err(|e| e.to_string())?;
             }
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 if !backup.exists() { ember_file_store::atomic_write(&backup, &bytes).map_err(|e| e.to_string())?; }
             }
-            Err(error) => return Err(format!("读取原状态失败，拒绝覆盖：{error}")),
+            Err(error) => return Err(msg!(text().state_unreadable, error = error)),
         }
         ember_file_store::atomic_write(&path, &bytes).map_err(|e| e.to_string())
+    }
+
+    /// Speak this interface language from now on, and remember it for the runs that start
+    /// before a window can say what the system asks for.
+    ///
+    /// The language is one value for the whole process, so it is applied here rather than
+    /// returned to the caller: the messages the host is about to produce — a tray menu
+    /// rebuilt, a dialog opened, an error handed to a window — have to already be in it.
+    pub async fn set_locale(&self, tag: Option<String>) -> Result<(), String> {
+        let locale = tag
+            .as_deref()
+            .filter(|tag| !tag.trim().is_empty())
+            .map(Locale::from_tag)
+            .unwrap_or_default();
+        i18n::set_locale(locale);
+        let mut inner = self.inner.lock().await;
+        if inner.locale == locale {
+            return Ok(());
+        }
+        inner.locale = locale;
+        self.persist(&inner)
+    }
+
+    /// The interface language the host is speaking.
+    pub async fn locale(&self) -> Locale {
+        self.inner.lock().await.locale
     }
 
     /// Opaque, bounded navigation state shared only by the same file and data contract.
     pub async fn view_state(&self, id: &str, value: Option<Value>) -> Result<Value, String> {
         let mut inner = self.inner.lock().await;
-        let session = inner.sessions.get(id).ok_or("Session expired")?;
+        let session = inner.sessions.get(id).ok_or_else(|| msg!(text().session_expired))?;
         let contract = session
             .package
             .manifest
             .provides
             .as_ref()
             .or(session.package.manifest.consumes.as_ref())
-            .ok_or("No shared contract")?;
+            .ok_or_else(|| msg!(text().no_contract))?;
         let key = (session.path.clone(), contract.clone());
         if let Some(value) = value {
             if serde_json::to_vec(&value).map_err(|e| e.to_string())?.len() > 4096 {
-                return Err("Navigation state exceeds 4 KiB".into());
+                return Err(msg!(text().navigation_too_large));
             }
             if !inner.view_states.contains_key(&key) && inner.view_states.len() >= 128 {
                 if let Some(oldest) = inner
@@ -369,7 +413,8 @@ impl Runtime {
                     }
                 }
             }
-            let mut manifest = package.manifest.clone();
+            // The list shows the plugin's own text in the interface language.
+            let mut manifest = package.manifest.localized(i18n::locale());
             if let Some(activation) = inner.activation.get(&manifest.id) {
                 manifest.activation = activation.clone();
             }
@@ -391,6 +436,10 @@ impl Runtime {
                 info.available = !inner.disabled.contains(&info.plugin_id)
                     && inner.packages.contains_key(&info.plugin_id)
                     && (!s.data["cacheKey"].is_null() || info.pending);
+                // The label is the plugin's name, which the plugin declares per language:
+                // a session that outlives a language change has to follow it, the same way
+                // the plugin list does.
+                info.label = s.package.manifest.localized_name(i18n::locale());
                 info
             })
             .collect();
@@ -442,7 +491,7 @@ impl Runtime {
     pub async fn reset_to_first_launch(&self) -> Result<(), String> {
         // Refused rather than answered with data loss, the same as uninstalling.
         if let Some(change) = self.blocking_change(None).await {
-            return Err(change.refusal("重置"));
+            return Err(change.refusal(Refusal::Reset));
         }
         // A running plugin's own executable cannot be deleted on Windows, so they stop
         // first; nothing is left that could hold a package directory open.
@@ -489,7 +538,7 @@ impl Runtime {
             let manifest = inner
                 .packages
                 .get(plugin_id)
-                .ok_or("Unknown plugin")?
+                .ok_or_else(|| msg!(text().unknown_plugin))?
                 .manifest
                 .clone();
             let accepted = manifest.coerce_setting(key, &value)?;
@@ -518,7 +567,7 @@ impl Runtime {
 
     pub async fn settings_for_session(&self, id: &str) -> Result<Value, String> {
         let inner = self.inner.lock().await;
-        let session = inner.sessions.get(id).ok_or("Session expired")?;
+        let session = inner.sessions.get(id).ok_or_else(|| msg!(text().session_expired))?;
         let empty = serde_json::Map::new();
         let stored = inner
             .settings
@@ -557,9 +606,9 @@ impl Runtime {
 
     pub async fn session_data(&self, id: &str) -> Result<Value, String> {
         let inner = self.inner.lock().await;
-        let session = inner.sessions.get(id).ok_or("Session expired")?;
+        let session = inner.sessions.get(id).ok_or_else(|| msg!(text().session_expired))?;
         if session.info.status != "ready" {
-            return Err("Session is not ready".into());
+            return Err(msg!(text().session_not_ready));
         }
         if session.package.manifest.provides.is_some() {
             if let Some(source) = session
@@ -575,7 +624,7 @@ impl Runtime {
 
     pub async fn complete_view(&self, id: &str, error: Option<String>) -> Result<(), String> {
         let mut inner = self.inner.lock().await;
-        let session = inner.sessions.get_mut(id).ok_or("Session expired")?;
+        let session = inner.sessions.get_mut(id).ok_or_else(|| msg!(text().session_expired))?;
         session.info.view_ready = true;
         session.touched = Instant::now();
         if let Some(error) = error {
@@ -597,14 +646,14 @@ impl Runtime {
 
     pub async fn authorize(&self, id: &str, permission: Permission) -> Result<(), String> {
         let inner = self.inner.lock().await;
-        let session = inner.sessions.get(id).ok_or("Session expired")?;
+        let session = inner.sessions.get(id).ok_or_else(|| msg!(text().session_expired))?;
         if !session.package.manifest.permissions.contains(&permission) {
-            return Err("Plugin permission not declared".into());
+            return Err(msg!(text().permission_undeclared));
         }
         if inner.disabled.contains(&session.info.plugin_id)
             || !inner.packages.contains_key(&session.info.plugin_id)
         {
-            return Err("Plugin is disabled".into());
+            return Err(msg!(text().plugin_disabled));
         }
         Ok(())
     }
@@ -618,7 +667,7 @@ impl Runtime {
         reason: Option<String>,
     ) -> Result<(), String> {
         let mut inner = self.inner.lock().await;
-        let session = inner.sessions.get_mut(id).ok_or("Session expired")?;
+        let session = inner.sessions.get_mut(id).ok_or_else(|| msg!(text().session_expired))?;
         session.info.pending = pending;
         session.info.pending_reason = if pending {
             reason.map(|reason| reason.trim().to_string())
@@ -665,9 +714,9 @@ impl Runtime {
     pub async fn source_call(&self, id: &str, method: &str, value: Value) -> Result<Value, String> {
         let source = {
             let inner = self.inner.lock().await;
-            let consumer = inner.sessions.get(id).ok_or("Session expired")?;
-            let source_id = consumer.source.as_ref().ok_or("No compatible source")?;
-            let provider = inner.sessions.get(source_id).ok_or("Source expired")?;
+            let consumer = inner.sessions.get(id).ok_or_else(|| msg!(text().session_expired))?;
+            let source_id = consumer.source.as_ref().ok_or_else(|| msg!(text().no_source))?;
+            let provider = inner.sessions.get(source_id).ok_or_else(|| msg!(text().source_expired))?;
             if !provider
                 .package
                 .manifest
@@ -675,7 +724,7 @@ impl Runtime {
                 .iter()
                 .any(|export| export == method)
             {
-                return Err("Source method is not exported".into());
+                return Err(msg!(text().source_method_unexported));
             }
             source_id.clone()
         };
@@ -684,7 +733,7 @@ impl Runtime {
 
     pub async fn asset(&self, id: &str, path: &str) -> Result<PathBuf, String> {
         let inner = self.inner.lock().await;
-        let session = inner.sessions.get(id).ok_or("Session expired")?;
+        let session = inner.sessions.get(id).ok_or_else(|| msg!(text().session_expired))?;
         manifest::contained(
             &session.package.directory,
             if path.is_empty() {
@@ -697,13 +746,13 @@ impl Runtime {
 
     pub async fn call(&self, id: &str, method: &str, value: Value) -> Result<Value, String> {
         if method == "open" || method == "release" || method == "settings" || method.is_empty() {
-            return Err("Reserved plugin method".into());
+            return Err(msg!(text().reserved_method));
         }
         let (worker, path, settings) = {
             let mut inner = self.inner.lock().await;
-            let session = inner.sessions.get_mut(id).ok_or("Session expired")?;
+            let session = inner.sessions.get_mut(id).ok_or_else(|| msg!(text().session_expired))?;
             if session.calls >= 8 {
-                return Err("Too many concurrent plugin calls".into());
+                return Err(msg!(text().too_many_calls));
             }
             session.calls += 1;
             session.touched = Instant::now();
@@ -713,7 +762,7 @@ impl Runtime {
             let empty = serde_json::Map::new();
             let stored = inner.settings.get(&manifest.id).unwrap_or(&empty);
             let settings = manifest.resolve_settings(stored);
-            let worker = inner.workers.get(&key).cloned().ok_or("Worker expired")?;
+            let worker = inner.workers.get(&key).cloned().ok_or_else(|| msg!(text().worker_expired))?;
             (worker, path, settings)
         };
         let result = worker
@@ -736,7 +785,7 @@ impl Runtime {
             || ids.len() != inner.packages.len()
             || ids.iter().any(|id| !inner.packages.contains_key(id))
         {
-            return Err("插件列表已改变，请刷新后重试".into());
+            return Err(msg!(text().plugins_changed));
         }
         for (index, id) in ids.iter().enumerate() {
             let mut activation = inner
@@ -744,7 +793,7 @@ impl Runtime {
                 .get(id)
                 .cloned()
                 .unwrap_or_else(|| inner.packages[id].manifest.activation.clone());
-            activation.priority = i32::try_from(ids.len() - index).map_err(|_| "插件数量过多")?;
+            activation.priority = i32::try_from(ids.len() - index).map_err(|_| msg!(text().too_many_plugins))?;
             inner.activation.insert(id.clone(), activation);
         }
         inner.preferred.clear();
@@ -753,11 +802,11 @@ impl Runtime {
 
     pub async fn set_activation(&self, id: &str, activation: Activation) -> Result<(), String> {
         if !(-1000..=1000).contains(&activation.priority) {
-            return Err("优先级应在 -1000 到 1000 之间".into());
+            return Err(msg!(text().priority_range));
         }
         let mut inner = self.inner.lock().await;
         if !inner.packages.contains_key(id) {
-            return Err("Unknown plugin".into());
+            return Err(msg!(text().unknown_plugin));
         }
         inner.activation.insert(id.to_owned(), activation);
         inner.preferred.clear();
@@ -767,11 +816,11 @@ impl Runtime {
     pub async fn enabled(&self, id: &str, enabled: bool) -> Result<(), String> {
         let mut inner = self.inner.lock().await;
         if !inner.packages.contains_key(id) {
-            return Err("Unknown plugin".into());
+            return Err(msg!(text().unknown_plugin));
         }
         if !enabled {
             if let Some(change) = blocking_change(&inner, Some(id)) {
-                return Err(change.refusal("停用"));
+                return Err(change.refusal(Refusal::Disable));
             }
         }
         if enabled {
@@ -807,10 +856,10 @@ impl Runtime {
         let _installation = self.installation.lock().await;
         let mut inner = self.inner.lock().await;
         if let Some(change) = blocking_change(&inner, Some(id)) {
-            return Err(change.refusal("卸载"));
+            return Err(change.refusal(Refusal::Uninstall));
         }
         if inner.packages.remove(id).is_none() {
-            return Err("Unknown plugin".into());
+            return Err(msg!(text().unknown_plugin));
         }
         inner.activation.remove(id);
         inner.preferred.retain(|_, preferred| preferred != id);
@@ -842,10 +891,10 @@ impl Runtime {
             .get(&package.manifest.id)
             .cloned();
         if let Some(installed) = &installed {
-            let incoming = semver::Version::parse(&package.manifest.version).map_err(|e| format!("插件版本无效：{e}"))?;
-            let current = semver::Version::parse(&installed.manifest.version).map_err(|e| format!("已安装插件版本无效：{e}"))?;
+            let incoming = semver::Version::parse(&package.manifest.version).map_err(|e| msg!(text().invalid_version, error = e))?;
+            let current = semver::Version::parse(&installed.manifest.version).map_err(|e| msg!(text().installed_invalid_version, error = e))?;
             if incoming.cmp_precedence(&current).is_lt() {
-                return Err(format!("拒绝将插件从 {} 降级到 {}", current, incoming));
+                return Err(msg!(text().downgrade, installed = current, incoming = incoming));
             }
         }
         match installed {
@@ -899,7 +948,7 @@ impl Runtime {
     ) -> Result<(), String> {
         let id = installed.manifest.id.clone();
         if let Some(change) = self.blocking_change(Some(&id)).await {
-            return Err(change.refusal("更新"));
+            return Err(change.refusal(Refusal::Update));
         }
         let package = Package::load(source)?;
         // The replacement keeps the installation's revision, so the directory it lives in is
@@ -930,7 +979,7 @@ impl Runtime {
             let _ = std::fs::remove_dir_all(&staging);
             self.inner.lock().await.updating = false;
             let _ = self.reopen(taken).await;
-            return Err(format!("无法替换插件目录：{error}"));
+            return Err(msg!(text().swap_failed, error = error));
         }
         let scanned = self.scan_installed().await;
         self.inner.lock().await.updating = false;
@@ -943,7 +992,7 @@ impl Runtime {
         if failures.is_empty() {
             Ok(())
         } else {
-            Err(format!("插件已更新，但预览没有恢复：{}", failures.join("；")))
+            Err(msg!(text().reopen_failed, failures = failures.join(text().semicolon)))
         }
     }
 
@@ -977,7 +1026,7 @@ impl Runtime {
             if before == (files.len(), affected_keys.len()) { break; }
         }
         if let Some(session) = inner.sessions.values().find(|s| files.contains(&s.info.file_id) && s.info.pending) {
-            return Err(pending_change(session).refusal("更新"));
+            return Err(pending_change(session).refusal(Refusal::Update));
         }
         inner.updating = true;
         let dropped: Vec<String> = inner
@@ -1208,7 +1257,7 @@ impl Runtime {
                 && session.touched.elapsed() >= Duration::from_secs(120)
             {
                 session.info.status = "error".into();
-                session.info.error = Some("Plugin view initialization exceeded 120 seconds".into());
+                session.info.error = Some(msg!(text().view_timeout));
                 session.touched = Instant::now();
             }
         }
@@ -1323,7 +1372,7 @@ pub(crate) fn publish_directory(from: &Path, to: &Path) -> Result<(), String> {
 fn swap_directory(from: &Path, to: &Path) -> Result<(), String> {
     let name = to
         .file_name()
-        .ok_or("插件目录名无效")?
+        .ok_or_else(|| msg!(text().invalid_directory_name))?
         .to_string_lossy()
         .into_owned();
     let aside = to.with_file_name(format!("{REPLACED_PREFIX}{name}"));

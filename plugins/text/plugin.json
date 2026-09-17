@@ -2,6 +2,21 @@
   "api": 1,
   "id": "ember.text",
   "name": "文本预览",
+  "i18n": {
+    "en": {
+      "name": "Text Preview",
+      "settings": {
+        "lineNumbers": {
+          "label": "Line numbers",
+          "help": "Show line numbers down the left edge, the same standard the text editor uses."
+        },
+        "wrap": {
+          "label": "Wrap long lines",
+          "help": "Off, long lines scroll sideways instead of folding."
+        }
+      }
+    }
+  },
   "version": "0.1.0",
   "extensions": [
     "txt",

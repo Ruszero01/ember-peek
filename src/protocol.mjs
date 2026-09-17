@@ -4,9 +4,14 @@
 // bar opens its own panel and draws the bar there.
 const CONTROL_KINDS = ["button", "toggle", "scrub"];
 
-export function validateControls(value) {
+/**
+ * `say` turns a message key into text in the interface language. The host always passes
+ * its translator; the default is for callers that only exercise the protocol, and echoes
+ * the key so a missing translator cannot pass for a translated message.
+ */
+export function validateControls(value, say = (key) => key) {
   if (!Array.isArray(value) || value.length > 16)
-    throw new Error("插件最多可提供 16 个控件");
+    throw new Error(say("protocol.tooManyControls"));
   const ids = new Set();
   return value.map((item) => {
     if (
@@ -15,17 +20,17 @@ export function validateControls(value) {
       !/^[a-zA-Z0-9._-]{1,64}$/.test(item.id) ||
       ids.has(item.id)
     )
-      throw new Error("插件控件 ID 无效");
+      throw new Error(say("protocol.invalidControlId"));
     if (
       !CONTROL_KINDS.includes(item.kind) ||
       typeof item.label !== "string" ||
       item.label.length > 80
     )
-      throw new Error("插件控件声明无效");
+      throw new Error(say("protocol.invalidControl"));
     if (item.kind === "scrub" && (
       !Number.isFinite(item.value) || !Number.isFinite(item.min) || !Number.isFinite(item.max) ||
       item.min <= 0 || item.max <= item.min || item.value < item.min || item.value > item.max
-    )) throw new Error("数值拖动控件范围无效");
+    )) throw new Error(say("protocol.invalidScrubRange"));
     ids.add(item.id);
     return {
       id: item.id,

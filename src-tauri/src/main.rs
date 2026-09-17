@@ -5,6 +5,7 @@ mod desktop;
 mod explorer;
 
 use base64::Engine;
+use ember_runtime::i18n::text;
 use ember_runtime::manifest::{Activation, Permission};
 use ember_runtime::market::{read_sources, Market, MarketList, Source};
 use ember_runtime::{Runtime, Snapshot};
@@ -206,14 +207,30 @@ async fn pick_path(window: tauri::Window, folder: bool) -> Result<Option<String>
     tauri::async_runtime::spawn_blocking(move || {
         let dialog = rfd::FileDialog::new().set_parent(&window);
         let result = if folder {
-            dialog.set_title("选择可信的插件包目录").pick_folder()
+            dialog.set_title(text().dialog_pick_plugin_folder).pick_folder()
         } else {
-            dialog.set_title("打开文件").pick_file()
+            dialog.set_title(text().dialog_pick_file).pick_file()
         };
         result.map(|p| p.to_string_lossy().into_owned())
     })
     .await
     .map_err(|e| e.to_string())
+}
+
+/// The window's interface language. The window resolves it — it is the side that can see
+/// what the system asks for — and the host applies it to everything it produces itself:
+/// the tray menu, native dialogs, window titles and the error text it returns.
+#[tauri::command]
+async fn set_locale(app: tauri::AppHandle, host: Host<'_>, locale: String) -> Result<(), String> {
+    let host = host.inner().clone();
+    let was = host.locale().await;
+    host.set_locale(Some(locale)).await?;
+    if host.locale().await != was {
+        tauri::async_runtime::spawn_blocking(move || desktop::apply_locale(&app))
+            .await
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -298,8 +315,11 @@ fn main() {
                     // ignores the shipped remote source: a local build is newer than
                     // anything published, so preferring the published one would make the
                     // dev loop install stale packages.
+                    // The name is left out on purpose: this is the one source the host
+                    // wrote itself, so the market labels it in the interface language
+                    // rather than in whatever language was in force at startup.
                     Err(_) => Ok(vec![Source {
-                        name: Some("开发镜像".into()),
+                        name: None,
                         catalog: workspace.join(".marketplace/catalog.json").to_string_lossy().into_owned(),
                         base: workspace.join(".marketplace").to_string_lossy().into_owned(),
                     }]),
@@ -314,6 +334,10 @@ fn main() {
                 if cfg!(debug_assertions) { workspace.join(".plugin-cache") }
                     else { app.path().app_data_dir()?.join("plugin-cache") },
             ).map_err(std::io::Error::other)?;
+            #[cfg(debug_assertions)]
+            let market = market.with_local_source(
+                &workspace.join(".marketplace/catalog.json").to_string_lossy(),
+            );
             app.manage(market.clone());
             desktop::setup(app.handle())?;
             // A fresh install can preview nothing at all, so the first run asks which
@@ -367,7 +391,7 @@ fn main() {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![view_state, market_list, market_refresh, market_prepare, market_install, snapshot, refresh_plugins, open_file, desktop::select_preview, desktop::return_view, desktop::desktop_snapshot, desktop::show_settings, session_data, source_data, source_call, set_pending, plugin_mutate, authorize_clipboard, file_changed, complete_view, complete_onboarding, plugin_call, read_file, set_enabled, set_activation, reorder_plugins, uninstall_plugin, plugin_settings, set_plugin_setting, pick_path, install_plugin])
+        .invoke_handler(tauri::generate_handler![view_state, market_list, market_refresh, market_prepare, market_install, snapshot, refresh_plugins, open_file, desktop::select_preview, desktop::return_view, desktop::desktop_snapshot, desktop::show_settings, session_data, source_data, source_call, set_pending, plugin_mutate, authorize_clipboard, file_changed, complete_view, complete_onboarding, plugin_call, read_file, set_enabled, set_activation, reorder_plugins, uninstall_plugin, plugin_settings, set_plugin_setting, pick_path, install_plugin, set_locale])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();

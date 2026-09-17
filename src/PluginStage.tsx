@@ -7,6 +7,7 @@ import {
   type PointerEvent,
 } from "react";
 import { GripHorizontal } from "lucide-react";
+import { useT } from "./i18n";
 import type { Session } from "./types";
 
 type Position = { x: number; y: number };
@@ -81,6 +82,7 @@ export function PluginStage({
     role: "view" | "panel",
   ) => ReactNode;
 }) {
+  const t = useT();
   const [positions, setPositions] = useState(loadPositions);
   const [dragging, setDragging] = useState<string>();
   const [front, setFront] = useState<string>();
@@ -233,7 +235,7 @@ export function PluginStage({
         ))}
       <aside
         className={`overlay-stack ${dragging ? "dragging" : ""}`}
-        aria-label="插件浮层"
+        aria-label={t("stage.overlays")}
         hidden={!current.length}
         ref={layer}
       >
@@ -278,7 +280,7 @@ export function PluginStage({
                 onPointerCancel={finish}
                 onLostPointerCapture={finish}
                 onDoubleClick={() => reset(session.pluginId)}
-                title="拖动调整位置，双击恢复默认位置"
+                title={t("stage.dragHint")}
               >
                 <GripHorizontal size={12} className="overlay-grip" />
               </header>
@@ -286,7 +288,7 @@ export function PluginStage({
                 {children(session, true, "panel")}
               </div>
               {session.status !== "ready" && (
-                <p>{session.error || "加载中…"}</p>
+                <p>{session.error || t("stage.loading")}</p>
               )}
             </section>
           );

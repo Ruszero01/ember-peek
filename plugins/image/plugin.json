@@ -2,6 +2,17 @@
   "api": 1,
   "id": "ember.image",
   "name": "图片预览",
+  "i18n": {
+    "en": {
+      "name": "Image Preview",
+      "settings": {
+        "fitWindow": {
+          "label": "Fit the window by default",
+          "help": "On, the image is scaled to the viewport; off, it is shown at 100%."
+        }
+      }
+    }
+  },
   "version": "0.1.0",
   "extensions": [
     "png",

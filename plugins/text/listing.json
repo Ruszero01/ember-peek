@@ -1,5 +1,10 @@
 {
   "summary": "纯文本预览，支持行号、换行、复制及跨插件阅读位置同步。",
+  "i18n": {
+    "en": {
+      "summary": "Plain-text preview with line numbers, wrapping, copy, and a reading position shared across text plugins."
+    }
+  },
   "publisher": "Ember Peek",
   "recommended": true
 }
