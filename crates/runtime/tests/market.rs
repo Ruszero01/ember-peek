@@ -29,10 +29,19 @@ fn build(root: &Path, build_id: &str) -> std::path::PathBuf {
 }
 
 fn set_build_id(path: &Path, build_id: &str) {
+    set_field(path, "buildId", json!(build_id));
+}
+
+/// A package the catalog will index under a different version, so a release can be staged.
+fn set_version(path: &Path, version: &str) {
+    set_field(path, "version", json!(version));
+}
+
+fn set_field(path: &Path, key: &str, value: serde_json::Value) {
     let manifest_path = path.join("plugin.json");
     let mut manifest: serde_json::Value =
         serde_json::from_slice(&std::fs::read(&manifest_path).unwrap()).unwrap();
-    manifest["buildId"] = json!(build_id);
+    manifest[key] = value;
     std::fs::write(&manifest_path, manifest.to_string()).unwrap();
 }
 
@@ -90,7 +99,7 @@ fn zip_tree(directory: &Path) -> Vec<u8> {
 
 /// Publish `package` into `mirror` and write the catalog entry indexing it.
 fn publish(mirror: &Path, package: &Path, id: &str, build_id: &str, targets: &[&str]) -> String {
-    publish_marked(mirror, package, id, build_id, targets, false)
+    publish_version(mirror, package, id, build_id, "1.0.0", targets, false)
 }
 
 fn publish_marked(
@@ -101,8 +110,20 @@ fn publish_marked(
     targets: &[&str],
     recommended: bool,
 ) -> String {
+    publish_version(mirror, package, id, build_id, "1.0.0", targets, recommended)
+}
+
+fn publish_version(
+    mirror: &Path,
+    package: &Path,
+    id: &str,
+    build_id: &str,
+    version: &str,
+    targets: &[&str],
+    recommended: bool,
+) -> String {
     std::fs::create_dir_all(mirror).unwrap();
-    let artifact = format!("{id}-1.0.0-{build_id}.zip");
+    let artifact = format!("{id}-{version}-{build_id}.zip");
     let zip = zip_tree(package);
     std::fs::write(mirror.join(&artifact), &zip).unwrap();
     let catalog = json!({"api":1,"entries":[{
@@ -112,7 +133,7 @@ fn publish_marked(
         "name": id,
         "extensions": ["one"],
         "icon": "file-text",
-        "version": "1.0.0",
+        "version": version,
         "targets": targets,
         "artifact": artifact,
         "sha256": sha256_hex(&zip),
@@ -208,18 +229,31 @@ async fn install_update_and_uninstall_follow_the_mirror() {
     assert_eq!(list.entries[0].installed_version.as_deref(), Some("1.0.0"));
     assert!(!list.entries[0].update_available);
 
-    // A rebuild of the same version is a different build, so it shows as an update.
+    // A rebuild of the same version is not an update: users are told about the releases
+    // someone decided on, not about every build.
     set_build_id(&source, "second-build");
     publish(&mirror, &source, "test.one", "second-build", &[]);
     let market = test_market(temp.path(), &mirror);
-    assert!(market.list(&runtime).await.unwrap().entries[0].update_available);
+    assert!(!market.list(&runtime).await.unwrap().entries[0].update_available);
 
-    // Development follow-up installs it through the same verified path.
+    // Development sync follows the bytes instead, so the dev host still picks this up.
     market.sync_development(&runtime).await.unwrap();
     assert_eq!(
         runtime.snapshot().await.plugins[0].manifest.build_id,
         "second-build"
     );
+    assert!(!market.list(&runtime).await.unwrap().entries[0].update_available);
+
+    // A new version is what announces an update.
+    set_build_id(&source, "third-build");
+    set_version(&source, "1.1.0");
+    publish_version(&mirror, &source, "test.one", "third-build", "1.1.0", &[], false);
+    let market = test_market(temp.path(), &mirror);
+    let list = market.list(&runtime).await.unwrap();
+    assert!(list.entries[0].update_available);
+    assert_eq!(list.entries[0].installed_version.as_deref(), Some("1.0.0"));
+    market.sync_development(&runtime).await.unwrap();
+    assert_eq!(runtime.snapshot().await.plugins[0].manifest.version, "1.1.0");
     assert!(!market.list(&runtime).await.unwrap().entries[0].update_available);
 
     // Uninstalling leaves the market offering it again, and development sync does not

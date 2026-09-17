@@ -304,10 +304,13 @@ impl Market {
                 summary: offering.summary.clone(),
                 publisher: offering.publisher.clone(),
                 recommended: offering.recommended,
-                update_available: installed.is_some_and(|installed| {
-                    installed.manifest.version != offering.version
-                        || installed.manifest.build_id != offering.remote.build_id
-                }),
+                // Only a version bump announces an update. The build id is a mechanical
+                // identity: it changes whenever the package's bytes do, including a rebuild
+                // the publisher never meant to release, so comparing it would offer users
+                // every build instead of the releases someone decided on. Development sync
+                // still follows the bytes — that is what keeps the dev loop live.
+                update_available: installed
+                    .is_some_and(|installed| installed.manifest.version != offering.version),
                 installed_version: installed.map(|plugin| plugin.manifest.version.clone()),
             });
         }
