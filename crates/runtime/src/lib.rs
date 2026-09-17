@@ -6,7 +6,7 @@ mod process;
 
 use manifest::{Activation, ActivationMode, Capability, Manifest, Package, Permission};
 use process::Worker;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
@@ -65,7 +65,7 @@ struct Session {
 /// that was on screen was one of them.
 struct TakenOver {
     files: Vec<PathBuf>,
-    active: bool,
+    active: Option<(PathBuf, String)>,
 }
 
 /// Uncommitted work a destructive action would destroy: which session holds it, which file
@@ -144,6 +144,7 @@ pub struct Snapshot {
 
 #[derive(Default)]
 struct Inner {
+    updating: bool,
     packages: BTreeMap<String, Package>,
     workers: HashMap<String, Arc<Worker>>,
     sessions: HashMap<String, Session>,
@@ -171,6 +172,37 @@ pub struct Runtime {
     ttl: Duration,
 }
 
+#[derive(Default, Deserialize)]
+#[serde(default)]
+struct StoredState {
+    disabled: HashSet<String>,
+    removed: HashSet<String>,
+    settings: BTreeMap<String, serde_json::Map<String, Value>>,
+    preferred: BTreeMap<String, String>,
+    activation: BTreeMap<String, Activation>,
+    onboarded: bool,
+}
+
+fn read_state(root: &Path) -> Result<StoredState, String> {
+    let path = root.join("host-state.json");
+    let backup = root.join("host-state.backup.json");
+    let read = |path: &Path| -> Result<StoredState, String> {
+        let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
+        serde_json::from_slice(&bytes).map_err(|e| e.to_string())
+    };
+    if !path.exists() && !backup.exists() { return Ok(StoredState::default()); }
+    match read(&path) {
+        Ok(state) => Ok(state),
+        Err(error) => {
+            let state = read(&backup).map_err(|backup_error| format!("宿主状态损坏或不可读：{error}；备份也不可用：{backup_error}。原文件已保留。"))?;
+            let bytes = std::fs::read(&backup).map_err(|e| e.to_string())?;
+            ember_file_store::atomic_write(&path, &bytes).map_err(|e| e.to_string())?;
+            eprintln!("宿主状态读取失败，已从备份恢复：{error}");
+            Ok(state)
+        }
+    }
+}
+
 impl Runtime {
     pub fn new(root: PathBuf) -> Result<Arc<Self>, String> {
         Self::with_ttl(root, IDLE_TTL)
@@ -178,17 +210,14 @@ impl Runtime {
     pub fn with_ttl(root: PathBuf, ttl: Duration) -> Result<Arc<Self>, String> {
         std::fs::create_dir_all(&root).map_err(|e| e.to_string())?;
         let root = root.canonicalize().map_err(|e| e.to_string())?;
-        let state: Value = std::fs::read(root.join("host-state.json"))
-            .ok()
-            .and_then(|b| serde_json::from_slice(&b).ok())
-            .unwrap_or(json!({}));
+        let state = read_state(&root)?;
         let inner = Inner {
-            disabled: serde_json::from_value(state["disabled"].clone()).unwrap_or_default(),
-            removed: serde_json::from_value(state["removed"].clone()).unwrap_or_default(),
-            settings: serde_json::from_value(state["settings"].clone()).unwrap_or_default(),
-            preferred: serde_json::from_value(state["preferred"].clone()).unwrap_or_default(),
-            activation: serde_json::from_value(state["activation"].clone()).unwrap_or_default(),
-            onboarded: state["onboarded"].as_bool().unwrap_or(false),
+            disabled: state.disabled,
+            removed: state.removed,
+            settings: state.settings,
+            preferred: state.preferred,
+            activation: state.activation,
+            onboarded: state.onboarded,
             ..Default::default()
         };
         Ok(Arc::new(Self {
@@ -210,7 +239,19 @@ impl Runtime {
             "onboarded": inner.onboarded,
         }))
         .map_err(|e| e.to_string())?;
-        std::fs::write(self.root.join("host-state.json"), bytes).map_err(|e| e.to_string())
+        let path = self.root.join("host-state.json");
+        let backup = self.root.join("host-state.backup.json");
+        match std::fs::read(&path) {
+            Ok(previous) => {
+                serde_json::from_slice::<StoredState>(&previous).map_err(|e| format!("宿主状态无效，拒绝覆盖：{e}"))?;
+                ember_file_store::atomic_write(&backup, &previous).map_err(|e| e.to_string())?;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                if !backup.exists() { ember_file_store::atomic_write(&backup, &bytes).map_err(|e| e.to_string())?; }
+            }
+            Err(error) => return Err(format!("读取原状态失败，拒绝覆盖：{error}")),
+        }
+        ember_file_store::atomic_write(&path, &bytes).map_err(|e| e.to_string())
     }
 
     /// Opaque, bounded navigation state shared only by the same file and data contract.
@@ -253,6 +294,11 @@ impl Runtime {
     }
 
     pub async fn scan(&self) -> Result<(), String> {
+        let _installation = self.installation.lock().await;
+        self.scan_installed().await
+    }
+
+    async fn scan_installed(&self) -> Result<(), String> {
         // Before reading the directory, undo any replacement that died halfway: an installation
         // moved aside but never replaced has to come back, or the plugin would look uninstalled.
         recover_replaced(&self.root);
@@ -795,6 +841,13 @@ impl Runtime {
             .packages
             .get(&package.manifest.id)
             .cloned();
+        if let Some(installed) = &installed {
+            let incoming = semver::Version::parse(&package.manifest.version).map_err(|e| format!("插件版本无效：{e}"))?;
+            let current = semver::Version::parse(&installed.manifest.version).map_err(|e| format!("已安装插件版本无效：{e}"))?;
+            if incoming.cmp_precedence(&current).is_lt() {
+                return Err(format!("拒绝将插件从 {} 降级到 {}", current, incoming));
+            }
+        }
         match installed {
             // Already this exact build: installing it again changes nothing.
             Some(installed)
@@ -866,16 +919,27 @@ impl Runtime {
         Package::load(&staging)?;
         // Cut the previews now: their process is about to go and the files under them are
         // about to change, so they must not be left pointing at either.
-        let taken = self.take_over(&id).await;
+        let taken = match self.take_over(&id).await {
+            Ok(taken) => taken,
+            Err(error) => {
+                let _ = std::fs::remove_dir_all(&staging);
+                return Err(error);
+            }
+        };
         if let Err(error) = swap_directory(&staging, &installed.directory) {
             let _ = std::fs::remove_dir_all(&staging);
+            self.inner.lock().await.updating = false;
+            let _ = self.reopen(taken).await;
             return Err(format!("无法替换插件目录：{error}"));
         }
-        self.scan().await?;
+        let scanned = self.scan_installed().await;
+        self.inner.lock().await.updating = false;
+        scanned?;
         // Installations that predate in-place updates can still hold extra revisions; with no
         // rollback to fall back to, the installed one is the only one worth keeping.
-        self.retire_superseded(&id).await?;
+        let retired = self.retire_superseded(&id).await;
         let failures = self.reopen(taken).await;
+        retired?;
         if failures.is_empty() {
             Ok(())
         } else {
@@ -890,14 +954,32 @@ impl Runtime {
     /// it every session of the file groups it took part in: a group is composed once, and
     /// recomposing it around a half-removed plugin would leave one contributor talking to a
     /// process that no longer exists.
-    async fn take_over(self: &Arc<Self>, id: &str) -> TakenOver {
+    async fn take_over(self: &Arc<Self>, id: &str) -> Result<TakenOver, String> {
         let mut inner = self.inner.lock().await;
-        let files: HashSet<String> = inner
+        let mut files: HashSet<String> = inner
             .sessions
             .values()
             .filter(|session| session.info.plugin_id == id)
             .map(|session| session.info.file_id.clone())
             .collect();
+        // Workers multiplex files. Expand to every session served by a worker we will
+        // stop, including peers in those files, before checking or removing anything.
+        let mut affected_keys = HashSet::new();
+        loop {
+            let before = (files.len(), affected_keys.len());
+            for session in inner.sessions.values() {
+                if session.info.plugin_id == id || files.contains(&session.info.file_id)
+                    || affected_keys.contains(&session.package.key()) {
+                    files.insert(session.info.file_id.clone());
+                    affected_keys.insert(session.package.key());
+                }
+            }
+            if before == (files.len(), affected_keys.len()) { break; }
+        }
+        if let Some(session) = inner.sessions.values().find(|s| files.contains(&s.info.file_id) && s.info.pending) {
+            return Err(pending_change(session).refusal("更新"));
+        }
+        inner.updating = true;
         let dropped: Vec<String> = inner
             .sessions
             .values()
@@ -909,16 +991,18 @@ impl Runtime {
         let was_active = inner
             .active
             .as_ref()
-            .is_some_and(|active| dropped.contains(active));
+            .filter(|active| dropped.contains(active))
+            .and_then(|active| inner.sessions.get(active))
+            .map(|session| (session.path.clone(), session.info.plugin_id.clone()));
         let mut paths = Vec::new();
         let mut keys = HashSet::new();
         for session_id in dropped {
             if let Some(session) = inner.sessions.remove(&session_id) {
-                paths.push(session.path.clone());
+                if !paths.contains(&session.path) { paths.push(session.path.clone()); }
                 keys.insert(session.package.key());
             }
         }
-        if was_active {
+        if was_active.is_some() {
             inner.active = None;
         }
         let workers: Vec<_> = keys
@@ -929,10 +1013,10 @@ impl Runtime {
         for worker in workers {
             worker.stop().await;
         }
-        TakenOver {
+        Ok(TakenOver {
             files: paths,
             active: was_active,
-        }
+        })
     }
 
     /// Put the cut previews back, now that the plugin they use is the new build. A file whose
@@ -940,14 +1024,9 @@ impl Runtime {
     /// silence — the preview window falls back to its own empty state either way.
     async fn reopen(self: &Arc<Self>, taken: TakenOver) -> Vec<String> {
         let mut failures = Vec::new();
-        let mut first = None;
         for path in taken.files {
             match self.open(path.clone()).await {
-                Ok(session) => {
-                    if first.is_none() {
-                        first = Some(session.id);
-                    }
-                }
+                Ok(_) => {}
                 Err(error) => failures.push(format!(
                     "{}：{error}",
                     path.file_name()
@@ -956,8 +1035,14 @@ impl Runtime {
                 )),
             }
         }
-        if taken.active {
-            if let Some(id) = first {
+        if let Some((path, plugin)) = taken.active {
+            let id = {
+                let inner = self.inner.lock().await;
+                inner.sessions.values().find(|s| s.path == path && s.info.plugin_id == plugin)
+                    .or_else(|| inner.sessions.values().find(|s| s.path == path))
+                    .map(|s| s.info.id.clone())
+            };
+            if let Some(id) = id {
                 let _ = self.activate(Some(id)).await;
             }
         }
@@ -1032,7 +1117,7 @@ impl Runtime {
                 self.persist(&inner)?;
             }
         }
-        self.scan().await?;
+        self.scan_installed().await?;
         self.retire_superseded(&manifest.id).await
     }
 

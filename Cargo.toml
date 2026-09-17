@@ -1,5 +1,5 @@
 [workspace]
-members = ["src-tauri", "crates/runtime", "crates/text-document", "sdk/native", "plugins/text/native", "plugins/code/native", "plugins/markdown/native", "plugins/image/native", "plugins/text-editor/native", "plugins/metadata/native"]
+members = ["src-tauri", "crates/runtime", "crates/file-store", "crates/text-document", "sdk/native", "plugins/text/native", "plugins/code/native", "plugins/markdown/native", "plugins/image/native", "plugins/text-editor/native", "plugins/metadata/native"]
 resolver = "2"
 
 [workspace.package]

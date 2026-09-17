@@ -44,7 +44,7 @@ function InstalledChip({
         {/* The version stays short so a real plugin name is never the part that gets
             truncated; what the update moves away from is in the button's tooltip, and the
             confirm dialog repeats it before anything is installed. */}
-        <span>v{entry.version}</span>
+        <span>v{entry.installedVersion}</span>
       </span>
       {entry.updateAvailable && (
         <button
@@ -123,11 +123,18 @@ export function Marketplace({
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState("");
   const [action, setAction] = useState<PluginAction | null>(null);
-  async function refresh() {
-    const result = await call<MarketList>("market_list");
+  async function refresh(force = false) {
+    const result = await call<MarketList>(force ? "market_refresh" : "market_list");
     setEntries(result.entries);
     setWarnings(result.warnings);
     setError("");
+    setLoadError("");
+  }
+  async function retry() {
+    setLoading(true);
+    try { await refresh(true); }
+    catch (error) { setLoadError(String(error)); }
+    finally { setLoading(false); }
   }
   useEffect(() => {
     if (!desktop) {
@@ -190,6 +197,9 @@ export function Marketplace({
   return (
     <>
       {action && <PluginConfirm action={action} onClose={() => setAction(null)} />}
+      <button className="text-button" disabled={!desktop || loading || !!busy} onClick={() => void retry()}>
+        <RotateCw size={14} /> 刷新插件源
+      </button>
       <div className="market-source"><Package size={16} /><strong>插件市场</strong><span className="source-badge">{sourceNames.length === 1 ? sourceNames[0] : `${sourceNames.length} 个来源`}</span></div>
       {(error || loadError) && (
         <p className="warning" role="alert">

@@ -18,6 +18,7 @@ impl Runtime {
             .unwrap_or("")
             .to_lowercase();
         let mut inner = self.inner.lock().await;
+        if inner.updating { return Err("插件正在更新，请稍后重试".into()); }
         let mut packages: Vec<_> = inner
             .packages
             .values()

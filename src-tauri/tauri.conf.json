@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "npm run dev:services",
     "devUrl": "http://127.0.0.1:1420",
-    "beforeBuildCommand": "npm run build && npm run plugins:build -- --release",
+    "beforeBuildCommand": "npm run source:check && npm run build",
     "frontendDist": "../dist"
   },
   "app": {
@@ -19,6 +19,13 @@
     "active": true,
     "targets": ["nsis"],
     "icon": ["icons/icon.ico"],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": ["SimpChinese", "English"],
+        "displayLanguageSelector": true
+      }
+    },
     "resources": {
       "plugin-sources.json": "plugin-sources.json"
     }

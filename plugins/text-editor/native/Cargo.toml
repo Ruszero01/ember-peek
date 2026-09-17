@@ -6,6 +6,7 @@ version = "0.1.0"
 edition.workspace = true
 
 [dependencies]
+ember-file-store = { path = "../../../crates/file-store" }
 ember-text-document = { path = "../../../crates/text-document" }
 ember-plugin-sdk = { path = "../../../sdk/native" }
 serde_json.workspace = true

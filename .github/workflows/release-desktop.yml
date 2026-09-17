@@ -1,0 +1,87 @@
+name: Release Windows desktop
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: desktop-release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run version:check
+      - name: Extract changelog for this version
+        run: node scripts/release-notes.mjs "$env:RUNNER_TEMP\release-notes.md"
+      - name: Check release tag matches application version
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        run: |
+          $version = (Get-Content -LiteralPath "$env:GITHUB_WORKSPACE\package.json" -Raw | ConvertFrom-Json).version
+          if ($env:GITHUB_REF_NAME -cne "v$version") { throw "Tag must match package version v$version" }
+      - run: npm test
+      - name: Build Windows NSIS installer
+        run: npm run build:desktop -- --bundles nsis --ci -- --locked
+      - name: Generate SHA256 checksums
+        shell: pwsh
+        run: |
+          $bundle = Join-Path $env:GITHUB_WORKSPACE 'target\release\bundle\nsis'
+          $installers = @(Get-ChildItem -LiteralPath $bundle -Filter '*-setup.exe')
+          if ($installers.Count -eq 0) { throw 'NSIS installer was not generated' }
+          $lines = $installers | ForEach-Object { "$( (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant() )  $($_.Name)" }
+          Set-Content -LiteralPath (Join-Path $bundle 'SHA256SUMS.txt') -Value $lines -Encoding utf8
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ember-peek-windows-x64-nsis
+          path: |
+            target/release/bundle/nsis/*-setup.exe
+            target/release/bundle/nsis/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 30
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-release-notes
+          path: ${{ runner.temp }}/release-notes.md
+          if-no-files-found: error
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: ember-peek-windows-x64-nsis
+          path: installer
+      - uses: actions/download-artifact@v4
+        with:
+          name: desktop-release-notes
+          path: notes
+      - name: Create draft release and attach installer
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            draft=$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)
+            if [ "$draft" != true ]; then
+              echo 'Refusing to overwrite an already published release'
+              exit 1
+            fi
+            gh release edit "$RELEASE_TAG" --notes-file notes/release-notes.md
+          else
+            gh release create "$RELEASE_TAG" --verify-tag --draft --title "Ember Peek $RELEASE_TAG" --notes-file notes/release-notes.md
+          fi
+          gh release upload "$RELEASE_TAG" installer/* --clobber

@@ -17,6 +17,7 @@ use tokio::sync::Mutex;
 /// cached for the same period, which bounds how often an unreachable source can delay the
 /// market at all.
 const CATALOG_TTL: Duration = Duration::from_secs(600);
+const LOCAL_CATALOG_TTL: Duration = Duration::from_secs(1);
 const CATALOG_TIMEOUT: Duration = Duration::from_secs(8);
 const MAX_SOURCES: usize = 8;
 const MAX_ENTRIES: usize = 256;
@@ -67,6 +68,7 @@ pub fn read_sources(path: &Path) -> Result<Vec<Source>, String> {
     if config.sources.len() > MAX_SOURCES {
         return Err(format!("插件来源最多 {MAX_SOURCES} 个"));
     }
+    if config.sources.is_empty() { return Err("尚未配置插件来源，请先配置官方 OSS 地址".into()); }
     Ok(config.sources)
 }
 
@@ -234,8 +236,11 @@ impl Market {
             return (Vec::new(), warnings);
         }
         let mut index = self.remote.lock().await;
+        let ttl = if self.sources.iter().all(|s| !artifact::is_http(&s.catalog)) {
+            LOCAL_CATALOG_TTL
+        } else { CATALOG_TTL };
         if let Some(at) = index.at {
-            if at.elapsed() < CATALOG_TTL {
+            if at.elapsed() < ttl {
                 return (offerings_of(&index.fetched), index.warnings.clone());
             }
         }
@@ -310,11 +315,16 @@ impl Market {
                 // every build instead of the releases someone decided on. Development sync
                 // still follows the bytes — that is what keeps the dev loop live.
                 update_available: installed
-                    .is_some_and(|installed| installed.manifest.version != offering.version),
+                    .is_some_and(|installed| newer_version(&offering.version, &installed.manifest.version)),
                 installed_version: installed.map(|plugin| plugin.manifest.version.clone()),
             });
         }
         Ok(MarketList { entries, warnings })
+    }
+
+    pub async fn refresh(&self, runtime: &Runtime) -> Result<MarketList, String> {
+        self.remote.lock().await.at = None;
+        self.list(runtime).await
     }
 
     /// Resolve an entry to an installable package directory. Everything that can be
@@ -351,36 +361,28 @@ impl Market {
                 }
             }
         }
-        let mut failure = String::new();
+        let mut failures = Vec::new();
         let mut body = None;
         for url in &remote.urls {
             match artifact::fetch(&self.client, url).await {
                 Ok(bytes) => {
-                    body = Some(bytes);
-                    break;
+                    if artifact::sha256_hex(&bytes) != remote.sha256 {
+                        failures.push(format!("{url}：插件包校验失败，sha256 不符"));
+                    } else if bytes.len() as u64 != remote.size {
+                        failures.push(format!("{url}：插件包大小与目录记录不符"));
+                    } else {
+                        body = Some(bytes);
+                        break;
+                    }
                 }
-                Err(error) => failure = error,
+                Err(error) => failures.push(format!("{url}：{error}")),
             }
         }
         let Some(bytes) = body else {
-            return Err(format!("下载插件包失败：{failure}"));
+            return Err(format!("下载插件包失败：{}", failures.join("；")));
         };
-        // The artifact hash proves the transfer against the catalog; the identity check
-        // after unpacking proves the contents are the build the catalog named.
-        let actual = artifact::sha256_hex(&bytes);
-        if actual != remote.sha256 {
-            return Err(format!(
-                "插件包校验失败：目录声明 {}，实际 {actual}",
-                remote.sha256
-            ));
-        }
-        if bytes.len() as u64 != remote.size {
-            return Err(format!(
-                "插件包大小与目录记录不符：目录声明 {} 字节，实际 {} 字节",
-                remote.size,
-                bytes.len()
-            ));
-        }
+        // The selected mirror passed both transfer checks. After unpacking, confirm
+        // that its manifest declares the same build and version as the catalog.
         std::fs::create_dir_all(&self.cache).map_err(|e| e.to_string())?;
         let stamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -632,7 +634,7 @@ fn resolve(listing: &Listing, source: &Source) -> Result<Offering, String> {
     if listing.build_id.is_empty() || listing.build_id.len() > 128 {
         return Err(format!("目录条目 {} 的 buildId 无效", listing.id));
     }
-    if listing.version.is_empty() || listing.version.len() > 64 {
+    if listing.version.len() > 64 || semver::Version::parse(&listing.version).is_err() {
         return Err(format!("目录条目 {} 的 version 无效", listing.id));
     }
     Ok(Offering {
@@ -668,11 +670,21 @@ fn artifact_url(base: &str, artifact: &str) -> Result<String, String> {
         return Err(format!("目录中的 artifact 名无效：{artifact}"));
     }
     let base = base.strip_suffix('/').unwrap_or(base);
+    if Path::new(base).is_absolute() && !base.starts_with("file://") {
+        return Ok(Path::new(base).join(artifact).to_string_lossy().into_owned());
+    }
     Ok(format!("{base}/{artifact}"))
 }
 
 fn runs_here(targets: &[String]) -> bool {
     targets.is_empty() || targets.iter().any(|target| target == HOST_TARGET)
+}
+
+fn newer_version(candidate: &str, installed: &str) -> bool {
+    match (semver::Version::parse(candidate), semver::Version::parse(installed)) {
+        (Ok(candidate), Ok(installed)) => candidate.cmp_precedence(&installed).is_gt(),
+        _ => false,
+    }
 }
 
 /// Confirm that an unpacked package is the one the catalog indexed. The artifact hash
@@ -711,6 +723,16 @@ fn confirm(directory: &Path, offering: &Offering) -> Result<(), String> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn updates_follow_semver_precedence_not_strings_or_build_metadata() {
+        assert!(newer_version("0.10.0", "0.9.0"));
+        assert!(!newer_version("0.1.0", "0.2.0"));
+        assert!(!newer_version("1.0.0+new", "1.0.0+old"));
+        assert!(!newer_version("1.0.0-rc.1", "1.0.0"));
+        assert!(newer_version("1.0.0", "1.0.0-rc.1"));
+        assert!(!newer_version("invalid", "0.1.0"));
+    }
 
     fn source() -> Source {
         Source {
@@ -778,6 +800,8 @@ mod tests {
 
     #[test]
     fn resolves_artifact_names_inside_the_declared_base() {
+        #[cfg(windows)]
+        assert_eq!(artifact_url(r"\\?\C:\mirror", "a.zip").unwrap(), r"\\?\C:\mirror\a.zip");
         assert_eq!(
             artifact_url("https://host/plugins", "ember.text-1.0.0-abc.zip").unwrap(),
             "https://host/plugins/ember.text-1.0.0-abc.zip"

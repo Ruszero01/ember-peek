@@ -16,6 +16,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { readTree, createZip } from "./zip.mjs";
 import { packageTable } from "./cargo-manifest.mjs";
+import { hashInput, hashInputTree } from "./release-inputs.mjs";
 
 export const root = fileURLToPath(new URL("../", import.meta.url));
 const plugins = path.join(root, "plugins");
@@ -35,6 +36,7 @@ const bundledSdk = ["view", "navigation", "markdown"];
 /** The only libraries a plugin's native crate may link: everything else in this repository is
  *  host-side, and a plugin that linked it would stop being installable on its own. */
 const pluginLibraries = [
+  { name: "ember-file-store", directory: path.join(root, "crates", "file-store") },
   { name: "ember-plugin-sdk", directory: path.join(root, "sdk", "native") },
   { name: "ember-text-document", directory: path.join(root, "crates", "text-document") },
 ];
@@ -292,10 +294,10 @@ async function publish(release, { dist = false } = {}) {
       code === 0 ? resolve() : reject(new Error(`Plugin build exited ${code}`));
     });
   });
-  const marketRoot = path.join(root, ".marketplace");
+  const marketRoot = dist ? releaseRoot : path.join(root, ".marketplace");
   await mkdir(marketRoot, { recursive: true });
-  if (dist) await mkdir(releaseRoot, { recursive: true });
   const catalog = [];
+  const inputs = {};
   const compiled = new Map();
   async function bundle(name) {
     if (compiled.has(name)) return compiled.get(name);
@@ -356,6 +358,20 @@ async function publish(release, { dist = false } = {}) {
   // Each package has to stand on its own; see checkPluginBoundary.
   for (const entry of entries) await checkPluginBoundary(entry);
   for (const { directory, manifest, listing, binary } of entries) {
+    // Source identity is separate from PE build identity: rebuilding unchanged sources
+    // may change linker timestamps. Publication can reuse the original immutable package.
+    const input = createHash("sha256").update(canonical(manifest)).update(target);
+    for (const name of ["Cargo.toml", "Cargo.lock", "package-lock.json", "scripts/build-plugins.mjs", "scripts/zip.mjs", "scripts/release-inputs.mjs", "scripts/cargo-manifest.mjs"]) {
+      hashInput(input, name, await readFile(path.join(root, name)));
+    }
+    await hashInputTree(input, path.join(directory, "native"), "native");
+    await hashInputTree(input, path.join(directory, "ui"), "ui");
+    await hashInputTree(input, path.join(root, "sdk"), "sdk");
+    const nativeManifest = await readFile(path.join(directory, "native", "Cargo.toml"), "utf8");
+    for (const library of pluginLibraries.filter((lib) => lib.name !== "ember-plugin-sdk" && nativeManifest.includes(lib.name))) {
+      await hashInputTree(input, library.directory, library.name);
+    }
+    inputs[manifest.id] = input.digest("hex");
     const executable = process.platform === "win32" ? `${binary}.exe` : binary;
     const native = path.join(
       root,
@@ -418,7 +434,6 @@ async function publish(release, { dist = false } = {}) {
       await rm(staging, { recursive: true, force: true });
     }
     const zip = await readFile(destination);
-    if (dist) await cp(destination, path.join(releaseRoot, artifact));
     catalog.push({
       id: manifest.id,
       artifact,
@@ -452,14 +467,8 @@ async function publish(release, { dist = false } = {}) {
   const keep = new Set(catalog.map((entry) => entry.artifact));
   await prune(marketRoot, keep);
   if (dist) {
-    const target = path.join(releaseRoot, "catalog.json");
-    const temporaryRelease = `${target}.${process.pid}`;
-    await writeFile(
-      temporaryRelease,
-      JSON.stringify({ api: 1, entries: catalog }, null, 2),
-    );
-    await rename(temporaryRelease, target);
-    await prune(releaseRoot, keep);
+    const catalogSha256 = createHash("sha256").update(await readFile(path.join(releaseRoot, "catalog.json"))).digest("hex");
+    await writeFile(path.join(releaseRoot, "release-inputs.json"), JSON.stringify({ api: 1, target, inputs, catalogSha256 }, null, 2));
     console.log(`Release: ${catalog.length} packages in .release/, ready to upload`);
   }
 }
@@ -520,6 +529,7 @@ export function watchPlugins() {
     plugins,
     path.join(root, "sdk"),
     path.join(root, "crates", "text-document"),
+    path.join(root, "crates", "file-store"),
   ].map((directory) => watch(directory, { recursive: true }, schedule));
   for (const watcher of watchers)
     watcher.on("error", (error) => console.error("[plugin watcher]", error));

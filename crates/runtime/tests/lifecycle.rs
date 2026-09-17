@@ -367,6 +367,60 @@ async fn updating_a_plugin_with_pending_changes_is_refused() {
     runtime.shutdown().await;
 }
 
+#[tokio::test]
+async fn updating_a_peer_protects_drafts_in_all_affected_worker_sessions() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("installed");
+    let preview = temp.path().join("preview");
+    let editor = temp.path().join("editor");
+    package(&preview, "test.preview", "txt");
+    package(&editor, "test.editor", "*");
+    set_build_id(&preview, "old");
+    let runtime = Runtime::new(root).unwrap();
+    runtime.install(&preview).await.unwrap();
+    runtime.install(&editor).await.unwrap();
+    let file = temp.path().join("note.txt");
+    let other = temp.path().join("other.md");
+    std::fs::write(&file, "original").unwrap();
+    std::fs::write(&other, "other").unwrap();
+    runtime.open(file).await.unwrap();
+    runtime.open(other).await.unwrap();
+    let snapshot = runtime.snapshot().await;
+    for session in &snapshot.sessions { ready(&runtime, &session.id).await; }
+    let active = snapshot.sessions.iter().find(|s| s.name == "other.md").unwrap();
+    runtime.activate(Some(active.id.clone())).await.unwrap();
+    set_build_id(&preview, "new");
+    for session in snapshot.sessions.iter().filter(|s| s.plugin_id == "test.editor") {
+        runtime.set_pending(&session.id, true, Some("未保存草稿".into())).await.unwrap();
+        let error = runtime.install(&preview).await.unwrap_err();
+        assert!(error.contains("未保存草稿"), "{error}");
+        assert!(runtime.snapshot().await.sessions.iter().any(|s| s.id == session.id && s.pending));
+        runtime.set_pending(&session.id, false, None).await.unwrap();
+    }
+    runtime.install(&preview).await.unwrap();
+    assert!(runtime.snapshot().await.plugins.iter().any(|p| p.manifest.build_id == "new"));
+    let after = runtime.snapshot().await;
+    let active = after.sessions.iter().find(|s| Some(&s.id) == after.active.as_ref()).unwrap();
+    assert_eq!(active.name, "other.md");
+    assert_eq!(active.plugin_id, "test.editor");
+    runtime.shutdown().await;
+}
+
+#[tokio::test]
+async fn corrupt_state_recovers_backup_but_never_silently_resets() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("installed");
+    let runtime = Runtime::new(root.clone()).unwrap();
+    runtime.complete_onboarding().await.unwrap();
+    runtime.complete_onboarding().await.unwrap();
+    std::fs::write(root.join("host-state.json"), b"{broken").unwrap();
+    let recovered = Runtime::new(root.clone()).unwrap();
+    assert!(recovered.snapshot().await.onboarded);
+    std::fs::write(root.join("host-state.json"), b"{broken").unwrap();
+    std::fs::write(root.join("host-state.backup.json"), b"{broken").unwrap();
+    assert!(Runtime::new(root).is_err());
+}
+
 /// A swap that dies between its two renames has to be undone, or the plugin would look
 /// uninstalled on the next start even though its files are all there.
 #[tokio::test]

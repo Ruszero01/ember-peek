@@ -4,6 +4,9 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+ember-file-store = { path = "../file-store" }
+semver = "1"
+tempfile = { version = "3", optional = true }
 reqwest = { version = "0.13.5", features = ["stream"] }
 serde.workspace = true
 serde_json.workspace = true
@@ -20,8 +23,14 @@ zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
 
 [features]
 test-worker = []
+release-tools = ["dep:tempfile"]
 
 [[bin]]
 name = "runtime-test-worker"
 path = "tests/support/worker.rs"
 required-features = ["test-worker"]
+
+[[bin]]
+name = "validate-catalog"
+path = "src/bin/validate-catalog.rs"
+required-features = ["release-tools"]

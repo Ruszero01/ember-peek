@@ -1,6 +1,6 @@
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use std::io::{Read, Seek, SeekFrom, Write};
+use std::io::Read;
 const LIMIT: usize = 2 * 1024 * 1024;
 
 fn encode(value: &Value) -> Result<Vec<u8>, String> {
@@ -42,11 +42,12 @@ fn save(params: &Value) -> Result<Value, String> {
         .ok_or("Missing original fingerprint")?;
     let path = params["path"].as_str().ok_or("Missing file path")?;
     let mut options = std::fs::OpenOptions::new();
-    options.read(true).write(true);
+    options.read(true);
     #[cfg(windows)]
     {
         use std::os::windows::fs::OpenOptionsExt;
-        options.share_mode(0); // Exclusive handle: conflict check and write are one protected operation.
+        // Deny in-place writers while checking and replacing; permit the atomic rename.
+        options.share_mode(0x1 | 0x4); // FILE_SHARE_READ | FILE_SHARE_DELETE
     }
     let mut file = options
         .open(path)
@@ -62,20 +63,27 @@ fn save(params: &Value) -> Result<Value, String> {
     if format!("{:x}", Sha256::digest(&original)) != expected {
         return Err("文件已被外部修改，保存已拒绝。请保留草稿，重新打开文件后合并修改。".into());
     }
-    let write = |file: &mut std::fs::File, data: &[u8]| -> std::io::Result<()> {
-        file.seek(SeekFrom::Start(0))?;
-        file.write_all(data)?;
-        file.set_len(data.len() as u64)?;
-        file.sync_all()
-    };
-    if let Err(error) = write(&mut file, &bytes) {
-        return match write(&mut file, &original) {
-            Ok(()) => Err(format!("保存失败，已恢复原内容：{error}")),
-            Err(restore) => Err(format!(
-                "保存失败：{error}；恢复失败：{restore}。请保留当前草稿。"
-            )),
-        };
+    if file
+        .metadata()
+        .map_err(|e| e.to_string())?
+        .permissions()
+        .readonly()
+    {
+        return Err("文件为只读，保存已拒绝".into());
     }
+    // Atomic replacements by another editor are not excluded by a sharing lock. Recheck
+    // the current path too, rather than validating only an already-renamed file handle.
+    let mut current = Vec::new();
+    std::fs::File::open(path)
+        .map_err(|e| e.to_string())?
+        .take((LIMIT + 1) as u64)
+        .read_to_end(&mut current)
+        .map_err(|e| e.to_string())?;
+    if current != original {
+        return Err("文件已被外部修改，保存已拒绝。请保留草稿。".into());
+    }
+    ember_file_store::atomic_write(std::path::Path::new(path), &bytes)
+        .map_err(|error| format!("保存替换失败，请保留当前草稿：{error}"))?;
     Ok(json!({"fingerprint":format!("{:x}", Sha256::digest(&bytes))}))
 }
 fn handle(method: &str, params: &Value) -> Result<Value, String> {
@@ -113,6 +121,27 @@ mod tests {
         std::fs::write(&path, b"external").unwrap();
         assert!(save(&params).unwrap_err().contains("外部修改"));
         assert_eq!(std::fs::read(&path).unwrap(), b"external");
+    }
+    #[cfg(windows)]
+    #[test]
+    fn failed_replacement_preserves_original_bytes() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("note.txt");
+        std::fs::write(&path, b"original").unwrap();
+        let held = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(1)
+            .open(&path)
+            .unwrap();
+        let params = json!({"path":path,"value":{"text":"new","encoding":"UTF-8","bom":false,
+            "fingerprint":format!("{:x}", Sha256::digest(b"original"))}});
+        assert!(save(&params).unwrap_err().contains("保存替换失败"));
+        drop(held);
+        assert_eq!(std::fs::read(&path).unwrap(), b"original");
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+        save(&params).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"new");
     }
     #[test]
     fn standalone_editor_provides_its_own_text_source() {

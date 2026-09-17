@@ -3,8 +3,8 @@
   "sources": [
     {
       "name": "官方源",
-      "catalog": "https://github.com/Ruszero01/ember-peek/releases/latest/download/catalog.json",
-      "base": "https://github.com/Ruszero01/ember-peek/releases/latest/download/"
+      "catalog": "https://rains-ailurus-cn.oss-cn-shanghai.aliyuncs.com/ember-peek/channels/stable/api-1/windows-x86_64/catalog.json",
+      "base": "https://rains-ailurus-cn.oss-cn-shanghai.aliyuncs.com/ember-peek/packages/windows-x86_64/"
     }
   ]
 }

@@ -4,7 +4,7 @@
 
 ## 开发
 
-环境：Windows 11、Node.js 22+、Rust stable、MSVC Build Tools、WebView2。
+环境：Windows 11、Node.js 22.9+、Rust stable、MSVC Build Tools、WebView2。
 
 ```powershell
 npm install
@@ -21,7 +21,7 @@ node tools/live-targets.mjs                              # 列出当前窗口
 node tools/live-targets.mjs plugin.localhost expr.js     # 读插件视图的真实 DOM
 ```
 
-详见 [tools/README.md](tools/README.md)，其中也记录了"插件更新会切断并自动重开预览、目录缓存有 10 分钟 TTL"这些容易误判的行为。
+详见 [tools/README.md](tools/README.md)，其中记录了插件更新重开预览、本地目录缓存与草稿保护行为。
 
 启动后常驻托盘，不自动创建 WebView；只有首次启动会打开一次引导页（见下）。之后右键托盘选择“设置”，进入“插件管理 → 插件市场”安装插件。插件源与已安装目录分离：从源里下载的包只有用户点击安装后才会复制到安装目录。
 
@@ -35,7 +35,7 @@ npm run tauri -- dev --config src-tauri/tauri.external-dev.json
 
 端口固定为 `127.0.0.1:1420`，占用时直接报错。项目脚本不会搜索、杀掉或替换其他开发服务器。
 
-`npm run dev` 已包含插件监视，不需要再开其他终端。插件源码改动后构建脚本会发布新的包（`buildId` 变化），开发宿主随后**覆盖安装**已装的插件：先停掉该插件的进程，再把新包换进同一个安装目录，被切断的预览按原路径自动重开，因此不需要手动重开文件。宿主读取目录有 10 分钟缓存，改了插件没生效时先等缓存过期或重启宿主。独立工作时仍可使用 `npm run plugins:watch`。
+`npm run dev` 已包含插件监视，不需要再开其他终端。插件源码改动后构建脚本会发布新的包（`buildId` 变化），开发宿主随后**覆盖安装**已装的插件：先停掉受影响的插件进程，再把新包换进同一个安装目录，被切断的预览按原路径自动重开。本地镜像缓存 1 秒，宿主每 2 秒检查一次；受影响会话存在未保存内容时拒绝更新。独立工作时仍可使用 `npm run plugins:watch`。
 
 Ctrl+C 退出整组开发服务，由 Tauri CLI 管理后端与开发钩子的生命周期；开发钩子释放 Vite、文件监视器和它启动的编译进程。端口冲突时不会终止其他进程。
 
@@ -60,7 +60,7 @@ Ctrl+C 退出整组开发服务，由 Tauri CLI 管理后端与开发钩子的�
 
 宿主只是外壳：不含任何预览实现，也**不打包任何插件**，因此刚装好的应用预览不了任何东西，直到从插件源装了插件。
 
-结构分三层：宿主负责解析来源、校验、安装与运行；**插件源**是一份远程目录（`catalog.json`），负责插件信息；目录条目里的 artifact 链接负责包下载。来源列表在 `src-tauri/plugin-sources.json`，随应用作为资源提供，默认指向本仓库的 GitHub Release。
+结构分三层：宿主负责解析来源、校验、安装与运行；**插件源**是一份远程目录（`catalog.json`），负责插件信息；目录条目里的 artifact 链接负责包下载。源码保留在 GitHub 同仓库，官方目录和包由 OSS 分发。来源列表在 `src-tauri/plugin-sources.json`，由 `npm run source:configure` 写入真实公开地址；未配置时禁止构建桌面发行包。详见 [OSS 分发配置](docs/oss-distribution.md)。
 
 首次启动会打开一次引导页，给出插件源建议的几种基础插件（文本、图片预览等，由目录条目的 `recommended` 标记）供勾选；勾中的走与市场相同的公开安装流程（下载 → 校验 `sha256` 与 `buildId` → 复制），其余插件在“插件市场”里随时可装，也可以“稍后再说”。答案记录在宿主状态里，只出现一次。下载物按哈希缓存在 `.plugin-cache`（发行版在应用数据目录的 `plugin-cache`），重复安装不重复下载。更新是覆盖式的：先停掉该插件的进程，再把新包换进同一个安装目录（两步改名，中途崩溃可恢复），被切断的预览在换装后自动恢复，所以每个插件在磁盘上只有一个目录、缓存也只留在用构建，不会随版本数膨胀。**没有签名校验**：目录里声明 `signature` 会被直接拒绝而不是被当作已校验，详见[插件开发](docs/plugins.md)。
 
@@ -70,16 +70,20 @@ Ctrl+C 退出整组开发服务，由 Tauri CLI 管理后端与开发钩子的�
 npm run plugins:dist
 ```
 
-产物在 `.release/`（`catalog.json` 加每个插件一个 zip），整体上传到插件源 `base` 指向的位置即可（例如 GitHub Release 的 assets）。每次构建都会清掉目录里没有被索引引用的陈旧包。
+产物在 `.release/`（目录、ZIP 和源码指纹）。先运行 `npm run plugins:validate` 和 `npm run plugins:plan`，再运行 `npm run plugins:publish` 上传 OSS。本地输出清理旧包，线上历史包始终保留；`plugins:dist` 不会改开发镜像。
 
 开发版已安装插件位于 `.plugins`，市场是最近一次构建的本地镜像（`.marketplace/`）；开发环境不读官方源，优先用本地构建。调试首次启动流程用托盘右键的“重置为首次启动”（仅开发构建）：它把运行时恢复成首次启动状态并直接打开引导页。需要验证真实远程源时，把 `EMBER_MARKET_SOURCES` 指向一个来源文件。发行版的插件位于系统应用数据目录的 `org.emberpeek.desktop/plugins`。每个包都包含独立可执行程序和网页视图。
 
 ## 验证与构建
 
+Windows 安装包与 GitHub Release 流程见 [安装包发布](docs/windows-desktop.md#windows-安装包发布)，版本功能记录见 [发布日志](CHANGELOG.md)。Release 正文自动提取当前版本的日志章节。
+
 ```powershell
 npm test
 npm run check
 npm run plugins:dist   # 产出 .release/ 下可上传的插件包与目录索引
+npm run plugins:validate
+npm run source:configure # 先在 .env 配置真实 OSS_PUBLIC_BASE_URL
 npm run build:desktop
 ```
 
@@ -93,6 +97,7 @@ npm run build:desktop
 src/                  通用宿主界面、消息桥、视图容器
 src-tauri/            标准 Tauri v2 桌面入口（托盘、Explorer 监听、插件源配置）
 crates/runtime/       插件发现、安装与覆盖更新、进程 RPC、会话与回收
+crates/file-store/    宿主与插件共用的文件替换写入
 crates/text-document/ 插件侧共享文本解码库（编码、截断、指纹）
 sdk/native/           可选 Rust JSON-lines 传输库
 sdk/web/              可选视图消息 SDK 与插件侧共享组件

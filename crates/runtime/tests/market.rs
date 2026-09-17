@@ -65,6 +65,34 @@ fn sha256_hex(bytes: &[u8]) -> String {
     digest.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
+#[tokio::test]
+async fn corrupt_first_mirror_falls_back_and_refresh_bypasses_cache() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    let built = build(root, "first");
+    let bad = root.join("bad");
+    let good = root.join("good");
+    let artifact = publish(&good, &built, "test.one", "first", &[]);
+    std::fs::create_dir(&bad).unwrap();
+    std::fs::copy(good.join("catalog.json"), bad.join("catalog.json")).unwrap();
+    std::fs::write(bad.join(&artifact), b"an HTTP 200 error page").unwrap();
+    let mut configured = sources(root, &bad).unwrap();
+    configured.extend(sources(root, &good).unwrap());
+    let market = Market::new(Ok(configured), root.join("cache")).unwrap();
+    let runtime = Runtime::new(root.join("installed")).unwrap();
+    market.install(&runtime, "test.one").await.unwrap();
+    assert_eq!(runtime.snapshot().await.plugins.len(), 1);
+    // An old mirror must not offer a downgrade; a forced refresh sees an actual bump.
+    set_version(&built, "0.9.0");
+    publish_version(&good, &built, "test.one", "first", "0.9.0", &[], false);
+    let older = test_market(root, &good);
+    assert!(!older.list(&runtime).await.unwrap().entries[0].update_available);
+    assert!(older.install(&runtime, "test.one").await.unwrap_err().contains("降级"));
+    set_version(&built, "1.1.0");
+    publish_version(&good, &built, "test.one", "first", "1.1.0", &[], false);
+    assert!(older.refresh(&runtime).await.unwrap().entries[0].update_available);
+}
+
 /// Pack a package directory the way the release script does: one zip, entry names
 /// relative to the package root.
 fn zip_tree(directory: &Path) -> Vec<u8> {
@@ -181,11 +209,10 @@ async fn published_packages_are_downloaded_verified_and_cached() {
     assert_eq!(entry["source"]["name"], "测试源");
     assert_eq!(entry["version"], "1.0.0");
     assert_eq!(entry["extensions"], json!(["one"]));
-    // Locations are joined with `/`: the field names a location, and Windows accepts a
-    // forward slash in a path.
+    // Local paths use native separators, including Windows extended-length paths.
     assert_eq!(
         entry["source"]["urls"][0],
-        format!("{}/{}", mirror.to_string_lossy(), artifact)
+        mirror.join(&artifact).to_string_lossy().as_ref()
     );
     assert!(entry["source"]["size"].as_u64().unwrap() > 0);
 

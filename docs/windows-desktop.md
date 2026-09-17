@@ -1,5 +1,17 @@
 # Windows 托盘、窗口和 Explorer 集成
 
+## Windows 安装包发布
+
+`npm run build:desktop -- --bundles nsis --ci -- --locked` 构建 Windows x64 NSIS 安装程序，输出到 `target/release/bundle/nsis/*-setup.exe`。按当前用户安装，提供简体中文和英文界面；缺少 WebView2 时使用 Tauri 默认的联网引导安装方式。安装包包含官方插件源配置，插件独立从 OSS 下载，不包含发布凭据。
+
+- `Baseline checks` 在 dev/main 推送及 PR 检查中构建并保留安装包 14 天。
+- `Release Windows desktop` 可手动执行，只构建可下载的 Actions 产物；推送与应用版本一致的标签（例如 `v0.1.0`）则同时创建 GitHub Release 草稿，附安装包和 `SHA256SUMS.txt`，由维护者验收后发布。产物保留 30 天，Release 附件不受此期限影响。
+- 本体发布使用 GitHub 自带的 `GITHUB_TOKEN`，不需要 OSS 密钥。工作流必须先提交推送；手动入口需要工作流进入默认分支。
+- Release 正文来自根目录 `CHANGELOG.md` 的 `## [版本号]` 章节，自动按 `package.json` 版本提取，缺失、重复或为空时构建失败；重跑草稿发布会同步更新正文。发版前先写日志，再更新版本和推送标签。`npm run release:notes` 可本地预览正文。
+- 当前未配置 Windows 代码签名证书，安装包未签名。CI 的构建成功不等于安装、卸载和 Explorer 集成验收通过；请在 Windows 测试机验证。
+
+参考：[Tauri Windows 安装程序](https://v2.tauri.app/distribute/windows-installer/)。
+
 ## 入口与职责
 
 - `src-tauri/src/desktop.rs`：原生托盘、两个窗口、选择请求版本号、关闭与闲置回收。
@@ -59,7 +71,7 @@ Windows 上动态创建 WebView 使用独立阻塞线程，并以创建锁避免
 7. 加载时立即切换文件或关闭窗口，确认原生加载继续；重新打开不被更早的结果抢回。
 8. 关闭两个窗口，等待约 122 秒以上，查看本应用 WebView2 进程释放、Rust 托盘仍在；再选文件按空格和双击托盘，应能重建窗口。
 9. 保持设置打开、仅关闭预览，等待回收后设置仍可用；共享浏览器进程此时保留是正常的。
-10. 托盘退出后检查应用及插件进程结束。修改前端应 HMR；修改 Rust 应重新编译重启并恢复托盘；改插件源码后重新构建，宿主应覆盖安装并自动重开被切断的预览（等不及目录缓存的 10 分钟就重启宿主）。
+10. 托盘退出后检查应用及插件进程结束。修改前端应 HMR；修改 Rust 应重新编译重启并恢复托盘；改插件源码后重新构建，宿主应覆盖安装并自动重开被切断的预览（本地镜像缓存 1 秒，宿主每 2 秒检查一次；先确认没有未保存草稿）。
 
 ## 参考
 

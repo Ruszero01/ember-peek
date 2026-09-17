@@ -25,6 +25,7 @@ export function Welcome({ onDone }: { onDone: () => Promise<unknown> }) {
   const [progress, setProgress] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     if (!desktop) {
@@ -32,9 +33,11 @@ export function Welcome({ onDone }: { onDone: () => Promise<unknown> }) {
       return;
     }
     let disposed = false;
+    setLoading(true);
+    setError("");
     void (async () => {
       try {
-        const result = await call<MarketList>("market_list");
+        const result = await call<MarketList>(attempt ? "market_refresh" : "market_list");
         if (disposed) return;
         const installable = result.entries.filter(
           (entry) => !entry.installedVersion,
@@ -60,7 +63,7 @@ export function Welcome({ onDone }: { onDone: () => Promise<unknown> }) {
     return () => {
       disposed = true;
     };
-  }, []);
+  }, [attempt]);
 
   function toggle(id: string) {
     setSelected((current) => {
@@ -139,6 +142,9 @@ export function Welcome({ onDone }: { onDone: () => Promise<unknown> }) {
         <p className="warning" role="alert">
           {error}
         </p>
+      )}
+      {!loading && (warnings.length > 0 || error || !entries.length) && (
+        <button className="text-button" disabled={busy || !desktop} onClick={() => setAttempt((n) => n + 1)}>重新获取插件列表</button>
       )}
       {!loading && !entries.length && !warnings.length && (
         <p className="quiet-note">

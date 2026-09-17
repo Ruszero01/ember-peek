@@ -33,6 +33,11 @@ async fn market_list(host: Host<'_>, market: State<'_, Market>) -> Result<Market
 }
 
 #[tauri::command]
+async fn market_refresh(host: Host<'_>, market: State<'_, Market>) -> Result<MarketList, String> {
+    market.refresh(host.inner()).await
+}
+
+#[tauri::command]
 async fn market_prepare(market: State<'_, Market>, id: String) -> Result<String, String> {
     Ok(market.prepare(&id).await?.to_string_lossy().into_owned())
 }
@@ -362,7 +367,7 @@ fn main() {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![view_state, market_list, market_prepare, market_install, snapshot, refresh_plugins, open_file, desktop::select_preview, desktop::return_view, desktop::desktop_snapshot, desktop::show_settings, session_data, source_data, source_call, set_pending, plugin_mutate, authorize_clipboard, file_changed, complete_view, complete_onboarding, plugin_call, read_file, set_enabled, set_activation, reorder_plugins, uninstall_plugin, plugin_settings, set_plugin_setting, pick_path, install_plugin])
+        .invoke_handler(tauri::generate_handler![view_state, market_list, market_refresh, market_prepare, market_install, snapshot, refresh_plugins, open_file, desktop::select_preview, desktop::return_view, desktop::desktop_snapshot, desktop::show_settings, session_data, source_data, source_call, set_pending, plugin_mutate, authorize_clipboard, file_changed, complete_view, complete_onboarding, plugin_call, read_file, set_enabled, set_activation, reorder_plugins, uninstall_plugin, plugin_settings, set_plugin_setting, pick_path, install_plugin])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();

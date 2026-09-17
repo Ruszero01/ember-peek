@@ -1,0 +1,62 @@
+name: Publish official plugins
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Write packages and switch the stable catalog (false = read-only plan)
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: official-plugins-stable-windows-x86_64
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run version:check
+      - run: npm test
+      - run: npm run plugins:dist
+      - run: npm run plugins:validate
+      - uses: actions/upload-artifact@v4
+        with:
+          name: official-plugins
+          path: .release/
+          include-hidden-files: true
+          retention-days: 30
+  publish:
+    needs: build
+    runs-on: windows-latest
+    environment: plugin-production
+    env:
+      OSS_REGION: ${{ vars.OSS_REGION }}
+      OSS_BUCKET: ${{ vars.OSS_BUCKET }}
+      OSS_PREFIX: ${{ vars.OSS_PREFIX }}
+      OSS_PUBLIC_BASE_URL: ${{ vars.OSS_PUBLIC_BASE_URL }}
+      OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
+      OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+      OSS_STS_TOKEN: ${{ secrets.OSS_STS_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          name: official-plugins
+          path: .release/
+      - name: Read-only publication plan
+        if: ${{ !inputs.publish }}
+        run: npm run plugins:plan
+      - name: Publish to OSS
+        if: ${{ inputs.publish }}
+        run: npm run plugins:publish

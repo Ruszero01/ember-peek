@@ -14,10 +14,16 @@
     "plugins:build": "node scripts/build-plugins.mjs",
     "plugins:watch": "node scripts/build-plugins.mjs --watch",
     "plugins:dist": "node scripts/build-plugins.mjs --dist",
+    "plugins:validate": "node scripts/publish-plugins.mjs --validate",
+    "plugins:plan": "node --env-file-if-exists=.env scripts/publish-plugins.mjs --plan",
+    "plugins:publish": "node --env-file-if-exists=.env scripts/publish-plugins.mjs --apply",
+    "source:configure": "node --env-file-if-exists=.env scripts/configure-plugin-source.mjs",
+    "source:check": "node --env-file-if-exists=.env scripts/configure-plugin-source.mjs --check",
     "version:check": "node scripts/sync-version.mjs --check",
+    "release:notes": "node scripts/release-notes.mjs",
     "version:set": "node scripts/sync-version.mjs --set",
     "check": "npm run build && npm run plugins:build && cargo check --workspace",
-    "test": "node --test tests/*.test.mjs && cargo test -p ember-runtime -p ember-plugin-sdk -p ember-text-editor-plugin -p ember-text-plugin --features ember-runtime/test-worker"
+    "test": "node --test tests/*.test.mjs && cargo test -p ember-file-store -p ember-runtime -p ember-plugin-sdk -p ember-text-editor-plugin -p ember-text-plugin --features ember-runtime/test-worker"
   },
   "dependencies": {
     "@codemirror/commands": "^6.11.0",
@@ -39,7 +45,9 @@
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "^5.1.0",
+    "ali-oss": "^6.23.0",
     "esbuild": "^0.28.2",
+    "semver": "^7.8.5",
     "typescript": "^5.9.3",
     "vite": "^7.3.0"
   }
