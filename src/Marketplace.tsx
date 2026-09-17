@@ -209,10 +209,26 @@ export function Marketplace({
   return (
     <>
       {action && <PluginConfirm action={action} onClose={() => setAction(null)} />}
-      <button className="text-button" disabled={!desktop || loading || !!busy} onClick={() => void retry()}>
-        <RotateCw size={14} /> {t("market.refreshSources")}
-      </button>
-      <div className="market-source"><Package size={16} /><strong>{t("market.title")}</strong><span className="source-badge">{sourceNames.length === 1 ? sourceNames[0] : t("market.sources", { count: sourceNames.length })}</span></div>
+      {/* The banner carries its own refresh: it acts on the source this banner names, so it
+          reads as part of it instead of floating above it as a second toolbar. */}
+      <div className="market-source">
+        <Package size={16} />
+        <strong>{t("market.title")}</strong>
+        <span className="source-badge">
+          {sourceNames.length === 1
+            ? sourceNames[0]
+            : t("market.sources", { count: sourceNames.length })}
+        </span>
+        <button
+          className="market-refresh"
+          disabled={!desktop || loading || !!busy}
+          title={t("market.refreshSources")}
+          aria-label={t("market.refreshSources")}
+          onClick={() => void retry()}
+        >
+          <RotateCw size={13} className={loading ? "spinner" : undefined} />
+        </button>
+      </div>
       {(error || loadError) && (
         <p className="warning" role="alert">
           {error || loadError}

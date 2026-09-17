@@ -1473,9 +1473,14 @@ kbd {
 .enabled-label.enabled { color: var(--accent); }
 .plugin-enable .text-button { border-left: 1px solid var(--border); border-radius: 0; padding-left: 12px; margin-left: 3px; font-size: 10px; }
 .plugin-enable .text-button:hover { color: #ed827d; }
-.market-source { display: flex; align-items: center; gap: 10px; padding: 13px 16px; border: 1px solid var(--border); border-radius: 10px; background: linear-gradient(110deg, var(--accent-bg), var(--card)); color: var(--accent); margin-top: 16px; }
+.market-source { display: flex; align-items: center; gap: 10px; padding: 11px 12px 11px 16px; border: 1px solid var(--border); border-radius: 10px; background: linear-gradient(110deg, var(--accent-bg), var(--card)); color: var(--accent); margin-top: 16px; }
 .market-source strong { font-size: 11px; font-weight: 600; color: var(--text); }
 .source-badge { margin-left: auto; font-size: 9px; border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent); padding: 3px 7px; border-radius: 5px; }
+/* The banner's own refresh: one icon on the line the source is named on, rather than a
+   second toolbar above it. It acts on what the banner shows, so it belongs to it. */
+.market-refresh { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 26px; height: 26px; border-radius: 7px; color: var(--accent); background: transparent; transition: background .15s, color .15s; }
+.market-refresh:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+.market-refresh:disabled { opacity: .45; cursor: default; }
 /* Installed plugins are chips, not cards: the market is where plugins are found, and the
    plugin manager is where installed ones are read, reordered and removed. A chip only has
    to say which plugin it is, and offer an update when one is actually waiting. */
