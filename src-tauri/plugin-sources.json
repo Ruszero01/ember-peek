@@ -2,7 +2,7 @@
   "api": 1,
   "sources": [
     {
-      "name": "官方源",
+      "name": "Ember Peek",
       "catalog": "https://rains-ailurus-cn.oss-cn-shanghai.aliyuncs.com/ember-peek/channels/stable/api-1/windows-x86_64/catalog.json",
       "base": "https://rains-ailurus-cn.oss-cn-shanghai.aliyuncs.com/ember-peek/packages/windows-x86_64/"
     }

@@ -16,7 +16,9 @@ export function publicBase(value) {
 
 export function sourceConfig(base) {
   base = publicBase(base);
-  return { api: 1, sources: [{ name: "官方源", catalog: `${base}/${catalogKey}`, base: `${base}/${packagesKey}/` }] };
+  // The source's name is a proper noun, spelled the same in every language: a configuration
+  // file cannot be translated, so the shipped source is named after the project.
+  return { api: 1, sources: [{ name: "Ember Peek", catalog: `${base}/${catalogKey}`, base: `${base}/${packagesKey}/` }] };
 }
 
 export function ossConfig(env = process.env) {

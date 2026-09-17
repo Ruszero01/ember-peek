@@ -427,7 +427,7 @@ Markdown 的渲染视图不是 CodeMirror：它的滚动容器就是 `#rendered`
   "api": 1,
   "sources": [
     {
-      "name": "官方源",
+      "name": "Ember Peek",
       "catalog": "https://YOUR_BUCKET.oss-cn-hongkong.aliyuncs.com/ember-peek/channels/stable/api-1/windows-x86_64/catalog.json",
       "base": "https://YOUR_BUCKET.oss-cn-hongkong.aliyuncs.com/ember-peek/packages/windows-x86_64/"
     }
