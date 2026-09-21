@@ -189,7 +189,12 @@ export function PluginView({
             let value;
             if (secondary && isSessionOwning(message.method))
               throw new Error(t("view.panelNoSession"));
-            if (message.method === "viewState") {
+            if (message.method === "icons") {
+              value = await call("icon_data", {
+                name: typeof params?.name === "string" ? params.name.slice(0,40) : null,
+                query: typeof params?.query === "string" ? params.query.slice(0,40) : null,
+              });
+            } else if (message.method === "viewState") {
               if (secondary)
                 throw new Error(t("view.onlyPrimaryNavigates"));
               value = await call("view_state", {

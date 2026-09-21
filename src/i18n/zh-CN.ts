@@ -3,6 +3,14 @@
 import type { Catalog } from "./en";
 
 export const zhCN: Catalog = {
+  "plugins.noViewer": "没有已启用的查看器能打开这个文件，请在插件市场安装或启用相应插件。",
+  "plugins.installFromFile": "从插件包安装",
+  "plugins.origin.local": "本地导入",
+  "plugins.origin.official": "官方插件",
+  "plugins.origin.custom": "自定义插件",
+  "plugins.origin.market": "第三方插件源",
+  "plugins.origin.generated": "AI 生成",
+  "plugins.origin.unknown": "已有插件 · 旧版安装",
   "window.minimize": "最小化",
   "window.maximize": "最大化 / 还原",
   "window.close": "关闭",
@@ -52,9 +60,7 @@ export const zhCN: Catalog = {
   "plugin.settings.unavailable": "该插件已不可用，请刷新插件列表。",
   "plugin.settings.none": "此插件暂无额外设置。",
   "plugin.pidRunning": "后台进程 PID：{pids}",
-  "plugin.pidOnDemand": "尚未启动后台进程，使用插件时按需启动",
   "plugin.runtimeRunning": "运行中",
-  "plugin.runtimeOnDemand": "按需启动",
 
   "settings.increase": "增大{label}",
   "settings.decrease": "减小{label}",
@@ -126,7 +132,6 @@ export const zhCN: Catalog = {
   "market.progress.install": "正在安装插件…",
   "market.progress.refresh": "正在刷新插件列表…",
   "market.refreshSources": "刷新插件源",
-  "market.title": "插件市场",
   "market.sources": "{count} 个来源",
   "market.loading": "正在读取市场…",
   "market.group.available": "未安装",

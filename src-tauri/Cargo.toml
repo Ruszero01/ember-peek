@@ -15,6 +15,7 @@ tokio.workspace = true
 ember-runtime = { path = "../crates/runtime" }
 base64 = "0.22"
 percent-encoding = "2"
+tempfile = "3"
 
 [features]
 default = ["custom-protocol"]

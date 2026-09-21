@@ -39,10 +39,13 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
     use std::fmt::Write as _;
     let mut hasher = Sha256::new();
     hasher.update(bytes);
-    hasher.finalize().iter().fold(String::with_capacity(64), |mut text, byte| {
-        let _ = write!(text, "{byte:02x}");
-        text
-    })
+    hasher
+        .finalize()
+        .iter()
+        .fold(String::with_capacity(64), |mut text, byte| {
+            let _ = write!(text, "{byte:02x}");
+            text
+        })
 }
 
 /// Only `http` and `https` are network locations. Anything else is a filesystem
@@ -101,12 +104,23 @@ async fn fetch_http(client: &reqwest::Client, url: &str, limit: u64) -> Result<V
 
 fn fetch_file(location: &str, limit: u64) -> Result<Vec<u8>, String> {
     let path = local_path(location);
-    let file = std::fs::File::open(&path)
-        .map_err(|error| msg!(text().package_read_failed, path = path.display(), error = error))?;
+    let file = std::fs::File::open(&path).map_err(|error| {
+        msg!(
+            text().package_read_failed,
+            path = path.display(),
+            error = error
+        )
+    })?;
     let mut body = Vec::new();
     file.take(limit + 1)
         .read_to_end(&mut body)
-        .map_err(|error| msg!(text().package_read_failed, path = path.display(), error = error))?;
+        .map_err(|error| {
+            msg!(
+                text().package_read_failed,
+                path = path.display(),
+                error = error
+            )
+        })?;
     if body.len() as u64 > limit {
         return Err(over_limit(limit));
     }
@@ -147,7 +161,10 @@ fn unpack(bytes: &[u8], target: &Path, limits: Limits) -> Result<(), String> {
         return Err(msg!(text().package_empty));
     }
     if archive.len() > limits.entries {
-        return Err(msg!(text().package_too_many_entries, limit = limits.entries));
+        return Err(msg!(
+            text().package_too_many_entries,
+            limit = limits.entries
+        ));
     }
 
     // Names, types and declared sizes come first, so a package that would write too
@@ -323,7 +340,13 @@ mod tests {
 
     #[test]
     fn refuses_names_that_leave_the_package() {
-        for name in ["../escape.txt", "/absolute.txt", "a/../../escape.txt", "..\\escape.txt", "C:/escape.txt"] {
+        for name in [
+            "../escape.txt",
+            "/absolute.txt",
+            "a/../../escape.txt",
+            "..\\escape.txt",
+            "C:/escape.txt",
+        ] {
             assert!(entry_name(name).is_err(), "{name} was accepted");
         }
         for name in ["plugin.json", "ui/index.html", "sdk-search.js", "ui/"] {
@@ -457,7 +480,10 @@ mod tests {
             local_path("file:///C:/mirror/a.zip"),
             PathBuf::from("C:/mirror/a.zip")
         );
-        assert_eq!(local_path("/home/user/a.zip"), PathBuf::from("/home/user/a.zip"));
+        assert_eq!(
+            local_path("/home/user/a.zip"),
+            PathBuf::from("/home/user/a.zip")
+        );
     }
 
     #[tokio::test]
@@ -474,8 +500,12 @@ mod tests {
                 .unwrap(),
             package_zip()
         );
-        assert!(fetch_with_limit(&client, &temp.path().join("missing.zip").to_string_lossy(), MAX_ARTIFACT_BYTES)
-            .await
-            .is_err());
+        assert!(fetch_with_limit(
+            &client,
+            &temp.path().join("missing.zip").to_string_lossy(),
+            MAX_ARTIFACT_BYTES
+        )
+        .await
+        .is_err());
     }
 }

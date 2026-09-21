@@ -3,6 +3,7 @@
 mod desktop;
 #[cfg(windows)]
 mod explorer;
+mod local_packages;
 
 use base64::Engine;
 use ember_runtime::i18n::text;
@@ -207,7 +208,9 @@ async fn pick_path(window: tauri::Window, folder: bool) -> Result<Option<String>
     tauri::async_runtime::spawn_blocking(move || {
         let dialog = rfd::FileDialog::new().set_parent(&window);
         let result = if folder {
-            dialog.set_title(text().dialog_pick_plugin_folder).pick_folder()
+            dialog
+                .set_title(text().dialog_pick_plugin_folder)
+                .pick_folder()
         } else {
             dialog.set_title(text().dialog_pick_file).pick_file()
         };
@@ -234,13 +237,21 @@ async fn set_locale(app: tauri::AppHandle, host: Host<'_>, locale: String) -> Re
 }
 
 #[tauri::command]
+async fn prepare_plugin(
+    imports: State<'_, local_packages::LocalPackages>,
+    path: String,
+) -> Result<local_packages::Prepared, String> {
+    imports.prepare(path).await
+}
+
+#[tauri::command]
 async fn install_plugin(
     host: Host<'_>,
     market: State<'_, Market>,
-    path: String,
+    imports: State<'_, local_packages::LocalPackages>,
+    token: String,
 ) -> Result<(), String> {
-    // Package IO runs off the UI thread. No plugin is launched during installation.
-    host.install(&PathBuf::from(path)).await?;
+    imports.install(host.inner(), &token).await?;
     // The installed revision is on disk now, so the cache only needs to keep what the
     // installer can still reach — this package and whatever it replaced.
     market.prune_cache(host.inner()).await.map(|_| ())
@@ -306,6 +317,7 @@ fn main() {
             let runtime = Runtime::new(root).map_err(std::io::Error::other)?;
             tauri::async_runtime::block_on(runtime.scan()).map_err(std::io::Error::other)?;
             app.manage(runtime.clone());
+            app.manage(local_packages::LocalPackages::default());
             // The host is a shell: it ships no plugins, so a source is where both the
             // plugin list and the packages behind it come from.
             let sources = if cfg!(debug_assertions) {
@@ -338,7 +350,18 @@ fn main() {
             let market = market.with_local_source(
                 &workspace.join(".marketplace/catalog.json").to_string_lossy(),
             );
+            let trusted_catalogs = if cfg!(debug_assertions) {
+                vec![workspace.join(".marketplace/catalog.json").to_string_lossy().into_owned()]
+            } else {
+                serde_json::from_str::<Value>(include_str!("../plugin-sources.json")).ok()
+                    .and_then(|v| v["sources"].as_array().cloned()).unwrap_or_default().iter()
+                    .filter_map(|s| s["catalog"].as_str().map(str::to_owned)).collect()
+            };
+            let market = market.with_official_sources(trusted_catalogs);
             app.manage(market.clone());
+            let migration_market = market.clone();
+            let migration_runtime = runtime.clone();
+            tauri::async_runtime::spawn(async move { migration_market.recover_legacy_origins(&migration_runtime).await; });
             desktop::setup(app.handle())?;
             // A fresh install can preview nothing at all, so the first run asks which
             // plugins to install and then installs them the normal way. It is recorded
@@ -391,7 +414,7 @@ fn main() {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![view_state, market_list, market_refresh, market_prepare, market_install, snapshot, refresh_plugins, open_file, desktop::select_preview, desktop::return_view, desktop::desktop_snapshot, desktop::show_settings, session_data, source_data, source_call, set_pending, plugin_mutate, authorize_clipboard, file_changed, complete_view, complete_onboarding, plugin_call, read_file, set_enabled, set_activation, reorder_plugins, uninstall_plugin, plugin_settings, set_plugin_setting, pick_path, install_plugin, set_locale])
+        .invoke_handler(tauri::generate_handler![view_state, market_list, market_refresh, market_prepare, market_install, snapshot, refresh_plugins, open_file, desktop::select_preview, desktop::return_view, desktop::desktop_snapshot, desktop::show_settings, session_data, source_data, source_call, set_pending, plugin_mutate, authorize_clipboard, file_changed, complete_view, complete_onboarding, plugin_call, read_file, set_enabled, set_activation, reorder_plugins, uninstall_plugin, plugin_settings, set_plugin_setting, pick_path, prepare_plugin, install_plugin, set_locale])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();

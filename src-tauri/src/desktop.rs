@@ -115,6 +115,24 @@ fn requested(app: &AppHandle, label: &str, revision: u64) -> bool {
     }
 }
 
+/// Extra WebView2 arguments for this session, for development tooling.
+///
+/// Every window exists only because this code builds it, so these cannot come from the Tauri
+/// config the way a declarative window's `additionalBrowserArgs` can. WebView2's own
+/// `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` variable does not work either: wry always passes an
+/// explicit argument string, and the loader reads that variable only when the host passes none,
+/// so a debugging port asked for that way never opens. A development session names its
+/// arguments here instead, and a release build can never enable them. Passing arguments
+/// replaces wry's own defaults, so the caller's value has to include them.
+fn browser_args() -> Option<String> {
+    if !cfg!(debug_assertions) {
+        return None;
+    }
+    std::env::var("EMBER_WEBVIEW_ARGS")
+        .ok()
+        .filter(|args| !args.trim().is_empty())
+}
+
 // WebviewWindowBuilder must run outside synchronous event callbacks on Windows.
 // Only the final visibility transition is dispatched to the main event loop.
 fn queue_show(app: &AppHandle, label: &'static str, revision: u64) {
@@ -152,11 +170,13 @@ fn queue_show(app: &AppHandle, label: &'static str, revision: u64) {
             .center()
             .decorations(false)
             .visible(false);
-            let builder = if label == "settings" {
-                builder.disable_drag_drop_handler()
-            } else {
-                builder
+            let builder = match browser_args() {
+                Some(args) => builder.additional_browser_args(&args),
+                None => builder,
             };
+            // Every window keeps the native file-drop handler, including the settings
+            // window: a dropped file has to arrive as a path, and a web page never sees
+            // one.
             let result = builder.build();
             if let Err(error) = result {
                 eprintln!("Create {label}: {error}");
@@ -223,6 +243,7 @@ pub async fn open(app: &AppHandle, path: PathBuf) -> Result<(), String> {
     }
     Ok(())
 }
+
 pub async fn refresh_file(app: &AppHandle, id: &str, return_to_source: bool) -> Result<(), String> {
     let desktop = app.state::<Desktop>();
     let revision = desktop.inner.lock().unwrap().generation;

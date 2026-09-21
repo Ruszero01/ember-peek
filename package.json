@@ -23,7 +23,7 @@
     "release:notes": "node scripts/release-notes.mjs",
     "version:set": "node scripts/sync-version.mjs --set",
     "check": "npm run build && npm run plugins:build && cargo check --workspace",
-    "test": "node --test tests/*.test.mjs && cargo test -p ember-file-store -p ember-runtime -p ember-plugin-sdk -p ember-text-editor-plugin -p ember-text-plugin --features ember-runtime/test-worker"
+    "test": "npm run plugins:build && node --test tests/*.test.mjs && cargo test -p ember-file-store -p ember-runtime -p ember-plugin-sdk -p ember-text-editor-plugin -p ember-text-plugin --features ember-runtime/test-worker && cargo test -p ember-peek --bin ember-peek"
   },
   "dependencies": {
     "@codemirror/commands": "^6.11.0",
@@ -31,6 +31,8 @@
     "@codemirror/language-data": "^6.5.2",
     "@codemirror/state": "^6.7.4",
     "@codemirror/view": "^6.43.11",
+    "@earendil-works/pi-agent-core": "0.86.0",
+    "@earendil-works/pi-ai": "0.86.0",
     "@lezer/highlight": "^1.2.3",
     "@tauri-apps/api": "^2.10.0",
     "dompurify": "^3.4.15",

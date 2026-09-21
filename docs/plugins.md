@@ -10,9 +10,15 @@ ui/index.html
 ui/view.js
 ui/style.css
 ui/sdk.js                 可选，复制 sdk/web/index.js
+ui/boot.js                可选，宿主提供的启动看护与错误上报（生成插件会自动带上）
 ui/sdk-ui.css 等共享文件   可选，由构建脚本按引用放进包
+ui/vendor/<文件名>         可选，页面 import 的第三方库（一层，不分目录）
+dependencies.json         可选，vendor 里每个库的来源记录
 ui/engine.wasm            可选
 ```
+
+第三方库自带：`ui/vendor/` 下的文件用相对路径 import（`./vendor/mp4box.all.js`），页面里没有裸名解析、没有 import map、也没有打包器，所以放进去的必须是**自身不再 import 别的包**的构建（通常是 `dist/` 下的自带打包版）。文件若还需要独立 worker 脚本，页面只允许 blob worker，得自己从 `Blob` 建一个。
+从工坊生成并取过库的包会带一份 `dependencies.json`，记下包名、确切版本、源给出的 sha512 完整性、许可证文件名与文件对照；手写插件如果也 vendor 了库，建议照同样格式写一份，导出与分享时来源才是可追溯的。工坊的取库规则与页面运行契约见 `docs/specs/plugin-workshop-v1.md` 的《生成物标准》。
 
 ```json
 {
@@ -335,7 +341,7 @@ Markdown 的渲染视图不是 CodeMirror：它的滚动容器就是 `#rendered`
 
 页面脚本必须作为包内 JS 文件引用；模块、CSS、WASM 等资源通过相对路径加载。单个静态资源最多 32 MiB。禁止内联 JS 与网络脚本，第三方渲染库应打包进插件。插件完全控制页面；不要引用宿主 `src` 或依赖宿主 React 组件 —— **这条现在由打包步骤强制**（见[安装与验收](#安装与验收)）。
 
-通用 `read(offset, length)` 每次最多 1 MiB，只能读当前会话文件，且需要 `readFile` 权限。同一份文件还有两个更方便的入口：`fileUrl()` 返回经权限校验的文件 URL（让浏览器自己解码，图片这类格式不必反复走 Base64 的 `read`），`fileBlob(size, type)` 把整段读成 `Blob`。`clipboard(text)` 需要 `clipboard` 权限，且只有当前显示的视图能用。涉及原生解析结果的大数据应分页或分块，不要将大型模型塞进单个 JSON 响应。
+通用 `read(offset, length)` 每次最多 1 MiB，只能读当前会话文件，且需要 `readFile` 权限。同一份文件还有两个更方便的入口：`fileUrl()` 返回经权限校验的文件 URL（让浏览器自己解码，图片这类格式不必反复走 Base64 的 `read`；宿主一次给整份文件，超过 32 MiB 直接拒绝），`fileBlob(size, type)` 把整段读成 `Blob`。`<video>`、`<audio>` 这类媒体元素的源只允许 `blob:`，因此媒体要走 `fileBlob()` 建一个 `blob:` URL，`fileUrl()` 给不了它。`clipboard(text)` 需要 `clipboard` 权限，且只有当前显示的视图能用。涉及原生解析结果的大数据应分页或分块，不要将大型模型塞进单个 JSON 响应。
 
 ## 安装与验收
 

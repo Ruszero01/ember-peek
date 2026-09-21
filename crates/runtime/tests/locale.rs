@@ -77,7 +77,10 @@ async fn the_interface_language_reaches_plugins_catalogs_and_the_next_run() {
     let market = Market::new(
         Ok(vec![Source {
             name: Some("测试源".into()),
-            catalog: mirror_root.join("catalog.json").to_string_lossy().into_owned(),
+            catalog: mirror_root
+                .join("catalog.json")
+                .to_string_lossy()
+                .into_owned(),
             base: mirror_root.to_string_lossy().into_owned(),
         }]),
         root.join("cache"),
@@ -135,7 +138,10 @@ async fn the_interface_language_reaches_plugins_catalogs_and_the_next_run() {
     // A source's name is configuration data and is shown the way its author wrote it. The
     // one exception is the source the host contributes itself: that name is the host's own
     // wording, so it is the interface language's to spell — including after a change.
-    let catalog = mirror_root.join("catalog.json").to_string_lossy().into_owned();
+    let catalog = mirror_root
+        .join("catalog.json")
+        .to_string_lossy()
+        .into_owned();
     let local = Market::new(
         Ok(vec![Source {
             name: None,
@@ -149,11 +155,17 @@ async fn the_interface_language_reaches_plugins_catalogs_and_the_next_run() {
     let source_name = |list: &MarketList| match &list.entries[0].source {
         EntrySource::Remote { name, .. } => name.clone(),
     };
-    assert_eq!(source_name(&local.list(&runtime).await.unwrap()), "Development mirror");
+    assert_eq!(
+        source_name(&local.list(&runtime).await.unwrap()),
+        "Development mirror"
+    );
     // A configured source keeps its own name no matter what the interface says.
     assert_eq!(source_name(&market.list(&runtime).await.unwrap()), "测试源");
     runtime.set_locale(Some("zh-CN".into())).await.unwrap();
-    assert_eq!(source_name(&local.list(&runtime).await.unwrap()), "开发镜像");
+    assert_eq!(
+        source_name(&local.list(&runtime).await.unwrap()),
+        "开发镜像"
+    );
     runtime.set_locale(Some("en".into())).await.unwrap();
 
     // The choice belongs to the application, not to the window that made it: the next run
@@ -161,12 +173,18 @@ async fn the_interface_language_reaches_plugins_catalogs_and_the_next_run() {
     let reopened = Runtime::new(installed).unwrap();
     assert_eq!(reopened.locale().await, Locale::En);
     reopened.scan().await.unwrap();
-    assert_eq!(reopened.snapshot().await.plugins[0].manifest.name, "Test Plugin");
+    assert_eq!(
+        reopened.snapshot().await.plugins[0].manifest.name,
+        "Test Plugin"
+    );
 
     // A tag is a request, not a promise: a language the host does not speak, and one the
     // plugin does not declare, both leave the declaration standing.
     reopened.set_locale(Some("fr".into())).await.unwrap();
     assert_eq!(reopened.locale().await, Locale::En);
     reopened.set_locale(Some("zh-CN".into())).await.unwrap();
-    assert_eq!(reopened.snapshot().await.plugins[0].manifest.name, "测试插件");
+    assert_eq!(
+        reopened.snapshot().await.plugins[0].manifest.name,
+        "测试插件"
+    );
 }

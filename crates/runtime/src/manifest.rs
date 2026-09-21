@@ -102,7 +102,10 @@ fn valid_locale_tag(tag: &str) -> bool {
 /// A translation is validated as strictly as the declaration it overrides: it is rendered
 /// by the same code, and a name that is too long or a setting that does not exist would
 /// otherwise show up as a wrong or missing control rather than as a rejected package.
-fn validate_i18n(manifest_locales: &BTreeMap<String, ManifestText>, settings: &[Setting]) -> Result<(), String> {
+fn validate_i18n(
+    manifest_locales: &BTreeMap<String, ManifestText>,
+    settings: &[Setting],
+) -> Result<(), String> {
     if manifest_locales.len() > MAX_LOCALES {
         return Err(msg!(text().i18n_limit, max = MAX_LOCALES));
     }
@@ -110,17 +113,29 @@ fn validate_i18n(manifest_locales: &BTreeMap<String, ManifestText>, settings: &[
         if !valid_locale_tag(tag) {
             return Err(msg!(text().i18n_tag_invalid, tag = tag));
         }
-        if messages.name.as_ref().is_some_and(|name| name.is_empty() || name.chars().count() > 80) {
+        if messages
+            .name
+            .as_ref()
+            .is_some_and(|name| name.is_empty() || name.chars().count() > 80)
+        {
             return Err(msg!(text().i18n_name_invalid, tag = tag));
         }
         for (key, translated) in &messages.settings {
             if !settings.iter().any(|setting| &setting.key == key) {
                 return Err(msg!(text().i18n_setting_undeclared, tag = tag, key = key));
             }
-            if translated.label.as_ref().is_some_and(|label| label.is_empty() || label.chars().count() > 80) {
+            if translated
+                .label
+                .as_ref()
+                .is_some_and(|label| label.is_empty() || label.chars().count() > 80)
+            {
                 return Err(msg!(text().i18n_label_invalid, tag = tag, key = key));
             }
-            if translated.help.as_ref().is_some_and(|help| help.chars().count() > 400) {
+            if translated
+                .help
+                .as_ref()
+                .is_some_and(|help| help.chars().count() > 400)
+            {
                 return Err(msg!(text().i18n_help_invalid, tag = tag, key = key));
             }
             if let Some(option_labels) = settings
@@ -130,10 +145,20 @@ fn validate_i18n(manifest_locales: &BTreeMap<String, ManifestText>, settings: &[
             {
                 for (value, label) in &translated.options {
                     if !option_labels.iter().any(|option| &option.value == value) {
-                        return Err(msg!(text().i18n_option_undeclared, tag = tag, key = key, value = value));
+                        return Err(msg!(
+                            text().i18n_option_undeclared,
+                            tag = tag,
+                            key = key,
+                            value = value
+                        ));
                     }
                     if label.is_empty() || label.chars().count() > 80 {
-                        return Err(msg!(text().i18n_option_invalid, tag = tag, key = key, value = value));
+                        return Err(msg!(
+                            text().i18n_option_invalid,
+                            tag = tag,
+                            key = key,
+                            value = value
+                        ));
                     }
                 }
             } else if !translated.options.is_empty() {
@@ -243,16 +268,15 @@ fn validate_settings(settings: &[Setting]) -> Result<(), String> {
             return Err(msg!(text().setting_help_invalid, key = setting.key));
         }
         if let Some(multiplier) = setting.display_multiplier {
-            if setting.kind != SettingKind::Number
-                || !multiplier.is_finite()
-                || multiplier <= 0.0
-            {
+            if setting.kind != SettingKind::Number || !multiplier.is_finite() || multiplier <= 0.0 {
                 return Err(msg!(text().setting_multiplier_invalid, key = setting.key));
             }
         }
-        if setting.suffix.as_ref().is_some_and(|suffix| {
-            setting.kind != SettingKind::Number || suffix.chars().count() > 8
-        }) {
+        if setting
+            .suffix
+            .as_ref()
+            .is_some_and(|suffix| setting.kind != SettingKind::Number || suffix.chars().count() > 8)
+        {
             return Err(msg!(text().setting_suffix_invalid, key = setting.key));
         }
         if !setting.default.is_null() {
@@ -588,13 +612,9 @@ impl Package {
             }
         }
         if manifest.targets.len() > 8
-            || manifest
-                .targets
-                .iter()
-                .enumerate()
-                .any(|(index, target)| {
-                    !valid_target(target) || manifest.targets[..index].contains(target)
-                })
+            || manifest.targets.iter().enumerate().any(|(index, target)| {
+                !valid_target(target) || manifest.targets[..index].contains(target)
+            })
         {
             return Err("Invalid target declaration".into());
         }
@@ -902,10 +922,7 @@ mod tests {
         assert_eq!(english.settings[0].label, "Wrap long lines");
         // A field the translation leaves out keeps the declaration: a plugin writes only
         // what it can actually translate.
-        assert_eq!(
-            english.settings[0].help.as_deref(),
-            Some("关闭后不折断。")
-        );
+        assert_eq!(english.settings[0].help.as_deref(), Some("关闭后不折断。"));
         // Options are translated one by one, and the ones left out stay as declared.
         let options = english.settings[1].options.as_ref().unwrap();
         assert_eq!(options[0].label, "甲");

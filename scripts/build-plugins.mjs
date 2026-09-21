@@ -226,6 +226,54 @@ async function treeText(directory, out = []) {
   return out.join("\n");
 }
 
+/** Names of the files a package carries, relative to its `ui` directory. */
+async function packageFiles(ui, prefix = "", names = new Set()) {
+  for (const entry of await readdir(path.join(ui, prefix), {
+    withFileTypes: true,
+  })) {
+    if (entry.isDirectory())
+      await packageFiles(ui, `${prefix}${entry.name}/`, names);
+    else names.add(`${prefix}${entry.name}`);
+  }
+  return names;
+}
+
+/**
+ * A page that imports something the package does not carry fails at load with no visible
+ * error: the tool keeps showing its static markup, which looks like a working but empty
+ * screen. Packaging therefore refuses to write a package whose own references cannot be
+ * satisfied, including the assets and prompts a development kit declares.
+ */
+async function verifyPackage({ directory, manifest, provided }) {
+  const ui = path.join(directory, "ui");
+  const files = await packageFiles(ui);
+  const carried = new Set([...files, ...provided]);
+  const missing = [];
+  for (const name of files) {
+    if (!/\.(js|html|css)$/.test(name)) continue;
+    const code = await readFile(path.join(ui, name), "utf8");
+    for (const reference of references(code, path.extname(name))) {
+      if (/^(data:|https?:|#)/.test(reference)) continue;
+      const target = reference.split(/[?#]/)[0].replace(/^\.\//, "");
+      // A bare specifier without a file extension is a package import, not ours.
+      if (!/\.[a-z0-9]+$/i.test(target)) continue;
+      if (!carried.has(target)) missing.push(`${name} -> ${reference}`);
+    }
+  }
+  if (files.has("development-kit.json")) {
+    const kit = JSON.parse(
+      await readFile(path.join(ui, "development-kit.json"), "utf8"),
+    );
+    for (const name of [...(kit.assets ?? []), kit.prompt, kit.analysisPrompt])
+      if (name && !carried.has(name))
+        missing.push(`development-kit.json -> ${name}`);
+  }
+  if (missing.length)
+    throw new Error(
+      `${manifest.id}: the package does not carry files it references: ${missing.join(", ")}`,
+    );
+}
+
 /** The target a built package runs on, as `os-arch`. Packaging runs on the build
  * host, so the native executable in the package is the host's target. */
 function hostTarget() {
@@ -397,6 +445,7 @@ async function publish(release, { dist = false } = {}) {
       if (uiText.includes(`sdk-${name}.js`))
         bundled.push(...(await bundle(name)));
     }
+    await verifyPackage({ directory, manifest, provided: ["sdk.js", ...extras.map(([, name]) => name), ...bundled.map((file) => path.basename(file.path))] });
     for (const file of bundled) hash.update(file.contents);
     hash.update(await readFile(native));
     hash.update(await readFile(webSdk));

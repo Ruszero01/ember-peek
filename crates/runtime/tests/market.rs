@@ -87,7 +87,11 @@ async fn corrupt_first_mirror_falls_back_and_refresh_bypasses_cache() {
     publish_version(&good, &built, "test.one", "first", "0.9.0", &[], false);
     let older = test_market(root, &good);
     assert!(!older.list(&runtime).await.unwrap().entries[0].update_available);
-    assert!(older.install(&runtime, "test.one").await.unwrap_err().contains("降级"));
+    assert!(older
+        .install(&runtime, "test.one")
+        .await
+        .unwrap_err()
+        .contains("降级"));
     set_version(&built, "1.1.0");
     publish_version(&good, &built, "test.one", "first", "1.1.0", &[], false);
     assert!(older.refresh(&runtime).await.unwrap().entries[0].update_available);
@@ -274,13 +278,24 @@ async fn install_update_and_uninstall_follow_the_mirror() {
     // A new version is what announces an update.
     set_build_id(&source, "third-build");
     set_version(&source, "1.1.0");
-    publish_version(&mirror, &source, "test.one", "third-build", "1.1.0", &[], false);
+    publish_version(
+        &mirror,
+        &source,
+        "test.one",
+        "third-build",
+        "1.1.0",
+        &[],
+        false,
+    );
     let market = test_market(temp.path(), &mirror);
     let list = market.list(&runtime).await.unwrap();
     assert!(list.entries[0].update_available);
     assert_eq!(list.entries[0].installed_version.as_deref(), Some("1.0.0"));
     market.sync_development(&runtime).await.unwrap();
-    assert_eq!(runtime.snapshot().await.plugins[0].manifest.version, "1.1.0");
+    assert_eq!(
+        runtime.snapshot().await.plugins[0].manifest.version,
+        "1.1.0"
+    );
     assert!(!market.list(&runtime).await.unwrap().entries[0].update_available);
 
     // Uninstalling leaves the market offering it again, and development sync does not
@@ -428,7 +443,11 @@ async fn an_unreachable_or_unreadable_source_is_reported() {
     let list = market.list(&runtime).await.unwrap();
     assert!(list.entries.is_empty());
     assert_eq!(list.warnings.len(), 2, "{:?}", list.warnings);
-    assert!(list.warnings[0].contains("读取市场目录"), "{:?}", list.warnings);
+    assert!(
+        list.warnings[0].contains("读取市场目录"),
+        "{:?}",
+        list.warnings
+    );
     assert!(list.warnings[1].contains("artifact"), "{:?}", list.warnings);
     runtime.shutdown().await;
 }
@@ -445,7 +464,11 @@ async fn a_broken_sources_file_is_reported_with_every_listing() {
     let list = market.list(&runtime).await.unwrap();
     assert!(list.entries.is_empty());
     assert_eq!(list.warnings.len(), 1, "{:?}", list.warnings);
-    assert!(list.warnings[0].contains("插件来源配置"), "{:?}", list.warnings);
+    assert!(
+        list.warnings[0].contains("插件来源配置"),
+        "{:?}",
+        list.warnings
+    );
     // And with no sources at all there is nothing to report, just an empty market.
     let empty = Market::new(Ok(Vec::new()), temp.path().join("cache")).unwrap();
     let list = empty.list(&runtime).await.unwrap();
@@ -522,9 +545,11 @@ async fn a_second_source_mirrors_the_same_package() {
     std::fs::remove_dir_all(&first).unwrap();
     market.install(&runtime, "test.one").await.unwrap();
     assert_eq!(runtime.snapshot().await.plugins.len(), 1);
-    assert!(temp.path().join("cache").join(
-        entry["source"]["sha256"].as_str().unwrap()
-    ).is_dir());
+    assert!(temp
+        .path()
+        .join("cache")
+        .join(entry["source"]["sha256"].as_str().unwrap())
+        .is_dir());
     assert!(second.join(&artifact).is_file());
     runtime.shutdown().await;
 }
@@ -601,7 +626,10 @@ async fn updating_overwrites_the_installed_revision_and_forgets_older_ones() {
     // else beside it.
     let after = revisions(&root);
     assert_eq!(
-        after.iter().map(|(revision, _)| *revision).collect::<Vec<_>>(),
+        after
+            .iter()
+            .map(|(revision, _)| *revision)
+            .collect::<Vec<_>>(),
         installed
             .iter()
             .map(|(revision, _)| *revision)

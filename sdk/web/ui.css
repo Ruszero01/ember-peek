@@ -17,9 +17,13 @@
  */
 
 /* --- tokens --------------------------------------------------------------- */
-/* The host injects these; the fallbacks keep the kit usable on an older host. */
+/* The host injects these; the fallbacks keep the kit usable on an older host. Every component
+   that reads a token has to be listed here, or the token resolves to nothing and the
+   declaration is dropped at computed-value time — a dropdown with square corners and no
+   height, which is what a select outside this list looks like. */
 .ui-button,
 .ui-input,
+.ui-select,
 .ui-fields,
 .search-bar {
   --ui-radius: var(--radius-control, 7px);

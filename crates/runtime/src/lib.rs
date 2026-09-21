@@ -4,6 +4,7 @@ pub mod i18n;
 pub mod manifest;
 pub mod market;
 mod process;
+pub mod sharing;
 
 use crate::i18n::{msg, text, Locale, Refusal};
 use manifest::{Activation, ActivationMode, Capability, Manifest, Package, Permission};
@@ -125,6 +126,8 @@ pub struct PluginInfo {
     #[serde(flatten)]
     pub manifest: Manifest,
     pub enabled: bool,
+    pub origin: String,
+    pub source: Option<String>,
     pub process_ids: Vec<u32>,
     /// Current values keyed by setting key: declared defaults plus user overrides.
     pub values: serde_json::Map<String, Value>,
@@ -146,6 +149,8 @@ pub struct Snapshot {
 
 #[derive(Default)]
 struct Inner {
+    sources: BTreeMap<String, String>,
+    origins: BTreeMap<String, String>,
     updating: bool,
     packages: BTreeMap<String, Package>,
     workers: HashMap<String, Arc<Worker>>,
@@ -180,6 +185,8 @@ pub struct Runtime {
 #[derive(Default, Deserialize)]
 #[serde(default)]
 struct StoredState {
+    sources: BTreeMap<String, String>,
+    origins: BTreeMap<String, String>,
     disabled: HashSet<String>,
     removed: HashSet<String>,
     settings: BTreeMap<String, serde_json::Map<String, Value>>,
@@ -197,11 +204,15 @@ fn read_state(root: &Path) -> Result<StoredState, String> {
         let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
         serde_json::from_slice(&bytes).map_err(|e| e.to_string())
     };
-    if !path.exists() && !backup.exists() { return Ok(StoredState::default()); }
+    if !path.exists() && !backup.exists() {
+        return Ok(StoredState::default());
+    }
     match read(&path) {
         Ok(state) => Ok(state),
         Err(error) => {
-            let state = read(&backup).map_err(|backup_error| msg!(text().state_corrupt, error = error, backup = backup_error))?;
+            let state = read(&backup).map_err(|backup_error| {
+                msg!(text().state_corrupt, error = error, backup = backup_error)
+            })?;
             let bytes = std::fs::read(&backup).map_err(|e| e.to_string())?;
             ember_file_store::atomic_write(&path, &bytes).map_err(|e| e.to_string())?;
             eprintln!("宿主状态读取失败，已从备份恢复：{error}");
@@ -228,6 +239,8 @@ impl Runtime {
         // otherwise.
         i18n::set_locale(locale);
         let inner = Inner {
+            sources: state.sources,
+            origins: state.origins,
             disabled: state.disabled,
             removed: state.removed,
             settings: state.settings,
@@ -248,6 +261,8 @@ impl Runtime {
 
     fn persist(&self, inner: &Inner) -> Result<(), String> {
         let bytes = serde_json::to_vec(&json!({
+            "sources": inner.sources,
+            "origins": inner.origins,
             "disabled": inner.disabled,
             "removed": inner.removed,
             "settings": inner.settings,
@@ -261,11 +276,14 @@ impl Runtime {
         let backup = self.root.join("host-state.backup.json");
         match std::fs::read(&path) {
             Ok(previous) => {
-                serde_json::from_slice::<StoredState>(&previous).map_err(|e| msg!(text().state_invalid, error = e))?;
+                serde_json::from_slice::<StoredState>(&previous)
+                    .map_err(|e| msg!(text().state_invalid, error = e))?;
                 ember_file_store::atomic_write(&backup, &previous).map_err(|e| e.to_string())?;
             }
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                if !backup.exists() { ember_file_store::atomic_write(&backup, &bytes).map_err(|e| e.to_string())?; }
+                if !backup.exists() {
+                    ember_file_store::atomic_write(&backup, &bytes).map_err(|e| e.to_string())?;
+                }
             }
             Err(error) => return Err(msg!(text().state_unreadable, error = error)),
         }
@@ -301,7 +319,10 @@ impl Runtime {
     /// Opaque, bounded navigation state shared only by the same file and data contract.
     pub async fn view_state(&self, id: &str, value: Option<Value>) -> Result<Value, String> {
         let mut inner = self.inner.lock().await;
-        let session = inner.sessions.get(id).ok_or_else(|| msg!(text().session_expired))?;
+        let session = inner
+            .sessions
+            .get(id)
+            .ok_or_else(|| msg!(text().session_expired))?;
         let contract = session
             .package
             .manifest
@@ -364,9 +385,10 @@ impl Runtime {
                         continue;
                     }
                     let id = package.manifest.id.clone();
-                    match packages.get(&id).map(|old| {
-                        (old.key(), old.manifest.revision)
-                    }) {
+                    match packages
+                        .get(&id)
+                        .map(|old| (old.key(), old.manifest.revision))
+                    {
                         Some((_, revision)) if revision >= package.manifest.revision => {
                             superseded.push(package.key())
                         }
@@ -419,6 +441,12 @@ impl Runtime {
                 manifest.activation = activation.clone();
             }
             plugins.push(PluginInfo {
+                source: inner.sources.get(&package.manifest.id).cloned(),
+                origin: inner
+                    .origins
+                    .get(&package.manifest.id)
+                    .cloned()
+                    .unwrap_or_else(|| "unknown".into()),
                 manifest,
                 enabled: !inner.disabled.contains(&package.manifest.id),
                 process_ids: pids,
@@ -567,7 +595,10 @@ impl Runtime {
 
     pub async fn settings_for_session(&self, id: &str) -> Result<Value, String> {
         let inner = self.inner.lock().await;
-        let session = inner.sessions.get(id).ok_or_else(|| msg!(text().session_expired))?;
+        let session = inner
+            .sessions
+            .get(id)
+            .ok_or_else(|| msg!(text().session_expired))?;
         let empty = serde_json::Map::new();
         let stored = inner
             .settings
@@ -606,7 +637,10 @@ impl Runtime {
 
     pub async fn session_data(&self, id: &str) -> Result<Value, String> {
         let inner = self.inner.lock().await;
-        let session = inner.sessions.get(id).ok_or_else(|| msg!(text().session_expired))?;
+        let session = inner
+            .sessions
+            .get(id)
+            .ok_or_else(|| msg!(text().session_expired))?;
         if session.info.status != "ready" {
             return Err(msg!(text().session_not_ready));
         }
@@ -624,7 +658,10 @@ impl Runtime {
 
     pub async fn complete_view(&self, id: &str, error: Option<String>) -> Result<(), String> {
         let mut inner = self.inner.lock().await;
-        let session = inner.sessions.get_mut(id).ok_or_else(|| msg!(text().session_expired))?;
+        let session = inner
+            .sessions
+            .get_mut(id)
+            .ok_or_else(|| msg!(text().session_expired))?;
         session.info.view_ready = true;
         session.touched = Instant::now();
         if let Some(error) = error {
@@ -646,7 +683,10 @@ impl Runtime {
 
     pub async fn authorize(&self, id: &str, permission: Permission) -> Result<(), String> {
         let inner = self.inner.lock().await;
-        let session = inner.sessions.get(id).ok_or_else(|| msg!(text().session_expired))?;
+        let session = inner
+            .sessions
+            .get(id)
+            .ok_or_else(|| msg!(text().session_expired))?;
         if !session.package.manifest.permissions.contains(&permission) {
             return Err(msg!(text().permission_undeclared));
         }
@@ -667,10 +707,14 @@ impl Runtime {
         reason: Option<String>,
     ) -> Result<(), String> {
         let mut inner = self.inner.lock().await;
-        let session = inner.sessions.get_mut(id).ok_or_else(|| msg!(text().session_expired))?;
+        let session = inner
+            .sessions
+            .get_mut(id)
+            .ok_or_else(|| msg!(text().session_expired))?;
         session.info.pending = pending;
         session.info.pending_reason = if pending {
-            reason.map(|reason| reason.trim().to_string())
+            reason
+                .map(|reason| reason.trim().to_string())
                 .filter(|reason| !reason.is_empty())
                 .map(|reason| reason.chars().take(60).collect())
         } else {
@@ -714,9 +758,18 @@ impl Runtime {
     pub async fn source_call(&self, id: &str, method: &str, value: Value) -> Result<Value, String> {
         let source = {
             let inner = self.inner.lock().await;
-            let consumer = inner.sessions.get(id).ok_or_else(|| msg!(text().session_expired))?;
-            let source_id = consumer.source.as_ref().ok_or_else(|| msg!(text().no_source))?;
-            let provider = inner.sessions.get(source_id).ok_or_else(|| msg!(text().source_expired))?;
+            let consumer = inner
+                .sessions
+                .get(id)
+                .ok_or_else(|| msg!(text().session_expired))?;
+            let source_id = consumer
+                .source
+                .as_ref()
+                .ok_or_else(|| msg!(text().no_source))?;
+            let provider = inner
+                .sessions
+                .get(source_id)
+                .ok_or_else(|| msg!(text().source_expired))?;
             if !provider
                 .package
                 .manifest
@@ -733,7 +786,10 @@ impl Runtime {
 
     pub async fn asset(&self, id: &str, path: &str) -> Result<PathBuf, String> {
         let inner = self.inner.lock().await;
-        let session = inner.sessions.get(id).ok_or_else(|| msg!(text().session_expired))?;
+        let session = inner
+            .sessions
+            .get(id)
+            .ok_or_else(|| msg!(text().session_expired))?;
         manifest::contained(
             &session.package.directory,
             if path.is_empty() {
@@ -750,7 +806,10 @@ impl Runtime {
         }
         let (worker, path, settings) = {
             let mut inner = self.inner.lock().await;
-            let session = inner.sessions.get_mut(id).ok_or_else(|| msg!(text().session_expired))?;
+            let session = inner
+                .sessions
+                .get_mut(id)
+                .ok_or_else(|| msg!(text().session_expired))?;
             if session.calls >= 8 {
                 return Err(msg!(text().too_many_calls));
             }
@@ -762,7 +821,11 @@ impl Runtime {
             let empty = serde_json::Map::new();
             let stored = inner.settings.get(&manifest.id).unwrap_or(&empty);
             let settings = manifest.resolve_settings(stored);
-            let worker = inner.workers.get(&key).cloned().ok_or_else(|| msg!(text().worker_expired))?;
+            let worker = inner
+                .workers
+                .get(&key)
+                .cloned()
+                .ok_or_else(|| msg!(text().worker_expired))?;
             (worker, path, settings)
         };
         let result = worker
@@ -793,7 +856,8 @@ impl Runtime {
                 .get(id)
                 .cloned()
                 .unwrap_or_else(|| inner.packages[id].manifest.activation.clone());
-            activation.priority = i32::try_from(ids.len() - index).map_err(|_| msg!(text().too_many_plugins))?;
+            activation.priority =
+                i32::try_from(ids.len() - index).map_err(|_| msg!(text().too_many_plugins))?;
             inner.activation.insert(id.clone(), activation);
         }
         inner.preferred.clear();
@@ -881,8 +945,35 @@ impl Runtime {
     }
 
     pub async fn install(self: &Arc<Self>, source: &Path) -> Result<(), String> {
+        self.install_from(source, None).await
+    }
+
+    pub async fn install_from(
+        self: &Arc<Self>,
+        source: &Path,
+        origin: Option<String>,
+    ) -> Result<(), String> {
+        self.install_from_source(source, origin, None).await
+    }
+
+    pub async fn install_from_source(
+        self: &Arc<Self>,
+        source: &Path,
+        origin: Option<String>,
+        source_id: Option<String>,
+    ) -> Result<(), String> {
         let _installation = self.installation.lock().await;
         let package = Package::load(source)?;
+        let id = package.manifest.id.clone();
+        if !package.manifest.targets.is_empty()
+            && !package
+                .manifest
+                .targets
+                .iter()
+                .any(|t| t == manifest::HOST_TARGET)
+        {
+            return Err("Plugin target does not match this host".into());
+        }
         let installed = self
             .inner
             .lock()
@@ -891,10 +982,36 @@ impl Runtime {
             .get(&package.manifest.id)
             .cloned();
         if let Some(installed) = &installed {
-            let incoming = semver::Version::parse(&package.manifest.version).map_err(|e| msg!(text().invalid_version, error = e))?;
-            let current = semver::Version::parse(&installed.manifest.version).map_err(|e| msg!(text().installed_invalid_version, error = e))?;
+            let incoming = semver::Version::parse(&package.manifest.version)
+                .map_err(|e| msg!(text().invalid_version, error = e))?;
+            let current = semver::Version::parse(&installed.manifest.version)
+                .map_err(|e| msg!(text().installed_invalid_version, error = e))?;
             if incoming.cmp_precedence(&current).is_lt() {
-                return Err(msg!(text().downgrade, installed = current, incoming = incoming));
+                return Err(msg!(
+                    text().downgrade,
+                    installed = current,
+                    incoming = incoming
+                ));
+            }
+        }
+        if let Some(incoming) = &origin {
+            let inner = self.inner.lock().await;
+            if inner.packages.contains_key(&id)
+                && inner
+                    .origins
+                    .get(&id)
+                    .is_some_and(|old| old != incoming && old != "unknown")
+            {
+                return Err("Plugin ID belongs to another source. Uninstall it explicitly before changing sources / 同名插件来自其他来源，请明确卸载后再更换来源".into());
+            }
+            if inner.packages.contains_key(&id)
+                && source_id.as_ref().is_some_and(|incoming| {
+                    inner.sources.get(&id).is_some_and(|old| old != incoming)
+                })
+            {
+                return Err(
+                    "Plugin ID belongs to another catalog / 同名插件来自另一个插件目录".into(),
+                );
             }
         }
         match installed {
@@ -908,7 +1025,50 @@ impl Runtime {
             // An update replaces the installed directory; only a first install adds one.
             Some(installed) => self.replace_package(source, &installed).await,
             None => self.install_package(source).await,
+        }?;
+        if let Some(origin) = origin {
+            let mut inner = self.inner.lock().await;
+            inner.origins.insert(id.clone(), origin);
+            if let Some(source_id) = source_id {
+                inner.sources.insert(id.clone(), source_id);
+            } else {
+                inner.sources.remove(&id);
+            }
+            if let Err(error) = self.persist(&inner) {
+                inner.origins.remove(&id);
+                return Err(error);
+            }
         }
+        Ok(())
+    }
+
+    /// Recover provenance only when a verified source package exactly matches a legacy install.
+    pub(crate) async fn recover_origin(
+        &self,
+        source: &Path,
+        catalog: &str,
+        origin: &str,
+    ) -> Result<(), String> {
+        let _installation = self.installation.lock().await;
+        let incoming = Package::load(source)?;
+        let mut inner = self.inner.lock().await;
+        let id = &incoming.manifest.id;
+        if inner
+            .origins
+            .get(id)
+            .is_some_and(|value| value != "unknown")
+        {
+            return Ok(());
+        }
+        let Some(installed) = inner.packages.get(id) else {
+            return Ok(());
+        };
+        if sharing::export(&installed.directory)? != sharing::export(source)? {
+            return Ok(());
+        }
+        inner.origins.insert(id.clone(), origin.into());
+        inner.sources.insert(id.clone(), catalog.into());
+        self.persist(&inner)
     }
 
     pub async fn update_development(self: &Arc<Self>, source: &Path) -> Result<(), String> {
@@ -921,7 +1081,9 @@ impl Runtime {
             .packages
             .get(&package.manifest.id)
             .cloned();
-        let Some(installed) = installed else { return Ok(()) };
+        let Some(installed) = installed else {
+            return Ok(());
+        };
         if installed.manifest.build_id.is_empty()
             || installed.manifest.build_id == package.manifest.build_id
         {
@@ -992,7 +1154,10 @@ impl Runtime {
         if failures.is_empty() {
             Ok(())
         } else {
-            Err(msg!(text().reopen_failed, failures = failures.join(text().semicolon)))
+            Err(msg!(
+                text().reopen_failed,
+                failures = failures.join(text().semicolon)
+            ))
         }
     }
 
@@ -1017,24 +1182,30 @@ impl Runtime {
         loop {
             let before = (files.len(), affected_keys.len());
             for session in inner.sessions.values() {
-                if session.info.plugin_id == id || files.contains(&session.info.file_id)
-                    || affected_keys.contains(&session.package.key()) {
+                if session.info.plugin_id == id
+                    || files.contains(&session.info.file_id)
+                    || affected_keys.contains(&session.package.key())
+                {
                     files.insert(session.info.file_id.clone());
                     affected_keys.insert(session.package.key());
                 }
             }
-            if before == (files.len(), affected_keys.len()) { break; }
+            if before == (files.len(), affected_keys.len()) {
+                break;
+            }
         }
-        if let Some(session) = inner.sessions.values().find(|s| files.contains(&s.info.file_id) && s.info.pending) {
+        if let Some(session) = inner
+            .sessions
+            .values()
+            .find(|s| files.contains(&s.info.file_id) && s.info.pending)
+        {
             return Err(pending_change(session).refusal(Refusal::Update));
         }
         inner.updating = true;
         let dropped: Vec<String> = inner
             .sessions
             .values()
-            .filter(|session| {
-                session.info.plugin_id == id || files.contains(&session.info.file_id)
-            })
+            .filter(|session| session.info.plugin_id == id || files.contains(&session.info.file_id))
             .map(|session| session.info.id.clone())
             .collect();
         let was_active = inner
@@ -1047,7 +1218,9 @@ impl Runtime {
         let mut keys = HashSet::new();
         for session_id in dropped {
             if let Some(session) = inner.sessions.remove(&session_id) {
-                if !paths.contains(&session.path) { paths.push(session.path.clone()); }
+                if !paths.contains(&session.path) {
+                    paths.push(session.path.clone());
+                }
                 keys.insert(session.package.key());
             }
         }
@@ -1087,7 +1260,10 @@ impl Runtime {
         if let Some((path, plugin)) = taken.active {
             let id = {
                 let inner = self.inner.lock().await;
-                inner.sessions.values().find(|s| s.path == path && s.info.plugin_id == plugin)
+                inner
+                    .sessions
+                    .values()
+                    .find(|s| s.path == path && s.info.plugin_id == plugin)
                     .or_else(|| inner.sessions.values().find(|s| s.path == path))
                     .map(|s| s.info.id.clone())
             };
@@ -1179,13 +1355,7 @@ impl Runtime {
     /// the uninstaller uses, so a revision still serving a preview is deleted once that preview
     /// is gone rather than being ripped out from under it.
     async fn retire_superseded(&self, id: &str) -> Result<(), String> {
-        let installed = self
-            .inner
-            .lock()
-            .await
-            .packages
-            .get(id)
-            .map(Package::key);
+        let installed = self.inner.lock().await.packages.get(id).map(Package::key);
         let Some(installed) = installed else {
             return Ok(());
         };

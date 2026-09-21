@@ -19,6 +19,16 @@ export const ready = new Promise((resolve) => {
   resolveReady = resolve;
 });
 
+/** Search the host's pinned, offline Lucide catalog (up to 200 results). */
+export function findIcons(query = "") { return request("icons", { query }); }
+/** A trusted, themeable SVG element from the host registry. Unknown names fall back. */
+export async function createIcon(name, size = 20) {
+  const svg = await request("icons", { name });
+  const element = new DOMParser().parseFromString(svg, "image/svg+xml").documentElement;
+  element.setAttribute("width", String(size)); element.setAttribute("height", String(size));
+  element.setAttribute("aria-hidden", "true"); return document.importNode(element, true);
+}
+
 /** Current values of every setting the plugin declared in plugin.json. */
 export function configuration() {
   return settings;
@@ -202,6 +212,12 @@ function request(method, params) {
   });
 }
 
+/**
+ * Publish command controls for the host toolbar. Plugins render content in their document;
+ * the host renders these controls with its own size, spacing, focus and selected states.
+ * Every item declares a canonical Lucide `icon`. Toggle items also declare boolean `active`
+ * and republish the list after their state changes.
+ */
 export function controls(items) {
   actions.clear();
   for (const item of items) actions.set(item.id, item.run);
@@ -213,7 +229,45 @@ export function controls(items) {
 export function status(text) {
   port?.postMessage({ type: "status", text });
 }
+/**
+ * What went wrong in this document, for the host to show and for a generated plugin's
+ * own trial run to report. Uncaught errors, rejections and console failures are kept
+ * (never replaced) and sent to the host: a plugin that throws before it presents itself
+ * would otherwise fail silently, which is exactly the case a preview has to explain.
+ */
+const diagnostics = [];
+let diagnosticsDirty = false;
+function record(level, message) {
+  const text = String(message ?? "").slice(0, 500);
+  if (!text) return;
+  if (diagnostics.length >= 20) diagnostics.shift();
+  diagnostics.push({ level, text });
+  diagnosticsDirty = true;
+  port?.postMessage({ type: "diagnostics", items: diagnostics.slice() });
+}
+function flushDiagnostics() {
+  if (!port || !diagnosticsDirty) return;
+  diagnosticsDirty = false;
+  port.postMessage({ type: "diagnostics", items: diagnostics.slice() });
+}
+addEventListener("error", (event) => {
+  const where = event.filename ? ` (${event.filename}:${event.lineno})` : "";
+  record("error", `${event.message || "Uncaught error"}${where}`);
+});
+addEventListener("unhandledrejection", (event) => record("error", `Unhandled rejection: ${event.reason?.message || event.reason}`));
+for (const level of ["error", "warn"]) {
+  const original = console[level].bind(console);
+  console[level] = (...values) => {
+    record(level, values.map((value) => (value instanceof Error ? value.message : String(value))).join(" "));
+    original(...values);
+  };
+}
+/** Everything this document has reported, oldest first. */
+export function diagnosticsOf() {
+  return diagnostics.slice();
+}
 export function presented(error = null) {
+  flushDiagnostics();
   return request("presented", { error });
 }
 
@@ -239,6 +293,9 @@ export async function read(offset, length) {
   const encoded = await request("read", { offset, length });
   return Uint8Array.from(atob(encoded), (char) => char.charCodeAt(0));
 }
+/** The whole sample as a `Blob`, read in 1 MiB steps. This is the route for a media element:
+ * the page may only load `blob:` media sources, so a `<video>` or `<audio>` gets its source
+ * from `URL.createObjectURL(await fileBlob(file.size, "video/mp4"))` and not from `fileUrl()`. */
 export async function fileBlob(size, type) {
   const chunks = [];
   for (let offset = 0; offset < size; offset += 1024 * 1024) {
@@ -249,8 +306,10 @@ export async function fileBlob(size, type) {
   return new Blob(chunks, { type });
 }
 
-/** A permission-checked URL for the session's source file. Browsers can decode media
- * directly from it without repeated Base64 IPC calls. */
+/** A permission-checked URL for the session's source file, for the browser to load directly:
+ * an image source, a fetch, or a library that takes a URL. The host answers with the whole
+ * file and refuses anything over 32 MiB. Media elements cannot use it — their sources are
+ * limited to `blob:`, so read the bytes with `fileBlob()` instead. */
 export function fileUrl() {
   if (!sessionId) throw new Error("Plugin session is not ready");
   return new URL(`/${encodeURIComponent(sessionId)}/@file`, location.origin).href;

@@ -5,6 +5,14 @@
 // A value may be a string, or `{ one, other }` for a message whose wording depends on a
 // `count` parameter. `{name}` placeholders are filled from the parameters passed to `t`.
 export const en = {
+  "plugins.noViewer": "No enabled viewer matches this file. Install or enable a plugin that can open it.",
+  "plugins.installFromFile": "Install package",
+  "plugins.origin.local": "Local imports",
+  "plugins.origin.official": "Official plugins",
+  "plugins.origin.custom": "Custom plugins",
+  "plugins.origin.market": "Third-party sources",
+  "plugins.origin.generated": "AI generated",
+  "plugins.origin.unknown": "Existing plugins · Legacy installation",
   "window.minimize": "Minimize",
   "window.maximize": "Maximize or restore",
   "window.close": "Close",
@@ -60,10 +68,7 @@ export const en = {
     "This plugin is no longer available; refresh the plugin list.",
   "plugin.settings.none": "This plugin declares no further settings.",
   "plugin.pidRunning": "Background process PID: {pids}",
-  "plugin.pidOnDemand":
-    "No background process yet; it starts on demand when the plugin is used",
   "plugin.runtimeRunning": "Running",
-  "plugin.runtimeOnDemand": "On demand",
 
   "settings.increase": "Increase {label}",
   "settings.decrease": "Decrease {label}",
@@ -141,7 +146,6 @@ export const en = {
   "market.progress.install": "Installing the plugin…",
   "market.progress.refresh": "Refreshing the plugin list…",
   "market.refreshSources": "Refresh plugin sources",
-  "market.title": "Plugin marketplace",
   "market.sources": {
     one: "{count} source",
     other: "{count} sources",

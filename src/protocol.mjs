@@ -36,7 +36,7 @@ export function validateControls(value, say = (key) => key) {
       id: item.id,
       kind: item.kind,
       label: item.label,
-      icon: typeof item.icon === "string" ? item.icon.slice(0, 32) : "",
+      icon: typeof item.icon === "string" ? item.icon.slice(0, 40) : "",
       // Only meaningful for a toggle; the host uses it to draw the pressed state.
       active: item.active === true,
       ...(item.kind === "scrub" ? { value: item.value, min: item.min, max: item.max,

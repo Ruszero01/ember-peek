@@ -20,7 +20,11 @@ Set-Location (Join-Path $PSScriptRoot "..")
 
 $debugPort = 9222
 $frontendPort = 1420
-$env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = "--remote-debugging-port=$debugPort"
+# NOT WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: wry always hands WebView2 an explicit argument
+# string, and the loader reads its own variable only when the host passes none, so a port asked
+# for that way never opens. The app adds these arguments itself (src-tauri/src/desktop.rs).
+# Supplying arguments replaces wry's defaults, so they are repeated here.
+$env:EMBER_WEBVIEW_ARGS = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --remote-debugging-port=$debugPort"
 
 function Test-Port([int]$Port) {
   return [bool](Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue)

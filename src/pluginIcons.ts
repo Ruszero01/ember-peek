@@ -1,58 +1,26 @@
-// One vocabulary of icons a plugin may name in its `plugin.json` `icon` field.
-//
-// Plugins name an icon rather than shipping an asset: a plugin-supplied image would
-// need its own path validation, format allow-list, size cap and content hashing, and
-// would let a package dress itself up as another. The host owning the set keeps that
-// out of the trust boundary.
-//
-// An unknown name falls back to the generic icon instead of failing, so this list can
-// grow without invalidating plugins that already name a newer icon.
-import {
-  Archive,
-  Binary,
-  Braces,
-  Code,
-  FileCode,
-  FileJson,
-  FilePen,
-  FileText,
-  FileType,
-  Film,
-  Image,
-  Info,
-  Music,
-  Package,
-  Presentation,
-  Table,
-} from "lucide-react";
-import type { ComponentType } from "react";
+import { createElement, lazy, Suspense, type ComponentType } from "react";
+import { Package } from "lucide-react";
+import dynamicIconImports from "lucide-react/dynamicIconImports";
 
 export type PluginIconProps = { size?: number | string };
-
-export const PLUGIN_ICONS: Record<string, ComponentType<PluginIconProps>> = {
-  image: Image,
-  "file-text": FileText,
-  code: Code,
-  "file-code": FileCode,
-  braces: Braces,
-  "file-json": FileJson,
-  binary: Binary,
-  presentation: Presentation,
-  film: Film,
-  music: Music,
-  table: Table,
-  archive: Archive,
-  "file-type": FileType,
-  "file-pen": FilePen,
-  info: Info,
+export const PLUGIN_ICON_NAMES = Object.keys(dynamicIconImports).sort();
+const cache = new Map<string, ComponentType<PluginIconProps>>();
+const aliases: Record<string, string> = {
+  fit: "maximize", actual: "square", up: "chevron-up", down: "chevron-down",
 };
 
-/** Names a plugin may use, for docs and for pointing authors at a valid value. */
-export const PLUGIN_ICON_NAMES = Object.keys(PLUGIN_ICONS).sort();
-
-/** The icon for a declared name, or the generic package icon. */
-export function pluginIcon(
-  name: string | null | undefined,
-): ComponentType<PluginIconProps> {
-  return (name && PLUGIN_ICONS[name]) || Package;
+/** The full pinned Lucide catalog, loaded from local application chunks. */
+export function pluginIcon(name: string | null | undefined): ComponentType<PluginIconProps> {
+  const key = name ? aliases[name] || name : "package";
+  if (!Object.hasOwn(dynamicIconImports, key)) return Package;
+  let component = cache.get(key);
+  if (!component) {
+    const Icon = lazy(async () => {
+      try { return await dynamicIconImports[key as keyof typeof dynamicIconImports](); }
+      catch { return { default: Package }; }
+    });
+    component = props => createElement(Suspense, { fallback: createElement(Package, props) }, createElement(Icon, props));
+    cache.set(key, component);
+  }
+  return component;
 }

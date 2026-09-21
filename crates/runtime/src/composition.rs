@@ -18,7 +18,9 @@ impl Runtime {
             .unwrap_or("")
             .to_lowercase();
         let mut inner = self.inner.lock().await;
-        if inner.updating { return Err(msg!(text().updating)); }
+        if inner.updating {
+            return Err(msg!(text().updating));
+        }
         let mut packages: Vec<_> = inner
             .packages
             .values()
@@ -297,7 +299,10 @@ impl Runtime {
     pub async fn activate(&self, id: Option<String>) -> Result<(), String> {
         let mut inner = self.inner.lock().await;
         let next_file = if let Some(id) = &id {
-            let session = inner.sessions.get(id).ok_or_else(|| msg!(text().session_expired))?;
+            let session = inner
+                .sessions
+                .get(id)
+                .ok_or_else(|| msg!(text().session_expired))?;
             if inner.disabled.contains(&session.info.plugin_id)
                 || !inner.packages.contains_key(&session.info.plugin_id)
             {
@@ -337,7 +342,10 @@ impl Runtime {
 
     pub async fn return_target(&self, id: &str) -> Result<String, String> {
         let inner = self.inner.lock().await;
-        let session = inner.sessions.get(id).ok_or_else(|| msg!(text().session_expired))?;
+        let session = inner
+            .sessions
+            .get(id)
+            .ok_or_else(|| msg!(text().session_expired))?;
         let available = |s: &&Session| {
             s.info.file_id == session.info.file_id
                 && s.package.manifest.has(Capability::View)
@@ -363,7 +371,10 @@ impl Runtime {
 
     pub async fn source_data(&self, id: &str) -> Result<Value, String> {
         let inner = self.inner.lock().await;
-        let session = inner.sessions.get(id).ok_or_else(|| msg!(text().session_expired))?;
+        let session = inner
+            .sessions
+            .get(id)
+            .ok_or_else(|| msg!(text().session_expired))?;
         let Some(source) = session
             .source
             .as_ref()

@@ -318,7 +318,10 @@ async fn updating_replaces_the_installed_directory_and_puts_the_preview_back() {
     assert_eq!(sessions[0].name, before.name);
     // Re-activating is what keeps the preview window on that file: it shows the active
     // session's file, and the session that was on screen no longer exists.
-    assert_eq!(runtime.snapshot().await.active, Some(sessions[0].id.clone()));
+    assert_eq!(
+        runtime.snapshot().await.active,
+        Some(sessions[0].id.clone())
+    );
     ready(&runtime, &sessions[0].id).await;
     runtime.shutdown().await;
 }
@@ -386,21 +389,48 @@ async fn updating_a_peer_protects_drafts_in_all_affected_worker_sessions() {
     runtime.open(file).await.unwrap();
     runtime.open(other).await.unwrap();
     let snapshot = runtime.snapshot().await;
-    for session in &snapshot.sessions { ready(&runtime, &session.id).await; }
-    let active = snapshot.sessions.iter().find(|s| s.name == "other.md").unwrap();
+    for session in &snapshot.sessions {
+        ready(&runtime, &session.id).await;
+    }
+    let active = snapshot
+        .sessions
+        .iter()
+        .find(|s| s.name == "other.md")
+        .unwrap();
     runtime.activate(Some(active.id.clone())).await.unwrap();
     set_build_id(&preview, "new");
-    for session in snapshot.sessions.iter().filter(|s| s.plugin_id == "test.editor") {
-        runtime.set_pending(&session.id, true, Some("未保存草稿".into())).await.unwrap();
+    for session in snapshot
+        .sessions
+        .iter()
+        .filter(|s| s.plugin_id == "test.editor")
+    {
+        runtime
+            .set_pending(&session.id, true, Some("未保存草稿".into()))
+            .await
+            .unwrap();
         let error = runtime.install(&preview).await.unwrap_err();
         assert!(error.contains("未保存草稿"), "{error}");
-        assert!(runtime.snapshot().await.sessions.iter().any(|s| s.id == session.id && s.pending));
+        assert!(runtime
+            .snapshot()
+            .await
+            .sessions
+            .iter()
+            .any(|s| s.id == session.id && s.pending));
         runtime.set_pending(&session.id, false, None).await.unwrap();
     }
     runtime.install(&preview).await.unwrap();
-    assert!(runtime.snapshot().await.plugins.iter().any(|p| p.manifest.build_id == "new"));
+    assert!(runtime
+        .snapshot()
+        .await
+        .plugins
+        .iter()
+        .any(|p| p.manifest.build_id == "new"));
     let after = runtime.snapshot().await;
-    let active = after.sessions.iter().find(|s| Some(&s.id) == after.active.as_ref()).unwrap();
+    let active = after
+        .sessions
+        .iter()
+        .find(|s| Some(&s.id) == after.active.as_ref())
+        .unwrap();
     assert_eq!(active.name, "other.md");
     assert_eq!(active.plugin_id, "test.editor");
     runtime.shutdown().await;
@@ -448,11 +478,10 @@ async fn an_interrupted_swap_is_put_back() {
     std::fs::create_dir_all(root.join(format!(".replaced-{}", installed[0]))).unwrap();
     runtime.scan().await.unwrap();
     assert_eq!(installed_dirs(&root), installed);
-    assert!(root
-        .read_dir()
-        .unwrap()
-        .flatten()
-        .all(|entry| !entry.file_name().to_string_lossy().starts_with(".replaced-")));
+    assert!(root.read_dir().unwrap().flatten().all(|entry| !entry
+        .file_name()
+        .to_string_lossy()
+        .starts_with(".replaced-")));
     runtime.shutdown().await;
 }
 
@@ -847,7 +876,10 @@ async fn resetting_to_first_launch_leaves_nothing_installed() {
     let runtime = Runtime::new(root.clone()).unwrap();
     runtime.install(&source).await.unwrap();
     runtime.complete_onboarding().await.unwrap();
-    runtime.set_setting("test.one", "wrap", json!(false)).await.unwrap();
+    runtime
+        .set_setting("test.one", "wrap", json!(false))
+        .await
+        .unwrap();
     runtime.enabled("test.one", false).await.unwrap();
     assert_eq!(runtime.snapshot().await.plugins.len(), 1);
 
@@ -952,13 +984,21 @@ async fn a_refusal_names_the_work_the_plugin_reports() {
         refusal.replace("卸载", "停用")
     );
     assert_eq!(
-        runtime.blocking_change(Some("test.one")).await.unwrap().reason,
+        runtime
+            .blocking_change(Some("test.one"))
+            .await
+            .unwrap()
+            .reason,
         "未应用的裁剪"
     );
     // A plugin that names nothing is still protected, in the host's neutral words.
     runtime.set_pending(&session.id, true, None).await.unwrap();
     assert_eq!(
-        runtime.blocking_change(Some("test.one")).await.unwrap().reason,
+        runtime
+            .blocking_change(Some("test.one"))
+            .await
+            .unwrap()
+            .reason,
         "尚未提交的变更"
     );
     assert!(runtime.blocking_change(None).await.is_some());
@@ -1000,9 +1040,10 @@ async fn a_superseded_revision_is_retired_on_the_next_scan() {
         copy.join("ui/index.html"),
     )
     .unwrap();
-    let mut manifest: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(root.join(&installed[0]).join("plugin.json")).unwrap())
-            .unwrap();
+    let mut manifest: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(root.join(&installed[0]).join("plugin.json")).unwrap(),
+    )
+    .unwrap();
     manifest["revision"] = json!(9999999999999u64);
     std::fs::write(copy.join("plugin.json"), manifest.to_string()).unwrap();
 

@@ -1173,6 +1173,15 @@ kbd {
     transition: none !important;
   }
 }
+/* The tab bar keeps its place on every tab; this row exists so a tool's settings entry can sit
+   on the same line as the tabs instead of on a header row of its own. */
+.plugin-tabs-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
 .plugin-tabs {
   display: inline-flex;
   gap: 3px;
@@ -1180,8 +1189,8 @@ kbd {
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--card);
-  margin-bottom: 20px;
 }
+.tool-settings-link { flex: none; }
 .plugin-tabs button {
   padding: 7px 13px;
   border-radius: 5px;
@@ -1474,7 +1483,9 @@ kbd {
 .plugin-enable .text-button { border-left: 1px solid var(--border); border-radius: 0; padding-left: 12px; margin-left: 3px; font-size: 10px; }
 .plugin-enable .text-button:hover { color: #ed827d; }
 .market-source { display: flex; align-items: center; gap: 10px; padding: 11px 12px 11px 16px; border: 1px solid var(--border); border-radius: 10px; background: linear-gradient(110deg, var(--accent-bg), var(--card)); color: var(--accent); margin-top: 16px; }
-.market-source strong { font-size: 11px; font-weight: 600; color: var(--text); }
+/* The caution that belongs with installing: it sits on the line naming the source, where it is
+   read at the moment it matters, instead of on a band under every list. */
+.source-note { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--muted); font-size: 11px; }
 .source-badge { margin-left: auto; font-size: 9px; border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent); padding: 3px 7px; border-radius: 5px; }
 /* The banner's own refresh: one icon on the line the source is named on, rather than a
    second toolbar above it. It acts on what the banner shows, so it belongs to it. */
@@ -1614,3 +1625,18 @@ kbd {
 /* The way out sits below the two ways in, and reads as the least of the three. */
 .welcome-later { margin-top: -8px; font-size: 11.5px; }
 .welcome .warning, .welcome .quiet-note { max-width: 520px; }
+/* Installed tool plugins own their page; the host owns the frame boundary. A tool page fills
+   the room it is given instead of asking for a fixed height: a fixed one (660px, 620px, …)
+   overflows a short window and covers whatever the host put under it. */
+.tool-page { width: 100%; min-height: 0; margin-top: 0; }
+.tool-page iframe { width: 100%; height: 100%; border: 0; background: transparent; }
+.plugin-group-heading{display:flex;align-items:center;gap:10px;margin:25px 0 13px}.plugin-group-heading h2{font-size:12px;font-weight:600;letter-spacing:.3px;margin:0;color:var(--muted)}.plugin-group-heading>span{display:grid;place-items:center;min-width:21px;height:20px;border-radius:6px;font-size:10px;background:var(--surface);color:var(--muted)}.plugin-group-heading>div{height:1px;flex:1;background:var(--border)}.plugin-group-heading+.market-card{margin-top:0}.settings-app .market-card{border-radius:13px}
+
+/* Tool surfaces own their internal scroll regions. Never scroll the iframe shell, and keep the
+   header and the page padding the other tabs have: the tab bar sits in the same place on every
+   tab, so opening a tool must not shift it. The tool page then takes whatever is left. */
+.settings-main.tool-surface{display:flex;min-height:0;flex-direction:column;overflow:hidden}
+.settings-main.tool-surface>.plugin-tabs-row{width:100%;margin:0 0 10px;flex:none}
+.settings-main.tool-surface>.tool-page{display:flex;min-height:0;flex:1;flex-direction:column;margin:0;overflow:hidden}
+.settings-main.tool-surface>.tool-page iframe{display:block;width:100%;height:100%;min-height:0;flex:1;border:0}
+.workshop-preview-window{height:100vh;display:flex;flex-direction:column;overflow:hidden;background:var(--bg)}.workshop-preview-window>header{display:flex;align-items:center;gap:20px;padding:12px 18px;border-bottom:1px solid var(--border);font-size:12px}.workshop-preview-window>header>span{color:var(--muted);overflow-wrap:anywhere}.workshop-preview-canvas{flex:1;min-height:0}.workshop-preview-canvas iframe{width:100%;height:100%;border:0}.workshop-preview-window>.workshop-preview-controls{flex:none;justify-content:flex-start;border-top:1px solid var(--border);background:var(--card)}.workshop-preview-window>footer:empty{display:none}

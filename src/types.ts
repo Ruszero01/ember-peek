@@ -59,6 +59,9 @@ export type PluginSetting =
       default: string;
     };
 export type Plugin = {
+  entry: string;
+  origin: string;
+  source?: string | null;
   activation: { mode: "auto" | "manual"; priority: number };
   id: string;
   name: string;

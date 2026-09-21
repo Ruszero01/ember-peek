@@ -85,22 +85,7 @@ const initial: Snapshot = {
   // Nothing is shown until the host answers, and the chooser is the host's decision.
   onboarded: true,
 };
-const icons: Record<string, typeof Search> = {
-  search: Search,
-  check: Check,
-  copy: Copy,
-  plus: Plus,
-  minus: Minus,
-  fit: Maximize,
-  actual: Square,
-  up: ChevronUp,
-  down: ChevronDown,
-  "text-wrap": TextWrap,
-  save: Save,
-  "rotate-ccw": RotateCcw,
-  hash: Hash,
-  code: Code,
-};
+const originOrder: Record<string, number> = { official: 0, generated: 1, local: 2, market: 3, unknown: 4 };
 type Settings = {
   theme: "light" | "dark" | "system";
   immersive: boolean;
@@ -968,12 +953,15 @@ function App() {
     setBusy(false);
   }
   const [pluginAction, setPluginAction] = useState<PluginAction | null>(null);
-  async function install() {
+  async function install(folder = true) {
     await manage(async () => {
-      const path = await call<string | null>("pick_path", { folder: true });
-      if (path) setPluginAction({ name: t("plugins.localName"), detail: path, kind: "install", run: async progress => {
-        progress(t("progress.installLocal")); await call("install_plugin", { path }); progress(t("progress.refreshPlugins")); await refresh();
-      } });
+      const path = await call<string | null>("pick_path", { folder });
+      if (path) {
+        const prepared = await call<{token: string; id: string; name: string; version: string; permissions: string[]}>("prepare_plugin", {path});
+        setPluginAction({ name: prepared.name, detail: `${prepared.id} · v${prepared.version} · ${prepared.permissions.join(", ") || "—"}\n${path}`, kind: "install", run: async progress => {
+          progress(t("progress.installLocal")); await call("install_plugin", { token: prepared.token }); progress(t("progress.refreshPlugins")); await refresh();
+        } });
+      }
     });
   }
   const title = (
@@ -1172,6 +1160,12 @@ function App() {
             </div>
           </div>
         )}
+        {current && !opening && !contributors.some(s => s.capabilities.includes("view")) && (
+          <div className="empty-state">
+            <p>{t("plugins.noViewer")}</p>
+            <button className="secondary-button" onClick={() => settingsPage("plugins")}>{t("empty.manage")}</button>
+          </div>
+        )}
         <DelayedLoading
           visible={
             opening ||
@@ -1288,8 +1282,7 @@ function App() {
                       <div className="bubble-controls-inner">
                         {items.map((control) => {
                           if (control.kind === "scrub") return <ScrubControl key={control.id} control={control} active={isCurrent} onActiveChange={setScrubbingControl} onChange={value => sendControl(contributor.id, control.id, value)} />;
-                          const Icon =
-                            icons[control.icon || ""] || SlidersHorizontal;
+                          const Icon = pluginIcon(control.icon || "sliders-horizontal");
                           return (
                             <button
                               key={control.id}
@@ -1631,6 +1624,9 @@ function App() {
                         <Download size={14} />
                         {t("plugins.installFromFolder")}
                       </button>
+                      <button className="secondary-button" disabled={busy} onClick={() => void install(false)}>
+                        <Download size={14} />{t("plugins.installFromFile")}
+                      </button>
                     </div>
                   </div>
                   <label className="search-box">
@@ -1655,9 +1651,13 @@ function App() {
                             .toLowerCase()
                             .includes(filter.toLowerCase()),
                         )
-                        .map((plugin) => {
+                        .sort((a,b) => (originOrder[a.origin] ?? 4) - (originOrder[b.origin] ?? 4) || a.name.localeCompare(b.name))
+                        .map((plugin, index, plugins) => {
                           const Icon = pluginIcon(plugin.icon);
+                          const group = (origin: string) => origin === "official" ? "plugins.origin.official" : origin === "local" ? "plugins.origin.local" : origin === "generated" ? "plugins.origin.generated" : origin === "market" ? "plugins.origin.market" : "plugins.origin.unknown";
                           return (
+                            <React.Fragment key={plugin.id}>
+                            {(index === 0 || plugins[index-1].origin !== plugin.origin) && <div className="plugin-group-heading"><h2>{t(group(plugin.origin))}</h2><span>{plugins.filter(p => p.origin === plugin.origin).length}</span><div /></div>}
                             <section className="market-card" key={plugin.id}>
                               <span className="plugin-icon">
                                 <Icon size={23} />
@@ -1668,17 +1668,20 @@ function App() {
                                   <span className="plugin-version">
                                     v{plugin.version}
                                   </span>
+                                  {/* Only a plugin that is actually up says so: a badge that is
+                                      always there reads as part of the layout rather than as a
+                                      state, and "on demand" is the normal case for every card. */}
+                                  {plugin.processIds.length > 0 && (
+                                    <span
+                                      className="plugin-runtime-badge is-running"
+                                      title={t("plugin.pidRunning", { pids: plugin.processIds.join(", ") })}
+                                    >
+                                      <span className="runtime-status-dot" aria-hidden="true" />
+                                      {t("plugin.runtimeRunning")}
+                                    </span>
+                                  )}
                                 </h2>
-                                <span
-                                  className={`plugin-runtime-badge${plugin.processIds.length ? " is-running" : ""}`}
-                                  title={plugin.processIds.length
-                                    ? t("plugin.pidRunning", { pids: plugin.processIds.join(", ") })
-                                    : t("plugin.pidOnDemand")}
-                                >
-                                  <span className="runtime-status-dot" aria-hidden="true" />
-                                  {plugin.processIds.length ? t("plugin.runtimeRunning") : t("plugin.runtimeOnDemand")}
-                                </span>
-                                <PluginDetails extensions={plugin.extensions}><p>{plugin.id}</p></PluginDetails>
+                                <PluginDetails extensions={plugin.extensions}><p>{plugin.id}</p><p>{t(group(plugin.origin))}</p>{plugin.source && <p className="source-path">{plugin.source}</p>}</PluginDetails>
                               </div>
                               <div className="plugin-enable"><span className={`enabled-label ${plugin.enabled ? "enabled" : ""}`}>{plugin.enabled ? t("plugin.enabled") : t("plugin.disabled")}</span>
                                 <Toggle
@@ -1706,6 +1709,7 @@ function App() {
                                 </button>
                               </div>
                             </section>
+                            </React.Fragment>
                           );
                         })}
                       {!snapshot.plugins.length && (
@@ -1719,9 +1723,6 @@ function App() {
                       )}
                     </>
                   )}
-                  <p className="quiet-note">
-                    {t("plugins.trustWarning")}
-                  </p>
                   {snapshot.warnings.map((w) => (
                     <p className="warning" key={w}>
                       {w}
