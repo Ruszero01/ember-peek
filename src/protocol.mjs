@@ -45,6 +45,24 @@ export function validateControls(value, say = (key) => key) {
   });
 }
 
+/** Generated plugins are created against the current SDK and therefore use its full
+ * control contract. Requiring an icon and an explicit toggle state keeps trial preview
+ * identical to the installed host toolbar and catches incomplete agent output early. */
+export function validateWorkshopControls(value, say = (key) => key) {
+  const controls = validateControls(value, say);
+  for (let index = 0; index < controls.length; index++) {
+    const raw = value[index];
+    if (
+      typeof raw.icon !== "string" ||
+      !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(raw.icon)
+    )
+      throw new Error(say("protocol.workshopControlIcon"));
+    if (raw.kind === "toggle" && typeof raw.active !== "boolean")
+      throw new Error(say("protocol.workshopToggleState"));
+  }
+  return controls;
+}
+
 // Requests that belong to the session rather than to one mount of it. A plugin entry can be
 // mounted twice (view + floating panel); only the owner mount may send these, so a panel
 // cannot race the view over the pending changes, the lifecycle or the document.

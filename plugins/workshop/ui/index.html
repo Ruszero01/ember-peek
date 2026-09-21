@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="sdk-ui.css"><link rel="stylesheet" href="style.css"></head>
+<body>
+<div id="error" role="alert" hidden></div><p id="notice" role="status"></p>
+<section id="settings" class="settings-shell" hidden>
+<aside class="provider-sidebar">
+<div class="aside-heading"><span>AI 服务</span><button id="new-provider" title="添加供应商" aria-label="添加供应商">＋</button></div>
+<nav id="providers"></nav>
+<p id="providers-empty" class="muted empty-projects">还没有配置供应商</p>
+</aside>
+<form id="provider-form">
+<div class="settings-heading"><div><h2 id="provider-title">添加供应商</h2><p>选择插件工坊使用的模型。</p></div><span id="provider-state" class="status-chip">未保存</span></div>
+<section class="form-section model-section">
+<div class="form-section-heading"><div><h3>模型</h3><p>先选择服务商，再选择支持工具调用的模型</p></div></div>
+<div class="setting-row"><div><label for="preset">服务商</label><p>常用服务会自动配置接口</p></div><span class="ui-select"><select id="preset"></select></span></div>
+<div class="setting-row"><div><label for="model">模型</label><p id="model-status">自动从服务商获取可用模型</p></div><span class="ui-select"><select id="model"><option value="">请先配置连接</option></select></span></div>
+</section>
+<details id="connection-details" class="form-section disclosure"><summary><span><strong>连接设置</strong><small>名称、接口地址与凭据</small></span><span id="connection-summary" class="summary-value">尚未配置</span></summary><div class="details-body">
+<div class="setting-row"><div><label for="provider-name">显示名称</label><p>仅用于区分本机配置</p></div><input id="provider-name" placeholder="例如 我的 DeepSeek"></div>
+<div class="setting-row"><div><label for="endpoint">API 地址</label><p>基础地址或完整 <code>/chat/completions</code></p></div><input id="endpoint" spellcheck="false" placeholder="https://api.example.com/v1"></div>
+<div class="setting-row"><div><label for="key">API Key</label><p id="key-status">保存在本机凭据管理器</p></div><div><div id="key-configured" class="secret-configured" hidden><span><b aria-hidden="true">✓</b> API Key 已配置</span><button id="reset-key" type="button">重置</button></div><div id="key-editor" class="field-with-action"><input id="key" type="password" autocomplete="off" spellcheck="false" placeholder="输入 API Key"><button id="reveal-key" type="button" aria-label="显示密钥">显示</button></div></div></div>
+</div></details>
+<details id="advanced" class="form-section disclosure"><summary><span><strong>高级选项</strong><small>采样温度与请求超时</small></span><span class="summary-value">使用服务默认值</span></summary><div class="details-body">
+<div class="setting-row"><div><label for="temperature">温度</label><p>越低越稳定，留空由服务决定</p></div><input id="temperature" type="number" min="0" max="2" step="0.1" placeholder="服务默认"></div>
+<div class="setting-row"><div><label for="timeout">请求超时</label><p>单次请求最长等待时间</p></div><input id="timeout" type="number" min="10" max="900" placeholder="120"></div>
+</div></details>
+<details id="search-settings" class="form-section disclosure"><summary><span><strong>联网搜索</strong><small>agent 查资料时的网页搜索来源</small></span><span id="search-state" class="summary-value">未配置</span></summary><div class="details-body">
+<div class="setting-row"><div><label for="search-provider">搜索来源</label><p>npm 包、库文档与 Stack Overflow 三类内置来源始终可用；这里配置它们之外的网页来源</p></div><span class="ui-select"><select id="search-provider"><option value="">不启用</option><option value="searxng">SearXNG（自建或公共实例，免费）</option><option value="tavily">Tavily（API Key，有免费额度）</option></select></span></div>
+<div class="setting-row" id="search-endpoint-row" hidden><div><label for="search-endpoint">搜索地址</label><p>实例地址，需允许 JSON 输出</p></div><input id="search-endpoint" spellcheck="false" placeholder="https://searx.example"></div>
+<div class="setting-row" id="search-key-row" hidden><div><label for="search-key">API Key</label><p id="search-key-status">保存在本机凭据管理器</p></div><div><div id="search-key-configured" class="secret-configured" hidden><span><b aria-hidden="true">✓</b> API Key 已配置</span><button id="search-reset-key" type="button">重置</button></div><div id="search-key-editor" class="field-with-action"><input id="search-key" type="password" autocomplete="off" spellcheck="false" placeholder="可选"><button id="search-reveal-key" type="button" aria-label="显示密钥">显示</button></div></div></div>
+<div class="settings-footer"><div class="actions"><span id="search-result"></span><button id="search-save" type="button">保存搜索设置</button></div></div>
+</div></details>
+<div class="settings-footer"><button id="remove-provider" type="button" class="danger-subtle">删除配置</button><div class="actions"><span id="test-result"></span><button id="test-config" type="button">测试连接</button><button id="save-config" type="button" class="primary">保存并使用</button></div></div>
+</form>
+</section>
+<div id="generation-area" class="layout">
+<aside><div class="aside-heading"><span>任务</span><button id="new-project" title="新建插件" aria-label="新建插件">＋</button></div><nav id="projects"></nav><p id="empty-projects" class="muted empty-projects">还没有任务</p></aside>
+<main>
+<section id="creator">
+<h1 class="creator-title">告诉我你需要什么插件</h1>
+<p class="creator-lead">描述用途、格式与交互；有样例文件时可以附加，模型按需要读取它的类型与需求。工坊会生成、校验并构建安装包，试预览通过后即可安装。</p>
+<textarea id="requirement" rows="5" placeholder="例如：把 .xyz 文件渲染成三维预览，支持旋转、缩放和重置视角…"></textarea>
+<div class="creator-actions"><button id="create-text" class="primary">创建任务 <span aria-hidden="true">↗</span></button><span class="creator-hint">创建后可多轮补充需求</span></div>
+<button id="create-sample" class="drop-zone"><span class="drop-symbol" aria-hidden="true">＋</span><strong>附加样例文件</strong><span>点击选择，或把文件拖到这里</span><small>只引用本机路径，不上传样例内容</small></button>
+<p id="provider-hint" class="provider-hint"></p>
+</section>
+<section id="project" hidden>
+<div class="project-column">
+<div class="project-heading"><div class="project-ident"><h2 id="project-name"></h2><span id="sample-card" class="sample-card" hidden><span id="sample-badge" class="sample-badge"></span><strong id="sample-name"></strong><span id="sample-info"></span><button id="select-sample" type="button" class="subtle">更换文件</button></span><span id="project-flag" class="project-flag" hidden>已安装</span><span id="self-check" class="project-flag self-check" hidden></span></div><span id="status" role="status"></span></div>
+<p id="sample" class="muted" hidden></p>
+<nav class="workspace-tabs" aria-label="工作区"><button data-pane="progress" class="selected" type="button">对话</button><button data-pane="files" type="button">生成文件</button></nav>
+<div id="workspace-content">
+<section data-panel="progress" class="workspace-pane conversation-pane">
+<div id="conversation-scroll"><ol id="conversation" class="chat-messages"></ol></div>
+</section>
+<section data-panel="files" class="workspace-pane files-pane" hidden><div class="artifact-head"><strong>生成文件</strong><button id="inspect-artifacts" type="button">刷新</button></div><div id="artifact-files" class="artifact-files"><p>暂未生成文件</p></div></section>
+</div>
+<div class="composer">
+<textarea id="message" rows="2" placeholder="描述要调整的地方，或补充需求…"></textarea>
+</div>
+<footer class="project-footer"><div class="actions project-actions"><button id="generate" class="primary">生成插件</button><button id="cancel">停止</button><button id="preview">打开试预览 ↗</button><button id="install" class="primary">安装插件</button></div>
+<details class="more-actions"><summary>更多 ···</summary><div><button id="analyze">分析需求</button><button id="export">导出分享</button><button id="restore">恢复已验证版本</button><button id="open">打开原文件</button><button id="delete" class="danger-subtle">删除任务</button></div></details></footer>
+</div>
+<aside id="flow" class="flow-pane">
+<div class="flow-head"><strong>流程</strong><span id="flow-metrics"></span></div>
+<ol id="pipeline" class="pipeline"></ol>
+<p id="generation-wait" class="generation-wait" hidden>正在处理…</p>
+<p id="build-result" hidden></p>
+<div id="diagnostics" class="diagnostics" hidden><div class="flow-section-head">诊断</div><p id="diagnostic" role="status"></p><div id="runtime-log-lines"></div><details id="error-details" hidden><summary>错误详情</summary><pre id="error-raw"></pre></details></div>
+</aside>
+</section>
+</main>
+</div>
+<div id="dialog" class="dialog-backdrop" hidden><div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title"><h3 id="dialog-title"></h3><p id="dialog-body"></p><div class="dialog-actions"><button id="dialog-cancel" type="button">取消</button><button id="dialog-confirm" type="button" class="primary">确定</button><button id="dialog-extra" type="button" class="danger" hidden></button></div></div></div>
+
+<script src="boot.js"></script><script type="module" src="view.js"></script></body></html>

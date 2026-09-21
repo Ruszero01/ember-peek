@@ -3,7 +3,8 @@
 import type { Catalog } from "./en";
 
 export const zhCN: Catalog = {
-  "plugins.noViewer": "没有已启用的查看器能打开这个文件，请在插件市场安装或启用相应插件。",
+  "plugins.createWithAI": "用 AI 创建预览插件",
+  "plugins.noViewer": "没有已启用的查看器匹配此文件，可以查找插件或在工坊中创建。",
   "plugins.installFromFile": "从插件包安装",
   "plugins.origin.local": "本地导入",
   "plugins.origin.official": "官方插件",
@@ -85,6 +86,7 @@ export const zhCN: Catalog = {
     "关闭时视口只占标题栏与功能栏之间；开启后视口铺满窗口，鼠标移到顶部或底部时浮出操作栏，栏间空隙不挡插件操作。",
 
   "plugins.market": "插件市场",
+  "plugins.openToolSettings": "前往设置 ↗",
   "plugins.manage": "插件管理",
   "plugins.installedCount": "{count} 个已安装插件",
   "plugins.refresh": "刷新",
@@ -189,6 +191,8 @@ export const zhCN: Catalog = {
   "protocol.invalidControlId": "插件控件 ID 无效",
   "protocol.invalidControl": "插件控件声明无效",
   "protocol.invalidScrubRange": "数值拖动控件范围无效",
+  "protocol.workshopControlIcon": "生成插件的功能控件必须声明 Lucide 图标",
+  "protocol.workshopToggleState": "生成插件的切换控件必须声明当前状态",
 
   "bridge.desktopOnly": "文件与插件进程功能需要在桌面窗口中使用",
 };

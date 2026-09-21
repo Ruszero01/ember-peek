@@ -26,6 +26,7 @@ impl Runtime {
             .values()
             .filter(|p| {
                 !inner.disabled.contains(&p.manifest.id)
+                    && p.tool.is_none()
                     && (p.manifest.matches(&extension)
                         || path
                             .file_name()

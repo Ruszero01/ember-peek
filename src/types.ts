@@ -59,6 +59,7 @@ export type PluginSetting =
       default: string;
     };
 export type Plugin = {
+  tool?: { api: number; service: string } | null;
   entry: string;
   origin: string;
   source?: string | null;

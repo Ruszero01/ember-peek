@@ -1,9 +1,16 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod capture;
+mod credentials;
 mod desktop;
 #[cfg(windows)]
 mod explorer;
+mod icons;
+mod libraries;
 mod local_packages;
+mod model_catalog;
+mod network;
+mod workshop;
 
 use base64::Engine;
 use ember_runtime::i18n::text;
@@ -19,6 +26,360 @@ use tauri::{Manager, State};
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 
 type Host<'a> = State<'a, Arc<Runtime>>;
+
+/// The windows a workshop self-check runs in. The workshop owns the task and the state
+/// machine; only the app can open a window, photograph it and close it again.
+struct AppWindows {
+    app: tauri::AppHandle,
+}
+impl workshop::ProbeWindows for AppWindows {
+    fn show(
+        &self,
+        window: workshop::ProbeWindow,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send>> {
+        let app = self.app.clone();
+        Box::pin(async move {
+            if let Some(existing) = app.get_webview_window(&window.label) {
+                // A probe window left over from an interrupted run is reused, not stacked.
+                existing
+                    .navigate(window.url.parse().map_err(|e| format!("{e:?}"))?)
+                    .map_err(|e| e.to_string())?;
+                existing.show().map_err(|e| e.to_string())?;
+                return Ok(());
+            }
+            // Building a window is not async, and it must not run on the async worker.
+            tauri::async_runtime::spawn_blocking(move || {
+                tauri::WebviewWindowBuilder::new(
+                    &app,
+                    window.label,
+                    tauri::WebviewUrl::App(window.url.into()),
+                )
+                .title(window.title)
+                .inner_size(1000.0, 720.0)
+                .min_inner_size(640.0, 440.0)
+                .center()
+                .build()
+                .map_err(|e| e.to_string())
+                .map(|_| ())
+            })
+            .await
+            .map_err(|e| e.to_string())?
+        })
+    }
+    fn capture(
+        &self,
+        label: String,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Vec<u8>, String>> + Send>> {
+        let app = self.app.clone();
+        Box::pin(async move {
+            let window = app
+                .get_webview_window(&label)
+                .ok_or("试运行窗口已经关闭，无法截图")?;
+            capture::png(&window).await
+        })
+    }
+    fn close(
+        &self,
+        label: String,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send>> {
+        let app = self.app.clone();
+        Box::pin(async move {
+            if let Some(window) = app.get_webview_window(&label) {
+                window.close().map_err(|e| e.to_string())?;
+            }
+            Ok(())
+        })
+    }
+}
+
+#[tauri::command]
+async fn open_workshop(
+    app: tauri::AppHandle,
+    host: Host<'_>,
+    service: State<'_, Arc<workshop::Workshop>>,
+) -> Result<(), String> {
+    let installed = host.snapshot().await.plugins.into_iter().find(|p| {
+        p.enabled
+            && p.tool.as_ref().is_some_and(|t| t.service == "workshop")
+            && p.origin == "official"
+    });
+    let Some(tool) = installed else {
+        return desktop::show_settings(app, Some("plugins".into()));
+    };
+    if let Some(path) = desktop::last_path(&app) {
+        service.create(String::new(), Some(path)).await?;
+    }
+    desktop::show_settings(app, Some(format!("tool:{}", tool.manifest.id)))
+}
+
+#[tauri::command]
+fn icon_data(name: Option<String>, query: Option<String>) -> Value {
+    if let Some(name) = name {
+        Value::String(icons::svg(&name))
+    } else {
+        serde_json::json!(icons::names(query.as_deref().unwrap_or_default()))
+    }
+}
+
+#[tauri::command]
+async fn tool_call(
+    app: tauri::AppHandle,
+    window: tauri::Window,
+    host: Host<'_>,
+    service: State<'_, Arc<workshop::Workshop>>,
+    id: String,
+    method: String,
+    params: Value,
+) -> Result<Value, String> {
+    let tool = host.tool_package(&id).await?;
+    let project = params["id"].as_str().unwrap_or_default();
+    match method.as_str() {
+        // Plugin management is the source of truth for what is installed; a task that was
+        // removed there must not keep claiming an installed version.
+        "state" => {
+            service.reconcile(host.inner()).await?;
+            Ok(service.state().await)
+        }
+        "artifacts" => service.artifacts(project).await,
+        "delete" => {
+            let uninstall = params["uninstall"].as_bool() == Some(true);
+            service.delete(project, uninstall, host.inner()).await?;
+            // A preview window whose task is gone would only ever show a broken page.
+            let prefix = format!("workshop-preview-{project}-");
+            for (label, window) in app.webview_windows() {
+                if label.starts_with(&prefix) {
+                    let _ = window.close();
+                }
+            }
+            Ok(Value::Null)
+        }
+        "catalog" => Ok(model_catalog::catalog()),
+        "icons" => Ok(icon_data(
+            params["name"].as_str().map(str::to_owned),
+            params["query"].as_str().map(str::to_owned),
+        )),
+        "configure" => {
+            let config =
+                serde_json::from_value(params["config"].clone()).map_err(|e| e.to_string())?;
+            service
+                .configure(config, params["key"].as_str().map(str::to_owned))
+                .await?;
+            Ok(Value::Null)
+        }
+        "testConnection" => {
+            service.test_connection().await?;
+            Ok(Value::Null)
+        }
+        "selectProvider" => {
+            service
+                .select_provider(params["providerId"].as_str().ok_or("Missing provider ID")?)
+                .await?;
+            Ok(Value::Null)
+        }
+        "removeProvider" => {
+            service
+                .remove_provider(params["providerId"].as_str().ok_or("Missing provider ID")?)
+                .await?;
+            Ok(Value::Null)
+        }
+        // The general web engine the agent's lookups use. A key is stored in the system
+        // credential store, and only what is not a secret comes back to the page.
+        "searchSettings" => {
+            let engine = service.search_setting();
+            Ok(serde_json::json!({
+                "provider": engine.provider,
+                "endpoint": engine.endpoint,
+                "results": engine.results,
+                "hasKey": engine.key.is_some(),
+            }))
+        }
+        "configureSearch" => {
+            let engine =
+                serde_json::from_value(params["config"].clone()).map_err(|e| e.to_string())?;
+            service.configure_search(engine, params["clearKey"].as_bool() == Some(true))?;
+            Ok(Value::Null)
+        }
+        "models" => Ok(serde_json::json!(service.models().await?)),
+        "modelsDraft" => {
+            let config =
+                serde_json::from_value(params["config"].clone()).map_err(|e| e.to_string())?;
+            Ok(serde_json::json!(
+                service
+                    .models_for(config, params["key"].as_str().map(str::to_owned))
+                    .await?
+            ))
+        }
+        "selectSample" => {
+            let path = tauri::async_runtime::spawn_blocking(move || {
+                rfd::FileDialog::new().set_parent(&window).pick_file()
+            })
+            .await
+            .map_err(|e| e.to_string())?;
+            if let Some(path) = path {
+                service.attach_sample(project, path).await?;
+            }
+            Ok(Value::Null)
+        }
+        "create" => {
+            let sample = if params["withSample"].as_bool() == Some(true) {
+                let sample = tauri::async_runtime::spawn_blocking(move || {
+                    rfd::FileDialog::new().set_parent(&window).pick_file()
+                })
+                .await
+                .map_err(|e| e.to_string())?;
+                if sample.is_none() {
+                    return Ok(Value::Null);
+                }
+                sample
+            } else {
+                None
+            };
+            Ok(serde_json::to_value(
+                service
+                    .create(
+                        params["requirement"].as_str().unwrap_or_default().into(),
+                        sample,
+                    )
+                    .await?,
+            )
+            .map_err(|e| e.to_string())?)
+        }
+        "createPath" => {
+            let path = params["path"].as_str().ok_or("Missing sample path")?;
+            Ok(serde_json::to_value(
+                service
+                    .create(
+                        params["requirement"].as_str().unwrap_or_default().into(),
+                        Some(std::path::PathBuf::from(path)),
+                    )
+                    .await?,
+            )
+            .map_err(|e| e.to_string())?)
+        }
+        "start" | "analyze" => {
+            service
+                .inner()
+                .start(
+                    project.into(),
+                    params["message"].as_str().unwrap_or_default().into(),
+                    tool,
+                    method == "analyze",
+                )
+                .await?;
+            Ok(Value::Null)
+        }
+        "cancel" => {
+            service.cancel(project).await?;
+            Ok(Value::Null)
+        }
+        "openPreview" => {
+            let candidate = service.get(project).await?;
+            if candidate.version == 0 || candidate.sample.is_none() {
+                return Err("请先构建插件并选择样例文件".into());
+            }
+            let label = format!("workshop-preview-{}-{}", candidate.id, candidate.version);
+            if let Some(existing) = app.get_webview_window(&label) {
+                existing
+                    .eval("location.reload()")
+                    .map_err(|e| e.to_string())?;
+                existing.show().map_err(|e| e.to_string())?;
+                existing.set_focus().map_err(|e| e.to_string())?;
+            } else {
+                let url = format!("index.html?workshopPreview={}&tool={id}", candidate.id);
+                tauri::async_runtime::spawn_blocking(move || {
+                    tauri::WebviewWindowBuilder::new(
+                        &app,
+                        label,
+                        tauri::WebviewUrl::App(url.into()),
+                    )
+                    .title(format!("{} · 试预览", candidate.name))
+                    .inner_size(1000.0, 720.0)
+                    .min_inner_size(640.0, 440.0)
+                    .center()
+                    .build()
+                    .map_err(|e| e.to_string())
+                })
+                .await
+                .map_err(|e| e.to_string())??;
+            }
+            Ok(Value::Null)
+        }
+        "preview" => {
+            let project = service.begin_preview(project).await?;
+            let metadata = match &project.sample {
+                Some(path) => Some(tokio::fs::metadata(path).await.map_err(|e| e.to_string())?),
+                None => None,
+            };
+            Ok(
+                serde_json::json!({"id":project.id,"version":project.version,"token":project.preview_token,"file":{"name":project.sample.as_ref().and_then(|p| Path::new(p).file_name()).map(|s| s.to_string_lossy().into_owned()).unwrap_or_default(),"size":metadata.map(|m| m.len()).unwrap_or(0)}}),
+            )
+        }
+        "readSample" => Ok(Value::String(
+            base64::engine::general_purpose::STANDARD.encode(
+                service
+                    .read_sample(
+                        project,
+                        params["offset"].as_u64().ok_or("Invalid offset")?,
+                        params["length"]
+                            .as_u64()
+                            .filter(|n| *n <= 1048576)
+                            .ok_or("Invalid length")? as u32,
+                    )
+                    .await?,
+            ),
+        )),
+        "presented" => {
+            let logs = params["logs"]
+                .as_array()
+                .map(|lines| {
+                    lines
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .take(20)
+                        .map(str::to_owned)
+                        .collect()
+                })
+                .unwrap_or_default();
+            service
+                .presented(
+                    project,
+                    params["version"].as_u64().ok_or("Missing build version")?,
+                    params["token"].as_str().ok_or("Missing preview session")?,
+                    params["error"].as_str().map(str::to_owned),
+                    logs,
+                )
+                .await?;
+            Ok(Value::Null)
+        }
+        "install" => {
+            let sample = service.get(project).await?.sample.map(PathBuf::from);
+            service.install(project, host.inner()).await?;
+            if let Some(sample) = sample {
+                if desktop::last_path(&app).is_none_or(|current| current == sample) {
+                    desktop::open(&app, sample).await?;
+                }
+            }
+            Ok(Value::Null)
+        }
+        "restore" => {
+            service.restore(project).await?;
+            Ok(Value::Null)
+        }
+        "export" => {
+            let bytes = service.export(project).await?;
+            Ok(serde_json::to_value(
+                save_workshop_package(window, format!("user.{project}"), bytes).await?,
+            )
+            .map_err(|e| e.to_string())?)
+        }
+        "openSample" => {
+            let p = service.get(project).await?;
+            desktop::open(&app, PathBuf::from(p.sample.ok_or("No sample selected")?)).await?;
+            Ok(Value::Null)
+        }
+        _ => Err("Unknown tool service method".into()),
+    }
+}
 
 #[tauri::command]
 async fn view_state(
@@ -257,6 +618,35 @@ async fn install_plugin(
     market.prune_cache(host.inner()).await.map(|_| ())
 }
 
+async fn save_workshop_package(
+    window: tauri::Window,
+    id: String,
+    bytes: Vec<u8>,
+) -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let target = rfd::FileDialog::new()
+            .set_parent(&window)
+            .set_title("Export plugin / 导出插件")
+            .set_file_name(format!("{id}.zip"))
+            .add_filter("Plugin package", &["zip"])
+            .save_file();
+        let Some(target) = target else {
+            return Ok(None);
+        };
+        // Same-directory staging avoids leaving a partial archive after interruption.
+        let mut staged =
+            tempfile::NamedTempFile::new_in(target.parent().ok_or("Invalid export destination")?)
+                .map_err(|e| e.to_string())?;
+        use std::io::Write;
+        staged.write_all(&bytes).map_err(|e| e.to_string())?;
+        staged.as_file().sync_all().map_err(|e| e.to_string())?;
+        staged.persist(&target).map_err(|e| e.to_string())?;
+        Ok(Some(target.to_string_lossy().into_owned()))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 fn mime(path: &std::path::Path) -> &'static str {
     match path.extension().and_then(|p| p.to_str()).unwrap_or("") {
         "html" => "text/html; charset=utf-8",
@@ -280,12 +670,18 @@ fn main() {
     let app = tauri::Builder::default()
         .register_asynchronous_uri_scheme_protocol("plugin", |context, request, responder| {
             let host = context.app_handle().state::<Arc<Runtime>>().inner().clone();
+            let workshop = context.app_handle().state::<Arc<workshop::Workshop>>().inner().clone();
             tauri::async_runtime::spawn(async move {
                 let decoded = percent_encoding::percent_decode_str(request.uri().path()).decode_utf8_lossy();
                 let path = decoded.trim_start_matches('/');
                 let (session, asset) = path.split_once('/').unwrap_or((path, ""));
                 let result = async {
-                    let path = if asset == "@file" {
+                    let path = if let Some(id) = session.strip_prefix("@tool-") {
+                        let package = host.tool_package(id).await?;
+                        ember_runtime::manifest::contained(&package.directory, asset)?
+                    } else if let Some(id) = session.strip_prefix("@workshop-") {
+                        workshop.asset(id, asset).await?
+                    } else if asset == "@file" {
                         host.authorize(session, Permission::ReadFile).await?;
                         host.session_file(session).await?
                     } else {
@@ -305,7 +701,7 @@ fn main() {
                     .header("Access-Control-Allow-Origin", "*")
                     .header("Cache-Control", "no-store")
                     .header("X-Content-Type-Options", "nosniff")
-                    .header("Content-Security-Policy", "default-src 'none'; script-src http://plugin.localhost plugin: 'wasm-unsafe-eval'; style-src http://plugin.localhost plugin: 'unsafe-inline'; img-src http://plugin.localhost plugin: blob: data:; media-src blob:; font-src http://plugin.localhost plugin: data:; connect-src http://plugin.localhost plugin:; worker-src blob:; object-src 'none'; base-uri 'none'")
+                    .header("Content-Security-Policy", "default-src 'none'; script-src http://plugin.localhost plugin: 'wasm-unsafe-eval'; style-src http://plugin.localhost plugin: 'unsafe-inline'; img-src http://plugin.localhost plugin: blob: data:; media-src blob:; font-src http://plugin.localhost plugin: data:; connect-src http://plugin.localhost plugin:; frame-src http://plugin.localhost plugin:; worker-src blob:; object-src 'none'; base-uri 'none'")
                     .body(body).unwrap();
                 responder.respond(response);
             });
@@ -318,6 +714,12 @@ fn main() {
             tauri::async_runtime::block_on(runtime.scan()).map_err(std::io::Error::other)?;
             app.manage(runtime.clone());
             app.manage(local_packages::LocalPackages::default());
+            let workshop = workshop::Workshop::new(
+                app.path().app_data_dir()?.join("workshop"),
+                Arc::new(AppWindows { app: app.handle().clone() }),
+            )
+            .map_err(std::io::Error::other)?;
+            app.manage(workshop);
             // The host is a shell: it ships no plugins, so a source is where both the
             // plugin list and the packages behind it come from.
             let sources = if cfg!(debug_assertions) {
@@ -414,7 +816,7 @@ fn main() {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![view_state, market_list, market_refresh, market_prepare, market_install, snapshot, refresh_plugins, open_file, desktop::select_preview, desktop::return_view, desktop::desktop_snapshot, desktop::show_settings, session_data, source_data, source_call, set_pending, plugin_mutate, authorize_clipboard, file_changed, complete_view, complete_onboarding, plugin_call, read_file, set_enabled, set_activation, reorder_plugins, uninstall_plugin, plugin_settings, set_plugin_setting, pick_path, prepare_plugin, install_plugin, set_locale])
+        .invoke_handler(tauri::generate_handler![open_workshop, icon_data, tool_call, view_state, market_list, market_refresh, market_prepare, market_install, snapshot, refresh_plugins, open_file, desktop::select_preview, desktop::return_view, desktop::desktop_snapshot, desktop::show_settings, session_data, source_data, source_call, set_pending, plugin_mutate, authorize_clipboard, file_changed, complete_view, complete_onboarding, plugin_call, read_file, set_enabled, set_activation, reorder_plugins, uninstall_plugin, plugin_settings, set_plugin_setting, pick_path, prepare_plugin, install_plugin, set_locale])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
