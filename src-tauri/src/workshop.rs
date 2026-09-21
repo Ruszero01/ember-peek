@@ -315,10 +315,13 @@ struct Output {
 /// The window a self-check runs in: the host's preview surface, one per task.
 #[derive(Clone)]
 pub struct ProbeWindow {
-    /// The task this window belongs to, and the build it is showing. The host only needs
-    /// the label, url and title below; these are here so an implementation can tell one
-    /// task's window from another's without parsing either.
+    /// The task this window belongs to, and the build it is showing. The host needs only the
+    /// label, url and title below; these two are what lets an implementation tell one task's
+    /// window from another's without parsing the label, which is why the test implementation
+    /// reads them and the host does not.
+    #[allow(dead_code)]
     pub id: String,
+    #[allow(dead_code)]
     pub version: u64,
     pub label: String,
     pub url: String,
