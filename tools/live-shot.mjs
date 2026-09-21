@@ -8,7 +8,7 @@
 // EMBER_SHOT_TARGET=window=settings (PowerShell: $env:EMBER_SHOT_TARGET="window=settings").
 import { writeFileSync } from "node:fs";
 
-const PORT = process.env.EMBER_DEBUG_PORT || "9222";
+const PORT = process.env.EMBER_DEBUG_PORT || "9444";
 const MATCH = process.env.EMBER_SHOT_TARGET || "window=preview";
 const [, , OUT, X, Y, W, H, SCALE] = process.argv;
 
