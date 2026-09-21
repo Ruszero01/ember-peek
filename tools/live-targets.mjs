@@ -14,7 +14,7 @@
 import { readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 
-const PORT = process.env.EMBER_DEBUG_PORT || "9222";
+const PORT = process.env.EMBER_DEBUG_PORT || "9444";
 
 export async function liveTargets() {
   try {
