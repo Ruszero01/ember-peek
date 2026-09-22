@@ -67,6 +67,13 @@
 #rendered a {
   color: var(--accent);
 }
+#rendered img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 14px auto;
+  border-radius: 6px;
+}
 #outline {
   width: 210px;
   max-width: 28%;

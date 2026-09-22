@@ -47,7 +47,7 @@
 | `provides` | 可选，原生解析源产出的契约标识；例如 `ember.text/1` |
 | `sourceMethods` | 可选，≤32 项，provides 插件显式导出的源 RPC 方法名；默认空，不会暴露全部原生方法 |
 | `consumes` | 可选，消费同一标识的共享数据；不能与 provides 同时声明 |
-| `permissions` | 默认空；`readFile` 授权网页读取当前文件，`clipboard` 授权网页复制，`writeFile` 授权通用修改通道 |
+| `permissions` | 默认空；`readFile` 授权网页读取当前文件，`readResources` 授权网页按文档引用读取本地关联文件或公开 HTTP(S) 资源，`clipboard` 授权网页复制，`writeFile` 授权通用修改通道 |
 | `targets` | 可选，≤8 项，形如 `windows-x86_64`（小写）；省略表示不限制平台 |
 | `revision` / `buildId` | 安装期字段，插件源码不写：`revision` 由安装器赋值（打包时写 `0`），`buildId` 由打包脚本从内容算出 |
 

@@ -12,9 +12,16 @@ const parser = new MarkdownIt({
   linkify: false,
   typographer: false,
 });
-// Files cannot inject scripts, navigation or network fetches into the preview.
-parser.renderer.rules.image = (tokens, index) =>
-  parser.utils.escapeHtml(tokens[index].content || say("image"));
+// Keep the document reference as inert data. The view resolves it through the host only
+// after sanitization, so Markdown cannot smuggle script/navigation attributes into the DOM.
+parser.renderer.rules.image = (tokens, index, options, env, renderer) => {
+  const token = tokens[index];
+  const reference = token.attrGet("src") || "";
+  token.attrSet("src", "data:image/gif;base64,R0lGODlhAQABAAAAACw=");
+  token.attrSet("data-ember-resource", reference);
+  token.attrSet("alt", token.content || say("image"));
+  return renderer.renderToken(tokens, index, options);
+};
 export function renderMarkdown(text) {
   const tokens = parser.parse(text, {});
   const headings = [];

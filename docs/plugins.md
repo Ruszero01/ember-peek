@@ -32,7 +32,7 @@ ui/engine.wasm            可选
   "entry": "ui/index.html",
   "capabilities": ["view", "controls"],
   "provides": "example.model/1",
-  "permissions": ["readFile"],
+  "permissions": ["readFile", "readResources"],
   "settings": [
     {
       "key": "defaultZoom",
@@ -341,7 +341,11 @@ Markdown 的渲染视图不是 CodeMirror：它的滚动容器就是 `#rendered`
 
 页面脚本必须作为包内 JS 文件引用；模块、CSS、WASM 等资源通过相对路径加载。单个静态资源最多 32 MiB。禁止内联 JS 与网络脚本，第三方渲染库应打包进插件。插件完全控制页面；不要引用宿主 `src` 或依赖宿主 React 组件 —— **这条现在由打包步骤强制**（见[安装与验收](#安装与验收)）。
 
-通用 `read(offset, length)` 每次最多 1 MiB，只能读当前会话文件，且需要 `readFile` 权限。同一份文件还有两个更方便的入口：`fileUrl()` 返回经权限校验的文件 URL（让浏览器自己解码，图片这类格式不必反复走 Base64 的 `read`；宿主一次给整份文件，超过 32 MiB 直接拒绝），`fileBlob(size, type)` 把整段读成 `Blob`。`<video>`、`<audio>` 这类媒体元素的源只允许 `blob:`，因此媒体要走 `fileBlob()` 建一个 `blob:` URL，`fileUrl()` 给不了它。`clipboard(text)` 需要 `clipboard` 权限，且只有当前显示的视图能用。涉及原生解析结果的大数据应分页或分块，不要将大型模型塞进单个 JSON 响应。
+通用 `read(offset, length)` 每次最多 1 MiB，只能读当前会话文件，且需要 `readFile` 权限。同一份文件还有两个更方便的入口：`fileUrl()` 返回经权限校验的文件 URL（让浏览器自己解码，图片这类格式不必反复走 Base64 的 `read`；宿主一次给整份文件，超过 32 MiB 直接拒绝），`fileBlob(size, type)` 把整段读成 `Blob`。`<video>`、`<audio>` 这类媒体元素的源只允许 `blob:`，因此媒体要走 `fileBlob()` 建一个 `blob:` URL，`fileUrl()` 给不了它。
+
+文档里引用的关联资源使用独立的 `readResources` 权限。插件解析格式并把原始引用交给 `resourceUrl(reference)` 或 `resourceBlob(reference)`：相对路径以当前文档所在目录为基准，支持 `../`、绝对路径和 `file:` URL；公开的 HTTP(S) 地址由宿主中介下载，逐跳校验重定向并拒绝本机、内网、链路本地地址。`<img>` 可直接使用 `resourceUrl()`，媒体、字体、WASM 或需要字节输入的解析器使用 `resourceBlob()`，再按需创建 `blob:` URL。关联资源单项最多 64 MiB。宿主只负责通用寻址、权限、网络和字节传输，不识别 Markdown、网页归档或其它具体格式；引用发现、类型处理和最终呈现仍由插件完成。
+
+`clipboard(text)` 需要 `clipboard` 权限，且只有当前显示的视图能用。涉及原生解析结果的大数据应分页或分块，不要将大型模型塞进单个 JSON 响应。
 
 ## 安装与验收
 

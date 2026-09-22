@@ -320,6 +320,7 @@ pub enum Capability {
 #[serde(rename_all = "camelCase")]
 pub enum Permission {
     ReadFile,
+    ReadResources,
     WriteFile,
     Clipboard,
 }

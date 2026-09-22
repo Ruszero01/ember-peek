@@ -684,6 +684,15 @@ impl Runtime {
             .ok_or("Session expired".into())
     }
 
+    /// Resolve one document-owned resource. The host knows only the current file and URL
+    /// semantics; the plugin remains responsible for discovering references in its format.
+    /// `readResources` is deliberately separate from `readFile`, because a related path may
+    /// walk above the document directory when the document itself says `../assets/x.png`.
+    pub async fn resource_file(&self, id: &str, reference: &str) -> Result<PathBuf, String> {
+        let source = self.session_file(id).await?;
+        resolve_resource_path(&source, reference)
+    }
+
     pub async fn authorize(&self, id: &str, permission: Permission) -> Result<(), String> {
         let inner = self.inner.lock().await;
         let session = inner
@@ -1524,6 +1533,41 @@ impl Runtime {
     }
 }
 
+fn resolve_resource_path(source: &Path, reference: &str) -> Result<PathBuf, String> {
+    let reference = reference.trim();
+    if reference.is_empty() || reference.len() > 4096 || reference.contains('\0') {
+        return Err("Invalid resource reference".into());
+    }
+    let reference = reference
+        .split('#')
+        .next()
+        .unwrap_or_default()
+        .split('?')
+        .next()
+        .unwrap_or_default();
+    let candidate = if reference.to_ascii_lowercase().starts_with("file:") {
+        reqwest::Url::parse(reference)
+            .map_err(|_| "Invalid file resource URL".to_owned())?
+            .to_file_path()
+            .map_err(|_| "Invalid file resource URL".to_owned())?
+    } else {
+        let path = PathBuf::from(reference);
+        if path.is_absolute() {
+            path
+        } else {
+            source
+                .parent()
+                .ok_or("Source file has no parent directory")?
+                .join(path)
+        }
+    };
+    let path = candidate.canonicalize().map_err(|e| e.to_string())?;
+    if !path.is_file() {
+        return Err("Resource is not a file".into());
+    }
+    Ok(path)
+}
+
 /// Put an assembled package directory in place.
 ///
 /// `rename` is the right primitive: atomic and free. But Windows refuses to rename a
@@ -1676,5 +1720,32 @@ mod tests {
             std::fs::read_to_string(published.join("plugin.json")).unwrap(),
             "already published"
         );
+    }
+
+    #[test]
+    fn document_resources_resolve_relative_parent_and_file_urls() {
+        let temp = tempfile::tempdir().unwrap();
+        let docs = temp.path().join("docs");
+        let assets = temp.path().join("assets");
+        std::fs::create_dir_all(&docs).unwrap();
+        std::fs::create_dir_all(&assets).unwrap();
+        let source = docs.join("readme.md");
+        let image = assets.join("cover image.png");
+        std::fs::write(&source, "![cover](../assets/cover%20image.png)").unwrap();
+        std::fs::write(&image, b"png").unwrap();
+
+        // URL decoding happens at the protocol boundary; path resolution itself accepts the
+        // decoded reference and supports a document's normal `../assets` layout.
+        assert_eq!(
+            resolve_resource_path(&source, "../assets/cover image.png?raw=1#hero").unwrap(),
+            image.canonicalize().unwrap()
+        );
+        let file_url = reqwest::Url::from_file_path(&image).unwrap();
+        assert_eq!(
+            resolve_resource_path(&source, file_url.as_str()).unwrap(),
+            image.canonicalize().unwrap()
+        );
+        assert!(resolve_resource_path(&source, "../assets").is_err());
+        assert!(resolve_resource_path(&source, "https://example.com/image.png").is_err());
     }
 }

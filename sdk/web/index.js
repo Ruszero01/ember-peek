@@ -324,6 +324,35 @@ export function fileUrl() {
   return new URL(`/${encodeURIComponent(sessionId)}/@file`, location.origin).href;
 }
 
+/** Resolve a document-owned resource through the current session. Relative paths are based
+ * on the selected file (not the plugin package); HTTP(S) URLs are fetched by the host with
+ * redirect, size and private-network checks. The plugin still owns parsing and decides which
+ * references its format contains. Requires the `readResources` permission. */
+export function resourceUrl(reference) {
+  if (!sessionId) throw new Error("Plugin session is not ready");
+  const value = String(reference ?? "").trim();
+  if (!value || value.length > 4096 || /[\u0000-\u001f]/.test(value))
+    throw new TypeError("Invalid resource reference");
+  if (/^(data|blob):/i.test(value)) return value;
+  const windowsPath = /^[a-z]:[\\/]/i.test(value);
+  const scheme = value.match(/^([a-z][a-z0-9+.-]*):/i)?.[1]?.toLowerCase();
+  if (scheme && !windowsPath && !["http", "https", "file"].includes(scheme))
+    throw new TypeError("Resource reference must be a file path or HTTP(S) URL");
+  return new URL(
+    `/${encodeURIComponent(sessionId)}/@resource/${encodeURIComponent(value)}`,
+    location.origin,
+  ).href;
+}
+
+/** Fetch a related resource as a Blob. Use its object URL for media or a parser that needs
+ * bytes; an `<img>` can use `resourceUrl(reference)` directly. */
+export async function resourceBlob(reference) {
+  const response = await fetch(resourceUrl(reference));
+  if (!response.ok)
+    throw new Error((await response.text().catch(() => "")) || `Resource returned ${response.status}`);
+  return response.blob();
+}
+
 let lastEdge = "";
 let edgeTimer;
 let pendingEdge = "";

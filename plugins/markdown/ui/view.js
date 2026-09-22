@@ -6,6 +6,7 @@ import {
   status,
   configuration,
   onSettings,
+  resourceUrl,
   translate,
   onLocale,
 } from "./sdk.js";
@@ -50,6 +51,21 @@ try {
   });
   const output = renderMarkdown(source.text);
   rendered.innerHTML = output.html;
+  for (const image of rendered.querySelectorAll("img[data-ember-resource]")) {
+    const reference = image.dataset.emberResource;
+    if (!reference) continue;
+    try {
+      image.addEventListener(
+        "error",
+        () => image.replaceWith(document.createTextNode(image.alt || reference)),
+        { once: true },
+      );
+      image.src = resourceUrl(reference);
+      image.removeAttribute("data-ember-resource");
+    } catch (error) {
+      image.replaceWith(document.createTextNode(image.alt || String(error)));
+    }
+  }
   const nodes = [...rendered.querySelectorAll("[data-line]")];
   // The outline is this plugin's own surface, so its name is in the interface language.
   // The heading and the empty note are this plugin's own words and are refreshed below

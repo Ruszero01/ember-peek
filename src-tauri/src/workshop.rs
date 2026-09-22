@@ -1736,7 +1736,7 @@ impl Workshop {
         std::fs::write(directory.join("README.md"), &output.summary).map_err(|e| e.to_string())?;
         write_json(
             &directory.join("plugin.json"),
-            &json!({"api":1,"id":generated_id(id),"name":output.name,"version":"0.1.0","extensions":[output.extension],"icon":output.icon,"entry":"ui/index.html","executable":"bin/view.exe","capabilities":["view","controls"],"permissions":["readFile"],"targets":[ember_runtime::manifest::HOST_TARGET]}),
+            &json!({"api":1,"id":generated_id(id),"name":output.name,"version":"0.1.0","extensions":[output.extension],"icon":output.icon,"entry":"ui/index.html","executable":"bin/view.exe","capabilities":["view","controls"],"permissions":["readFile","readResources"],"targets":[ember_runtime::manifest::HOST_TARGET]}),
         )?;
         Package::load(&directory)?;
         let record = BuildRecord {
@@ -3344,8 +3344,16 @@ mod tests {
         assert_eq!(generated.runtime_logs, vec!["warn: nothing to warn about"]);
         // What the agent brought along is in the package it built, and importable from the
         // page it wrote.
-        let package = workshop.directory(&project.id).unwrap().join("v1/ui");
-        assert!(package.join("vendor/tiny.js").is_file());
+        let package = workshop.directory(&project.id).unwrap().join("v1");
+        assert!(package.join("ui/vendor/tiny.js").is_file());
+        let manifest: Value = serde_json::from_slice(
+            &std::fs::read(package.join("plugin.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            manifest["permissions"],
+            json!(["readFile", "readResources"])
+        );
         let requests = server.join().unwrap();
         assert!(!requests.contains("PRIVATE SAMPLE"));
         assert_eq!(requests.matches("POST /v1/chat/completions ").count(), 6);

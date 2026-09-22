@@ -49,6 +49,7 @@
   ],
   "permissions": [
     "readFile",
+    "readResources",
     "clipboard"
   ],
   "provides": "ember.text/1",

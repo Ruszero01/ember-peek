@@ -10,6 +10,7 @@ mod libraries;
 mod local_packages;
 mod model_catalog;
 mod network;
+mod resource;
 mod workshop;
 
 use base64::Engine;
@@ -670,19 +671,39 @@ async fn save_workshop_package(
 }
 
 fn mime(path: &std::path::Path) -> &'static str {
-    match path.extension().and_then(|p| p.to_str()).unwrap_or("") {
+    let extension = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(str::to_ascii_lowercase)
+        .unwrap_or_default();
+    match extension.as_str() {
         "html" => "text/html; charset=utf-8",
         "js" | "mjs" => "text/javascript; charset=utf-8",
         "css" => "text/css; charset=utf-8",
         "wasm" => "application/wasm",
         "json" => "application/json",
         "svg" => "image/svg+xml",
-        "png" => "image/png",
+        "png" | "apng" => "image/png",
         "jpg" | "jpeg" => "image/jpeg",
         "gif" => "image/gif",
         "webp" => "image/webp",
         "bmp" => "image/bmp",
         "avif" => "image/avif",
+        "ico" => "image/x-icon",
+        "mp3" => "audio/mpeg",
+        "m4a" => "audio/mp4",
+        "aac" => "audio/aac",
+        "wav" => "audio/wav",
+        "ogg" | "oga" => "audio/ogg",
+        "flac" => "audio/flac",
+        "mp4" | "m4v" => "video/mp4",
+        "mov" => "video/quicktime",
+        "webm" => "video/webm",
+        "ogv" => "video/ogg",
+        "pdf" => "application/pdf",
+        "ttf" => "font/ttf",
+        "otf" => "font/otf",
+        "woff" => "font/woff",
         "woff2" => "font/woff2",
         _ => "application/octet-stream",
     }
@@ -697,7 +718,22 @@ fn main() {
                 let decoded = percent_encoding::percent_decode_str(request.uri().path()).decode_utf8_lossy();
                 let path = decoded.trim_start_matches('/');
                 let (session, asset) = path.split_once('/').unwrap_or((path, ""));
-                let result = async {
+                let result: Result<(String, Vec<u8>), String> = async {
+                    if let Some(reference) = asset.strip_prefix("@resource/") {
+                        // The route itself has already been URL-decoded once. A local document
+                        // reference may still contain its own `%20`; a remote signed URL must
+                        // retain its exact encoding.
+                        let reference = if reqwest::Url::parse(reference)
+                            .ok()
+                            .is_some_and(|url| matches!(url.scheme(), "http" | "https"))
+                        {
+                            reference.into()
+                        } else {
+                            percent_encoding::percent_decode_str(reference).decode_utf8_lossy().into_owned()
+                        };
+                        let loaded = resource::load(&host, session, &reference).await?;
+                        return Ok((loaded.kind, loaded.bytes));
+                    }
                     let path = if let Some(id) = session.strip_prefix("@tool-") {
                         let package = host.tool_package(id).await?;
                         ember_runtime::manifest::contained(&package.directory, asset)?
@@ -712,11 +748,11 @@ fn main() {
                     let size = tokio::fs::metadata(&path).await.map_err(|e| e.to_string())?.len();
                     if size > 32 * 1024 * 1024 { return Err("Plugin file exceeds 32 MiB".to_string()); }
                     let body = tokio::fs::read(&path).await.map_err(|e| e.to_string())?;
-                    Ok((mime(&path), body))
+                    Ok((mime(&path).to_owned(), body))
                 }.await;
                 let (status, content_type, body) = match result {
                     Ok((kind, body)) => (200, kind, body),
-                    Err(error) => (404, "text/plain; charset=utf-8", error.into_bytes()),
+                    Err(error) => (404, "text/plain; charset=utf-8".to_owned(), error.into_bytes()),
                 };
                 let response = tauri::http::Response::builder().status(status)
                     .header("Content-Type", content_type)
