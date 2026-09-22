@@ -243,6 +243,18 @@ fn line_delta(previous: &str, next: &str) -> (u32, u32) {
     }
     (added, removed)
 }
+/// A supplementary file the user adds while refining a task. It is only a reference to the
+/// user's file: the workshop never copies it into the generated plugin. The generic byte
+/// reader below lets the model inspect it when needed without teaching the host its format.
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Attachment {
+    pub path: String,
+    pub name: String,
+    pub size: u64,
+    pub image: bool,
+    pub mime: String,
+}
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Project {
@@ -254,6 +266,8 @@ pub struct Project {
     pub sample: Option<String>,
     #[serde(default)]
     pub sample_size: u64,
+    #[serde(default)]
+    pub attachments: Vec<Attachment>,
     pub extension: String,
     pub error: Option<String>,
     pub version: u64,
@@ -295,7 +309,7 @@ pub struct Project {
 const MAX_PROBES: u32 = 4;
 /// Lookups one run may make — searches, documentation, pages. Enough to research a format it
 /// does not know, bounded so a run cannot turn into a browsing session at the user's expense.
-const MAX_LOOKUPS: u32 = 24;
+const MAX_LOOKUPS: u32 = 64;
 /// Where the search engine's key lives in the system credential store.
 const SEARCH_SCOPE: &str = "workshop.search";
 /// How long one self-check waits for the page to report itself.
@@ -766,6 +780,7 @@ impl Workshop {
             },
             sample,
             sample_size,
+            attachments: Vec::new(),
             extension,
             error: None,
             version: 0,
@@ -916,14 +931,58 @@ impl Workshop {
         {
             return Err("Cancel generation before changing the sample".into());
         }
+        let path_text = path.to_string_lossy().into_owned();
         self.change(id, |p| {
             p.preview_token = None;
-            p.sample = Some(path.to_string_lossy().into_owned());
+            p.attachments.retain(|file| file.path != path_text);
+            p.sample = Some(path_text);
             p.sample_size = metadata.len();
             p.extension = extension;
             p.tested = false;
             if p.version > 0 {
                 p.status = "awaitingPreview".into();
+            }
+        })
+        .await?;
+        Ok(())
+    }
+    /// Adds conversation sources without changing the primary sample that trial previews use.
+    /// Paths are canonicalized once and deduplicated; bytes remain in the user's files.
+    pub async fn attach_files(&self, id: &str, paths: Vec<PathBuf>) -> Result<(), String> {
+        let _operation = self.operations.lock().await;
+        if paths.is_empty() {
+            return Ok(());
+        }
+        if paths.len() > 24 {
+            return Err("一次最多追加 24 个文件".into());
+        }
+        if self
+            .tasks
+            .lock()
+            .await
+            .get(id)
+            .is_some_and(|task| !task.is_finished())
+        {
+            return Err("请先停止当前生成，再追加文件".into());
+        }
+        let mut additions = Vec::new();
+        for path in paths {
+            let path = path.canonicalize().map_err(|e| e.to_string())?;
+            let metadata = std::fs::metadata(&path).map_err(|e| e.to_string())?;
+            if !metadata.is_file() {
+                return Err(format!("不是文件：{}", path.to_string_lossy()));
+            }
+            additions.push(attachment(&path, metadata.len()));
+        }
+        self.change(id, |project| {
+            let sample = project.sample.as_deref();
+            for file in additions {
+                if sample == Some(file.path.as_str())
+                    || project.attachments.iter().any(|known| known.path == file.path)
+                {
+                    continue;
+                }
+                project.attachments.push(file);
             }
         })
         .await?;
@@ -1101,6 +1160,9 @@ impl Workshop {
             "type":"start",
             "analysis":analysis,
             "instructions":instructions,
+            // The SDK remains host-owned and cannot be overwritten, but a generator may read
+            // the exact implementation it will import instead of guessing beyond sdk.md.
+            "sdkSource":SDK,
             "files":files,
             "key":key,
             "endpoint":config.endpoint,
@@ -1114,6 +1176,7 @@ impl Workshop {
                 "plan":project.plan,
                 "previousDiagnostics":project.error,
                 "sample":sample_context(&project),
+                "attachments":attachments_context(&project),
             }
         });
         let mut command = tokio::process::Command::new(executable);
@@ -1343,6 +1406,10 @@ impl Workshop {
                         "icons" => {
                             json!({"type":"reply","id":event["id"],"value":crate::icons::names(event["args"]["query"].as_str().unwrap_or_default())})
                         }
+                        "attachment" => match read_attachment_value(&project, &event["args"]) {
+                            Ok(value) => json!({"type":"reply","id":event["id"],"value":value}),
+                            Err(error) => json!({"type":"reply","id":event["id"],"ok":false,"error":error}),
+                        },
                         // The long tail of formats needs libraries this repository does not
                         // ship, so the agent names one and the host fetches it: pinned,
                         // integrity-checked, unpacked without running anything, and copied
@@ -2098,6 +2165,101 @@ fn task_name(requirement: &str, sample: Option<&str>) -> String {
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_else(|| "新插件任务".into())
 }
+fn image_mime(path: &Path) -> Option<&'static str> {
+    match path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "png" => Some("image/png"),
+        "jpg" | "jpeg" => Some("image/jpeg"),
+        "webp" => Some("image/webp"),
+        "gif" => Some("image/gif"),
+        _ => None,
+    }
+}
+fn attachment(path: &Path, size: u64) -> Attachment {
+    let mime = image_mime(path).unwrap_or("application/octet-stream");
+    Attachment {
+        path: path.to_string_lossy().into_owned(),
+        name: path
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "attachment".into()),
+        size,
+        image: mime.starts_with("image/"),
+        mime: mime.into(),
+    }
+}
+/// Only portable facts reach the model up front. File contents are read through the bounded
+/// attachment request, and image files are attached visually by the runner.
+fn attachments_context(project: &Project) -> Value {
+    json!(project
+        .attachments
+        .iter()
+        .enumerate()
+        .map(|(index, file)| json!({
+            "id": format!("attachment-{}", index + 1),
+            "name": file.name,
+            "size": file.size,
+            "image": file.image,
+            "mime": file.mime,
+        }))
+        .collect::<Vec<_>>())
+}
+/// Reads one bounded slice for the generation agent. This is intentionally format-neutral:
+/// text is returned as text and other bytes as base64, leaving interpretation to the model
+/// and ultimately to the generated preview plugin.
+fn read_attachment_value(project: &Project, arguments: &Value) -> Result<Value, String> {
+    use std::io::{Read, Seek, SeekFrom};
+    let id = arguments["id"].as_str().ok_or("缺少附件 ID")?;
+    let index = id
+        .strip_prefix("attachment-")
+        .and_then(|value| value.parse::<usize>().ok())
+        .and_then(|value| value.checked_sub(1))
+        .ok_or("附件 ID 无效")?;
+    let attachment = project.attachments.get(index).ok_or("附件不存在")?;
+    let offset = arguments["offset"].as_u64().unwrap_or(0);
+    if offset > attachment.size {
+        return Err("读取位置超出附件大小".into());
+    }
+    let requested = arguments["length"].as_u64().unwrap_or(64 * 1024);
+    let maximum = if attachment.image { 12 * 1024 * 1024 } else { 1024 * 1024 };
+    let length = requested.min(attachment.size.saturating_sub(offset));
+    if length > maximum {
+        return Err(format!("单次最多读取 {} MiB", maximum / 1024 / 1024));
+    }
+    let mut file = std::fs::File::open(&attachment.path).map_err(|e| e.to_string())?;
+    file.seek(SeekFrom::Start(offset)).map_err(|e| e.to_string())?;
+    let mut bytes = vec![0; usize::try_from(length).map_err(|_| "读取长度无效")?];
+    file.read_exact(&mut bytes).map_err(|e| e.to_string())?;
+    let encoding = arguments["encoding"].as_str().unwrap_or("auto");
+    if encoding != "base64" {
+        if let Ok(text) = String::from_utf8(bytes.clone()) {
+            return Ok(json!({
+                "id": id,
+                "name": attachment.name,
+                "offset": offset,
+                "size": attachment.size,
+                "eof": offset + length >= attachment.size,
+                "encoding": "utf8",
+                "text": text,
+            }));
+        }
+    }
+    Ok(json!({
+        "id": id,
+        "name": attachment.name,
+        "offset": offset,
+        "size": attachment.size,
+        "eof": offset + length >= attachment.size,
+        "encoding": "base64",
+        "data": base64::Engine::encode(&base64::engine::general_purpose::STANDARD, bytes),
+        "mime": attachment.mime,
+    }))
+}
 /// The sample a run is about, as data for the model. The extension is the one fact the
 /// host enforces: a preview only ever opens for files the plugin declares.
 fn sample_context(project: &Project) -> Value {
@@ -2403,6 +2565,7 @@ fn parse_output(text: &str, files: &[String]) -> Result<Output, String> {
         return Err("Unknown Lucide icon. Use a canonical icon such as box, file-text, image, table, music or film".into());
     }
     validate_javascript(&output.javascript, files)?;
+    validate_preview_chrome(&output.javascript, &output.css)?;
     // This is diagnostic lint, not the security boundary (the sandbox and CSP are).
     for forbidden in [
         "eval(",
@@ -2421,11 +2584,43 @@ fn parse_output(text: &str, files: &[String]) -> Result<Output, String> {
     Ok(output)
 }
 
+/// Generated views occupy the content surface; the shell already owns file identity, controls
+/// and one concise information line. Catch the common custom bars that models otherwise add
+/// from web-app habit. Requiring both a JS class literal and its CSS selector avoids treating an
+/// ordinary data field called `status` as chrome.
+fn validate_preview_chrome(javascript: &str, css: &str) -> Result<(), String> {
+    for class in [
+        "status",
+        "status-bar",
+        "statusbar",
+        "info-bar",
+        "infobar",
+        "file-info",
+        "metadata-bar",
+        "viewer-footer",
+    ] {
+        let class_literal = [
+            format!("'{class}'"),
+            format!("\"{class}\""),
+            format!("`{class}`"),
+        ]
+        .iter()
+        .any(|literal| javascript.contains(literal));
+        let selector = format!(".{class}");
+        if class_literal && css.contains(&selector) {
+            return Err(format!(
+                "不要在预览 DOM 中创建 .{class} 信息栏；文件名和大小由宿主显示，页码、缩放、尺寸、编码等简短状态请 import SDK `status` 并调用 status(text)"
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// Files the host writes into every package, so an agent may neither write nor shadow them.
 const HOST_FILES: [&str; 4] = ["index.html", "sdk.js", "sdk-ui.css", "boot.js"];
 /// A path the agent may write. `metadata.json` is the plugin's own record; everything else
-/// lives under `ui/` (the page) or `vendor/` (libraries it brings), which is what gets
-/// packaged. The host's own files are refused: they are already there.
+/// lives under `ui/`, including nested modules and assets. The host's own files are refused:
+/// they are already there.
 fn writable(path: &str) -> Result<(), String> {
     if path == "metadata.json" {
         return Ok(());
@@ -2436,15 +2631,12 @@ fn writable(path: &str) -> Result<(), String> {
         ));
     };
     let parts: Vec<&str> = page.split('/').collect();
-    let shaped = match parts.as_slice() {
-        [leaf] => safe_segment(leaf),
-        ["vendor", leaf] => safe_segment(leaf),
-        _ => false,
-    };
+    let shaped =
+        !parts.is_empty() && parts.len() <= 12 && parts.iter().all(|part| safe_segment(part));
     if !shaped {
-        return Err(format!("{path}：只能写 ui/<文件名> 或 ui/vendor/<文件名>"));
+        return Err(format!("{path}：只能写 ui/ 下最多 12 层的安全相对路径"));
     }
-    if HOST_FILES.contains(&parts[parts.len() - 1]) {
+    if parts.len() == 1 && HOST_FILES.contains(&parts[0]) {
         return Err(format!("{path}：这个文件由宿主生成，不要覆盖"));
     }
     Ok(())
@@ -2544,21 +2736,42 @@ fn validate_javascript(source: &str, files: &[String]) -> Result<(), String> {
             parsed.errors.iter().take(3).collect::<Vec<_>>()
         ));
     }
-    struct InvalidReadyCall(bool);
-    impl<'a> Visit<'a> for InvalidReadyCall {
+    struct InvalidSdkCall {
+        ready: bool,
+        file_blob_without_size: bool,
+    }
+    impl<'a> Visit<'a> for InvalidSdkCall {
         fn visit_call_expression(&mut self, call: &CallExpression<'a>) {
             if matches!(&call.callee, Expression::Identifier(identifier) if identifier.name == "ready")
             {
-                self.0 = true;
+                self.ready = true;
+            }
+            let file_blob =
+                matches!(&call.callee, Expression::Identifier(identifier) if identifier.name == "fileBlob")
+                    || call
+                        .callee
+                        .as_member_expression()
+                        .and_then(|member| member.static_property_name())
+                        .is_some_and(|name| name == "fileBlob");
+            if file_blob && call.arguments.is_empty() {
+                self.file_blob_without_size = true;
             }
             walk_call_expression(self, call);
         }
     }
-    let mut invalid_ready = InvalidReadyCall(false);
-    invalid_ready.visit_program(&parsed.program);
-    if invalid_ready.0 {
+    let mut invalid_sdk = InvalidSdkCall {
+        ready: false,
+        file_blob_without_size: false,
+    };
+    invalid_sdk.visit_program(&parsed.program);
+    if invalid_sdk.ready {
         return Err(
             "SDK ready is a Promise: use `const init = await ready`, never `ready()`".into(),
+        );
+    }
+    if invalid_sdk.file_blob_without_size {
+        return Err(
+            "fileBlob needs the sample size and media MIME: use `await fileBlob(file.size, \"video/mp4\")` after `const { file } = await ready`".into(),
         );
     }
     if [
@@ -3213,6 +3426,35 @@ mod tests {
         );
         assert!(reopened.get(&project.id).await.unwrap().sample.is_none());
     }
+    #[tokio::test]
+    async fn supplementary_files_persist_and_are_read_through_the_generic_attachment_channel() {
+        let temp = tempfile::tempdir().unwrap();
+        let workshop = service(temp.path().join("workshop"));
+        let sample = sample_file(temp.path(), "sample.xyz", b"sample");
+        let notes = sample_file(temp.path(), "notes.txt", "参考说明".as_bytes());
+        let image = sample_file(temp.path(), "reference.png", b"PNG");
+        let project = workshop
+            .create("Use references".into(), Some(sample.clone()))
+            .await
+            .unwrap();
+        workshop
+            .attach_files(&project.id, vec![notes.clone(), image.clone(), sample])
+            .await
+            .unwrap();
+        let project = workshop.get(&project.id).await.unwrap();
+        assert_eq!(project.attachments.len(), 2, "the primary sample is not duplicated");
+        assert!(!project.attachments[0].image);
+        assert!(project.attachments[1].image);
+        let value = read_attachment_value(
+            &project,
+            &json!({"id":"attachment-1","offset":0,"length":64,"encoding":"auto"}),
+        )
+        .unwrap();
+        assert_eq!(value["text"], "参考说明");
+        assert_eq!(value["encoding"], "utf8");
+        let reopened = service(temp.path().join("workshop"));
+        assert_eq!(reopened.get(&project.id).await.unwrap().attachments.len(), 2);
+    }
     /// A sample the task references by path. The workshop takes samples as paths and never
     /// as bytes, so a test writes the file it wants the task to point at.
     fn sample_file(temp: &Path, name: &str, bytes: &[u8]) -> PathBuf {
@@ -3246,6 +3488,7 @@ mod tests {
             "ui/view.js",
             "ui/style.css",
             "ui/helper.js",
+            "ui/parsers/archive/zip.js",
             "ui/vendor/tiny.js",
         ] {
             assert!(writable(good).is_ok(), "{good} should be writable");
@@ -3254,7 +3497,6 @@ mod tests {
             "../outside.js",
             "ui/../outside.js",
             "ui/vendor/../outside.js",
-            "ui/deep/nested/file.js",
             "vendor/tiny.js",
             "bin/view.exe",
             "ui",
@@ -3307,6 +3549,19 @@ mod tests {
         .err()
         .expect("ready() must be rejected");
         assert!(wrong_ready.contains("ready is a Promise"), "{wrong_ready}");
+        for wrong_blob in [
+            "import {ready,fileBlob,presented} from './sdk.js'; const {file}=await ready; const blob=await fileBlob(); await presented();",
+            "import * as sdk from './sdk.js'; const {file}=await sdk.ready; const blob=await sdk.fileBlob(); await sdk.presented();",
+        ] {
+            let error = parse_output(&output(wrong_blob), &[])
+                .expect_err("fileBlob without the sample size must be rejected");
+            assert!(error.contains("fileBlob needs"), "{error}");
+        }
+        assert!(parse_output(
+            &output("import {ready,fileBlob,presented} from './sdk.js'; const {file}=await ready; const blob=await fileBlob(file.size, 'video/mp4'); await presented();"),
+            &[]
+        )
+        .is_ok());
         assert!(parse_output(
             &output("import {ready,presented} from './sdk.js'; const = ; presented();"),
             &[]
@@ -3328,6 +3583,23 @@ mod tests {
         )
         .expect_err("generated viewers must use host controls");
         assert!(custom_button.contains("SDK controls"), "{custom_button}");
+        let custom_status = json!({
+            "name":"Test viewer",
+            "summary":"Read-only preview",
+            "extension":"txt",
+            "icon":"file-text",
+            "javascript":"import {ready,presented} from './sdk.js'; await ready; const bar=document.createElement('div'); bar.className='status-bar'; document.getElementById('app').append(bar); await presented();",
+            "css":".status-bar { position: fixed; bottom: 0 }"
+        })
+        .to_string();
+        let error = parse_output(&custom_status, &[])
+            .expect_err("generated viewers must publish metadata through host status");
+        assert!(error.contains("status(text)"), "{error}");
+        assert!(parse_output(
+            &output("import {ready,presented,status} from './sdk.js'; await ready; status('第 1/2 页 · 缩放 100%'); await presented();"),
+            &[]
+        )
+        .is_ok());
     }
     /// A pulled library is not a note on the side: the file the page imports and the record of
     /// where it came from both end up in the package, so an exported plugin can be traced back

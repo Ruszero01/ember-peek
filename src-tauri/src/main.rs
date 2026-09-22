@@ -220,6 +220,28 @@ async fn tool_call(
             }
             Ok(Value::Null)
         }
+        "addAttachments" => {
+            let paths = tauri::async_runtime::spawn_blocking(move || {
+                rfd::FileDialog::new().set_parent(&window).pick_files()
+            })
+            .await
+            .map_err(|e| e.to_string())?;
+            if let Some(paths) = paths {
+                service.attach_files(project, paths).await?;
+            }
+            Ok(Value::Null)
+        }
+        "addPaths" => {
+            let paths = params["paths"]
+                .as_array()
+                .ok_or("Missing attachment paths")?
+                .iter()
+                .filter_map(|value| value.as_str())
+                .map(std::path::PathBuf::from)
+                .collect();
+            service.attach_files(project, paths).await?;
+            Ok(Value::Null)
+        }
         "create" => {
             let sample = if params["withSample"].as_bool() == Some(true) {
                 let sample = tauri::async_runtime::spawn_blocking(move || {

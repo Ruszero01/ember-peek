@@ -23,7 +23,7 @@ function fixture() {
     clearInterval,
   });
   const messages = [];
-  const port = { start() {}, postMessage: message => messages.push(message), onmessage: null };
+  const port = { start() {}, close() {}, postMessage: message => messages.push(message), onmessage: null, onmessageerror: null };
   return { api: module.exports, parent, listener, messages, port, document, announcements };
 }
 test("tool SDK asks its host for a port until one arrives, and then stops asking", async () => {
@@ -59,4 +59,35 @@ test("tool SDK propagates service failures without treating them as successful o
   await Promise.resolve();
   f.port.onmessage({ data: { id: f.messages[0].id, error: "Build must pass preview" } });
   await rejected;
+});
+test("tool SDK rejects in-flight work when the host explicitly replaces its channel", async () => {
+  const f = fixture();
+  const documentId = f.announcements[0].documentId;
+  f.listener({ source: f.parent, data: { type: "ember-tool-connect", documentId }, ports: [f.port] });
+  const request = f.api.call("state");
+  await Promise.resolve();
+  const replacement = { start() {}, close() {}, postMessage() {}, onmessage: null, onmessageerror: null };
+  f.listener({ source: f.parent, data: { type: "ember-tool-connect", documentId }, ports: [replacement] });
+  await assert.rejects(request, /replaced/);
+});
+test("tool SDK ignores a connection intended for a different iframe document", async () => {
+  const f = fixture();
+  f.listener({ source: f.parent, data: { type: "ember-tool-connect", documentId: "stale-document" }, ports: [f.port] });
+  assert.equal(f.port.onmessage, null);
+  assert.ok(f.announcements[0].documentId);
+});
+test("tool SDK requests a new channel generation after a disconnect", async () => {
+  const f = fixture();
+  const { documentId, attempt } = f.announcements[0];
+  f.listener({ source: f.parent, data: { type: "ember-tool-connect", documentId, attempt }, ports: [f.port] });
+  f.port.onmessage({ data: { event: "disconnect", error: "closed for test" } });
+  assert.equal(f.announcements.at(-1).documentId, documentId);
+  assert.equal(f.announcements.at(-1).attempt, attempt + 1);
+  const messages = [];
+  const replacement = { start() {}, close() {}, postMessage: message => messages.push(message), onmessage: null, onmessageerror: null };
+  f.listener({ source: f.parent, data: { type: "ember-tool-connect", documentId, attempt: attempt + 1 }, ports: [replacement] });
+  const request = f.api.call("state");
+  await Promise.resolve();
+  replacement.onmessage({ data: { id: messages[0].id, value: { projects: [] } } });
+  assert.equal((await request).projects.length, 0);
 });

@@ -5,6 +5,8 @@ const listeners = new Set();
 const dropListeners = new Set();
 const dragListeners = new Set();
 let current = {locale:"en",theme:{}};
+const documentId = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`;
+let attempt = 0;
 export function context() { return current; }
 export function onContext(fn) { listeners.add(fn); return () => listeners.delete(fn); }
 export function onDrop(fn) { dropListeners.add(fn); return () => dropListeners.delete(fn); }
@@ -19,16 +21,36 @@ function applyContext(value) {
 }
 let resolve;
 export const ready = new Promise(r => { resolve = r; });
+let bell;
+function rejectPending(message) {
+  for (const request of pending.values()) { clearTimeout(request.timer); request.reject(new Error(message)); }
+  pending.clear();
+}
+function announce() {
+  if (!port) parent.postMessage({ type: "ember-tool-ready", documentId, attempt }, "*");
+}
+function startAnnouncing() {
+  if (bell) return;
+  announce();
+  bell = setInterval(announce, 400);
+}
+function disconnect(message, expected = port) {
+  if (!expected || port !== expected) return;
+  try { expected.close(); } catch {}
+  port = undefined;
+  attempt++;
+  rejectPending(message);
+  startAnnouncing();
+}
 window.addEventListener("message", event => {
   if (event.source !== parent || event.data?.type !== "ember-tool-connect" || !event.ports[0]) return;
-  // The host may hand the port over more than once: it reconnects when it remounts a tool
-  // page whose document is not reloaded. Keeping only the first would leave the page waiting
-  // on a port the host has already closed, which shows up as a page that never appears.
-  if (port) {
-    try { port.close(); } catch {}
-  }
-  port = event.ports[0];
-  port.onmessage = ({data}) => {
+  if (event.data.documentId && event.data.documentId !== documentId) return;
+  const nextPort = event.ports[0];
+  if (port && port !== nextPort) disconnect("Tool connection was replaced", port);
+  port = nextPort;
+  if (bell) { clearInterval(bell); bell = undefined; }
+  nextPort.onmessage = ({data}) => {
+    if (data.event === "disconnect") { disconnect(data.error || "Tool connection closed", nextPort); return; }
     if (data.event === "context") { applyContext(data); return; }
     if (data.event === "drop") { for (const fn of dropListeners) fn(data.paths || []); return; }
     if (data.event === "drag") { for (const fn of dragListeners) fn(data.state === "enter" ? "enter" : "leave"); return; }
@@ -37,30 +59,29 @@ window.addEventListener("message", event => {
     pending.delete(data.id); clearTimeout(request.timer);
     data.error ? request.reject(new Error(data.error)) : request.resolve(data.value);
   };
+  nextPort.onmessageerror = () => disconnect("Tool connection failed", nextPort);
   applyContext(event.data);
-  port.start(); resolve(current);
+  nextPort.start(); resolve(current);
 });
 // Signal after the listener exists; module loading must never depend on iframe load. It is
 // repeated until a port arrives, because the host may have asked before this module ran — its
 // message would be gone, and a page that announces once would wait for a port forever. The
-// host answers every announcement with a fresh port, so this stops on the first one.
-const announce = () => {
-  if (!port) parent.postMessage({ type: "ember-tool-ready" }, "*");
-};
-announce();
-const bell = setInterval(() => {
-  if (port) {
-    clearInterval(bell);
-    return;
-  }
-  announce();
-}, 400);
-setTimeout(() => clearInterval(bell), 12000);
-export async function call(method, params = {}) {
+// host answers the first announcement for this document/attempt; retries are idempotent.
+startAnnouncing();
+export async function call(method, params = {}, options = {}) {
   await ready;
   return new Promise((resolve,reject) => {
     const id = ++next;
-    const timer = setTimeout(() => { pending.delete(id); reject(new Error("Tool request timed out")); }, 180000);
-    pending.set(id, {resolve,reject,timer}); port.postMessage({id,method,params});
+    const requestPort = port;
+    if (!requestPort) { reject(new Error("Tool is reconnecting")); return; }
+    const timeout = Number.isFinite(options.timeoutMs) ? Math.max(1000, options.timeoutMs) : 180000;
+    const timer = setTimeout(() => {
+      if (!pending.delete(id)) return;
+      reject(new Error("Tool request timed out"));
+      disconnect("Tool connection became unresponsive", requestPort);
+    }, timeout);
+    pending.set(id, {resolve,reject,timer});
+    try { requestPort.postMessage({id,method,params}); }
+    catch (error) { pending.delete(id); clearTimeout(timer); disconnect("Tool connection failed", requestPort); reject(error); }
   });
 }

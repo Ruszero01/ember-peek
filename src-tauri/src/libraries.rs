@@ -11,6 +11,7 @@ use serde::Serialize;
 use serde_json::Value;
 use sha2::{Digest, Sha512};
 use std::{
+    collections::HashSet,
     path::{Component, Path, PathBuf},
     time::Duration,
 };
@@ -27,6 +28,7 @@ const MAX_ENTRIES: usize = 20_000;
 /// One vendored file. A bundled build is a few hundred kilobytes; a wasm decoder a few more.
 const MAX_FILE: usize = 16 * 1024 * 1024;
 const MAX_LICENCE: usize = 256 * 1024;
+const MAX_VENDOR_FILES: usize = 256;
 /// How many files a listing shows. A package can hold thousands; the model needs the ones a
 /// page would import, and the rest is noise it pays for.
 const MAX_LISTING: usize = 120;
@@ -144,8 +146,9 @@ impl Libraries {
         })
     }
 
-    /// Copies the named files of a package into a plugin's `ui/vendor/`, refusing anything the
-    /// page could not import on its own.
+    /// Copies named package files into a plugin's `ui/vendor/`. A single self-contained build
+    /// keeps the compact legacy filename; a multi-file ESM build keeps its package-relative
+    /// tree so its own relative imports continue to resolve in the browser.
     pub async fn vendor(
         &self,
         package: &str,
@@ -155,11 +158,13 @@ impl Libraries {
     ) -> Result<Vendored, String> {
         let resolved = self.resolve(package, version).await?;
         let directory = self.ensure(package, &resolved).await?;
-        let mut vendored = Vec::new();
         let mut notes = resolved.notes.clone();
-        let mut taken: Vec<String> = Vec::new();
+        if files.len() > MAX_VENDOR_FILES {
+            return Err(format!("一次最多取用 {MAX_VENDOR_FILES} 个库文件"));
+        }
+        let mut prepared = Vec::new();
         for wanted in files {
-            let (relative, name) = inside_file(wanted)?;
+            let (relative, relative_name) = inside_file(wanted)?;
             let source = directory.join(&relative);
             let metadata = std::fs::symlink_metadata(&source)
                 .map_err(|_| format!("{wanted}：这个包里没有这个文件（大小写也算）"))?;
@@ -170,18 +175,36 @@ impl Libraries {
                 return Err(format!("{wanted}：文件超过 16 MiB，页面里用不起来"));
             }
             let bytes = std::fs::read(&source).map_err(|error| format!("{wanted}：{error}"))?;
-            match import_verdict(&bytes, &name) {
-                Some(Verdict::Foreign(specifier)) => {
-                    return Err(format!(
-                        "{wanted}：这个文件还 import 了 {specifier}；页面里没有裸名解析，换一个自带的打包文件（例如 dist/ 下的 .min.js），或把它的依赖也取来"
-                    ))
-                }
+            prepared.push((relative, relative_name, bytes));
+        }
+        let selected: HashSet<String> = prepared
+            .iter()
+            .map(|(_, relative, _)| relative.clone())
+            .collect();
+        let preserve_tree = prepared.len() > 1;
+        let namespace = store_name(package);
+        let mut vendored = Vec::new();
+        for (relative, relative_name, bytes) in prepared {
+            let name = if preserve_tree {
+                format!("{namespace}/{relative_name}")
+            } else {
+                Path::new(&relative_name)
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or(&relative_name)
+                    .to_owned()
+            };
+            match import_verdict(&bytes, &relative_name, &selected) {
+                Some(Verdict::Foreign(specifier)) => return Err(format!(
+                    "{relative_name}：这个文件还 import 了 {specifier}；裸包名不能在预览页解析，请改用浏览器构建"
+                )),
+                Some(Verdict::Missing(missing)) => return Err(format!(
+                    "{relative_name}：还需要包内文件 {missing}；把它加入同一次 add_dependency 的 files"
+                )),
                 Some(Verdict::Script { commonjs: true, .. }) => notes.push(format!(
                     "{name} 是 CommonJS 构建：浏览器里没有 require 与 module，请换一个 ESM 构建"
                 )),
-                Some(Verdict::Script {
-                    global: Some(global), ..
-                }) => notes.push(format!(
+                Some(Verdict::Script { global: Some(global), .. }) => notes.push(format!(
                     "{name} 没有 export：它是脚本构建（UMD/IIFE），用 import './vendor/{name}' 触发副作用，再从全局 {global} 读它的接口"
                 )),
                 Some(Verdict::Script { global: None, .. }) => notes.push(format!(
@@ -189,12 +212,14 @@ impl Libraries {
                 )),
                 None => {}
             }
-            std::fs::create_dir_all(destination).map_err(|error| error.to_string())?;
-            ember_file_store::atomic_write(&destination.join(&name), &bytes)
+            let target = destination.join(&name);
+            if let Some(parent) = target.parent() {
+                std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+            }
+            ember_file_store::atomic_write(&target, &bytes)
                 .map_err(|error| format!("{name}：{error}"))?;
-            taken.push(name.clone());
             vendored.push(VendoredFile {
-                path: wanted.clone(),
+                path: relative.to_string_lossy().replace('\\', "/"),
                 name,
                 bytes: bytes.len(),
             });
@@ -202,9 +227,17 @@ impl Libraries {
         let licence = match licence_path(&directory) {
             Some(path) => {
                 let bytes = read_capped(&directory.join(&path), MAX_LICENCE)?;
-                let name = format!("{}-LICENSE.txt", store_name(package).trim_start_matches('@'));
-                std::fs::create_dir_all(destination).map_err(|error| error.to_string())?;
-                ember_file_store::atomic_write(&destination.join(&name), &bytes)
+                let leaf = format!("{}-LICENSE.txt", namespace.trim_start_matches('@'));
+                let name = if preserve_tree {
+                    format!("{namespace}/{leaf}")
+                } else {
+                    leaf
+                };
+                let target = destination.join(&name);
+                if let Some(parent) = target.parent() {
+                    std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+                }
+                ember_file_store::atomic_write(&target, &bytes)
                     .map_err(|error| format!("{name}：{error}"))?;
                 Some(name)
             }
@@ -584,8 +617,8 @@ fn inside_package(path: &Path) -> Result<PathBuf, String> {
         .ok_or_else(|| "包的目录结构不是 npm 打包的样子".to_owned())
 }
 
-/// A file the model asked for, checked as both a path inside the package and a name in
-/// `ui/vendor/`: one file, one name, no deeper.
+/// A file the model asked for, checked as a package-relative path. Directory structure is
+/// retained when several files form one browser module graph.
 fn inside_file(wanted: &str) -> Result<(PathBuf, String), String> {
     let wanted = wanted.trim().trim_start_matches("./");
     let wanted = wanted.strip_prefix("package/").unwrap_or(wanted);
@@ -597,29 +630,34 @@ fn inside_file(wanted: &str) -> Result<(PathBuf, String), String> {
             _ => return Err(format!("{wanted}：只能写包内的相对路径")),
         }
     }
-    let name = relative
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or_default()
-        .to_owned();
-    let safe = !name.is_empty()
-        && name.len() <= 64
-        && !name.starts_with('.')
-        && name
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || b"-_.".contains(&byte));
-    if !safe {
-        return Err(format!("{wanted}：文件名不适合放进 ui/vendor/"));
+    let parts: Vec<_> = relative.iter().filter_map(|part| part.to_str()).collect();
+    if parts.is_empty()
+        || parts.iter().any(|part| {
+            part.is_empty()
+                || part.len() > 128
+                || part.starts_with('.')
+                || !part
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || b"-_.".contains(&byte))
+        })
+    {
+        return Err(format!("{wanted}：路径不适合放进 ui/vendor/"));
     }
+    let name = relative.to_string_lossy().replace('\\', "/");
     Ok((relative, name))
 }
 
 enum Verdict {
     /// The file imports something by name, which the page cannot resolve.
     Foreign(String),
+    /// A relative import is browser-safe, but its target was not selected for vendoring.
+    Missing(String),
     /// The file has nothing to import: either a script build that exposes itself, or
     /// CommonJS, which the browser has no `require` or `module` for.
-    Script { commonjs: bool, global: Option<String> },
+    Script {
+        commonjs: bool,
+        global: Option<String>,
+    },
 }
 
 /// Whether the page can import this file, and what to expect when it can. Anything imported by
@@ -627,7 +665,7 @@ enum Verdict {
 /// instead. A file that neither imports nor exports anything is a script build: usable, but
 /// only for its side effects, so it is worth saying where to read its interface from rather
 /// than letting the model guess why nothing was exported.
-fn import_verdict(bytes: &[u8], name: &str) -> Option<Verdict> {
+fn import_verdict(bytes: &[u8], name: &str, selected: &HashSet<String>) -> Option<Verdict> {
     if !matches!(name.rsplit('.').next(), Some("js" | "mjs" | "cjs")) {
         return None;
     }
@@ -643,38 +681,82 @@ fn import_verdict(bytes: &[u8], name: &str) -> Option<Verdict> {
     }
     use oxc_ast::ast::{Expression, Statement};
     let mut exported = false;
+    let mut module = false;
     for statement in &parsed.program.body {
-        match statement {
+        let dependency = match statement {
             Statement::ImportDeclaration(import) => {
-                return Some(Verdict::Foreign(import.source.value.to_string()))
+                module = true;
+                Some(import.source.value.as_str())
             }
             Statement::ExportAllDeclaration(export) => {
-                return Some(Verdict::Foreign(export.source.value.to_string()))
+                module = true;
+                exported = true;
+                Some(export.source.value.as_str())
             }
             Statement::ExportNamedDeclaration(export) => match &export.source {
-                Some(source) => return Some(Verdict::Foreign(source.value.to_string())),
-                None => exported = true,
+                Some(source) => {
+                    module = true;
+                    exported = true;
+                    Some(source.value.as_str())
+                }
+                None => {
+                    exported = true;
+                    None
+                }
             },
-            Statement::ExportDefaultDeclaration(_) => exported = true,
+            Statement::ExportDefaultDeclaration(_) => {
+                exported = true;
+                None
+            }
             Statement::ExpressionStatement(statement) => {
                 if let Expression::ImportExpression(import) = &statement.expression {
-                    let specifier = match &import.source {
-                        Expression::StringLiteral(literal) => literal.value.to_string(),
-                        _ => "(动态表达式)".to_owned(),
-                    };
-                    return Some(Verdict::Foreign(specifier));
+                    module = true;
+                    match &import.source {
+                        Expression::StringLiteral(literal) => Some(literal.value.as_str()),
+                        _ => return Some(Verdict::Foreign("(动态表达式)".to_owned())),
+                    }
+                } else {
+                    None
                 }
             }
-            _ => {}
+            _ => None,
+        };
+        if let Some(specifier) = dependency {
+            if !specifier.starts_with('.') {
+                return Some(Verdict::Foreign(specifier.to_owned()));
+            }
+            let Some(relative) = relative_import(name, specifier) else {
+                return Some(Verdict::Foreign(specifier.to_owned()));
+            };
+            if !selected.contains(&relative) {
+                return Some(Verdict::Missing(relative));
+            }
         }
     }
-    if exported {
+    if exported || module {
         return None;
     }
     Some(Verdict::Script {
         commonjs,
         global: exposed_global(&source),
     })
+}
+
+fn relative_import(from: &str, specifier: &str) -> Option<String> {
+    let specifier = specifier.split(['?', '#']).next()?;
+    let mut parts: Vec<&str> = from.split('/').collect();
+    parts.pop();
+    for part in specifier.split('/') {
+        match part {
+            "" | "." => {}
+            ".." => {
+                parts.pop()?;
+            }
+            value if value.starts_with('.') => return None,
+            value => parts.push(value),
+        }
+    }
+    Some(parts.join("/"))
 }
 
 /// The name a script build most likely puts its interface under, for a note that tells the
@@ -1098,6 +1180,51 @@ mod tests {
             commonjs.notes.iter().any(|note| note.contains("require")),
             "{:?}",
             commonjs.notes
+        );
+    }
+
+    #[tokio::test]
+    async fn a_multi_file_esm_build_keeps_its_relative_module_tree() {
+        let temp = tempfile::tempdir().unwrap();
+        let registry = Registry::start(
+            "mesh-reader",
+            "1.2.3",
+            tarball(&[
+                (
+                    "package.json",
+                    r#"{"name":"mesh-reader","module":"dist/index.js"}"#,
+                ),
+                ("LICENSE", "MIT"),
+                ("dist/index.js", "export { parse } from './parser.js';\n"),
+                (
+                    "dist/parser.js",
+                    "export const parse = bytes => bytes.length;\n",
+                ),
+            ]),
+        );
+        let vendor = temp.path().join("ui/vendor");
+        let libraries = registry.store(&temp.path().join("libraries"));
+        let missing = libraries
+            .vendor("mesh-reader", None, &["dist/index.js".into()], &vendor)
+            .await
+            .expect_err("an incomplete module graph must explain the missing file");
+        assert!(missing.contains("dist/parser.js"), "{missing}");
+        let vendored = libraries
+            .vendor(
+                "mesh-reader",
+                Some("1.2.3"),
+                &["dist/index.js".into(), "dist/parser.js".into()],
+                &vendor,
+            )
+            .await
+            .unwrap();
+        assert_eq!(vendored.files[0].name, "mesh-reader/dist/index.js");
+        assert_eq!(vendored.files[1].name, "mesh-reader/dist/parser.js");
+        assert!(vendor.join("mesh-reader/dist/index.js").is_file());
+        assert!(vendor.join("mesh-reader/dist/parser.js").is_file());
+        assert_eq!(
+            vendored.licence.as_deref(),
+            Some("mesh-reader/mesh-reader-LICENSE.txt")
         );
     }
 

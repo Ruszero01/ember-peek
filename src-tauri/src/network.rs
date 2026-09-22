@@ -248,52 +248,66 @@ impl Network {
         if library.is_empty() || library.len() > 200 {
             return Err("库名要在 1 到 200 字之间".into());
         }
-        let id = if library.starts_with('/') {
-            library.to_owned()
+        let ids = if library.starts_with('/') {
+            vec![library.to_owned()]
         } else {
-            let hits = self.libraries(library, 1).await?;
-            let best = hits.first().ok_or_else(|| {
-                format!("context7 上没有「{library}」的文档；可以用 search_web 先找库，再用 add_dependency 取包")
-            })?;
-            let id = best.id.clone().unwrap_or_default();
-            if id.is_empty() {
-                return Err(format!("context7 没有给出「{library}」的库标识"));
+            let lookup = package_without_version(library);
+            let hits = self.libraries(lookup, 20).await?;
+            let mut ids: Vec<String> = hits
+                .iter()
+                .filter(|hit| relevant_library_hit(lookup, hit))
+                .filter_map(|hit| hit.id.clone())
+                .collect();
+            ids.dedup();
+            if ids.is_empty() {
+                return Err(format!(
+                    "context7 没有给出「{library}」的库标识；可以用 search_web 先找库，再用 add_dependency 读取包内 README"
+                ));
             }
-            id
+            ids
         };
         let topic = topic.map(str::trim).filter(|topic| !topic.is_empty());
-        let mut url = format!(
-            "{}/{id}?type=txt&tokens={DOCS_TOKENS}",
-            self.docs,
-            id = id.trim_start_matches('/')
-        );
-        if let Some(topic) = topic {
-            url.push_str(&format!("&topic={}", percent_encoding::utf8_percent_encode(topic, percent_encoding::NON_ALPHANUMERIC)));
-        }
-        let text = self.text(&url, true).await?;
-        if text.trim().is_empty() {
-            return Err(format!(
-                "context7 对 {id} 没有返回正文{}",
-                match topic {
-                    Some(topic) => format!("（topic={topic}）；换一个 topic 或去掉它会给出整份文档"),
-                    None => String::new(),
+        let mut failures = Vec::new();
+        for id in ids.iter().take(4) {
+            let mut url = format!(
+                "{}/{id}?type=txt&tokens={DOCS_TOKENS}",
+                self.docs,
+                id = id.trim_start_matches('/')
+            );
+            if let Some(topic) = topic {
+                url.push_str(&format!("&topic={}", percent_encoding::utf8_percent_encode(topic, percent_encoding::NON_ALPHANUMERIC)));
+            }
+            match self.text(&url, true).await {
+                Ok(text) if !text.trim().is_empty() => {
+                    let mut notes = Vec::new();
+                    if !failures.is_empty() {
+                        notes.push(format!(
+                            "首选文档源不可用，已自动切换到 {id}（跳过 {}）",
+                            failures.join("、")
+                        ));
+                    }
+                    if let Some(topic) = topic {
+                        notes.push(format!("只取了与「{topic}」相关的部分；换 topic 可以再取别的部分"));
+                    }
+                    if text.len() >= MAX_TEXT {
+                        notes.push("文档很长，已截断；用 topic 缩小范围".into());
+                    }
+                    return Ok(Docs {
+                        library: library.to_owned(),
+                        id: id.clone(),
+                        url,
+                        text: text.chars().take(MAX_TEXT).collect(),
+                        notes,
+                    });
                 }
-            ));
+                Ok(_) => failures.push(format!("{id}（无正文）")),
+                Err(_) => failures.push(id.clone()),
+            }
         }
-        let mut notes = Vec::new();
-        if let Some(topic) = topic {
-            notes.push(format!("只取了与「{topic}」相关的部分；换 topic 可以再取别的部分"));
-        }
-        if text.len() >= MAX_TEXT {
-            notes.push("文档很长，已截断；用 topic 缩小范围".into());
-        }
-        Ok(Docs {
-            library: library.to_owned(),
-            id,
-            url,
-            text: text.chars().take(MAX_TEXT).collect(),
-            notes,
-        })
+        Err(format!(
+            "context7 没有可读的「{library}」文档（已尝试 {}）；请改用 search_web、read_page 或直接读取包内 README",
+            failures.join("、")
+        ))
     }
 
     /// One page by URL, as text. This is how the model reads the documentation a search found:
@@ -317,9 +331,12 @@ impl Network {
             .header("accept-language", "en,zh-CN;q=0.8")
             .send()
             .await
-            .map_err(|error| format!("读取 {url} 失败：{error}"))?;
+            .map_err(|error| page_request_error(url, &error))?;
         if !response.status().is_success() {
-            return Err(format!("{url}：返回 {}", response.status()));
+            return Err(format!(
+                "{url}：目标站点返回 {}；不要重试同一地址，请换用搜索结果中的其他公开来源",
+                response.status()
+            ));
         }
         let kind = response
             .headers()
@@ -336,7 +353,16 @@ impl Network {
         let body = response
             .bytes()
             .await
-            .map_err(|error| format!("读取 {url} 中断：{error}"))?;
+            .map_err(|error| {
+                format!(
+                    "读取 {url} 中断：{}；不要重试同一地址，请换用其他公开来源",
+                    if error.is_timeout() {
+                        "目标站点响应超时".to_owned()
+                    } else {
+                        error.to_string()
+                    }
+                )
+            })?;
         if body.len() > MAX_PAGE {
             return Err(format!("{url}：页面超过 1 MiB，不适合作为阅读材料"));
         }
@@ -619,11 +645,52 @@ impl Network {
     }
 }
 
+fn page_request_error(url: &str, error: &reqwest::Error) -> String {
+    let reason = if error.is_timeout() {
+        "目标站点连接或响应超时"
+    } else if error.is_connect() {
+        "无法连接目标站点（可能被当前网络、代理或站点策略阻断）"
+    } else if error.is_redirect() {
+        "目标站点重定向无效或次数过多"
+    } else {
+        "目标站点请求失败"
+    };
+    format!("读取 {url} 失败：{reason}；不要重试同一地址，请换用其他公开来源")
+}
+
 fn host_of(url: &str) -> String {
     reqwest::Url::parse(url)
         .ok()
         .and_then(|url| url.host_str().map(str::to_owned))
         .unwrap_or_else(|| url.to_owned())
+}
+
+fn package_without_version(library: &str) -> &str {
+    let library = library.trim();
+    let version_at = if library.starts_with('@') {
+        library.rfind('@').filter(|at| *at > 0)
+    } else {
+        library.find('@')
+    };
+    version_at.map_or(library, |at| &library[..at])
+}
+
+fn relevant_library_hit(library: &str, hit: &Hit) -> bool {
+    let terms: Vec<String> = library
+        .split(|character: char| !character.is_ascii_alphanumeric())
+        .filter(|term| term.len() > 1)
+        .map(str::to_ascii_lowercase)
+        .collect();
+    if terms.is_empty() {
+        return true;
+    }
+    let haystack = format!(
+        "{} {}",
+        hit.id.as_deref().unwrap_or_default(),
+        hit.title
+    )
+    .to_ascii_lowercase();
+    terms.iter().all(|term| haystack.contains(term))
 }
 
 /// Whether this address is somewhere on the public internet. A lookup must not become a way to

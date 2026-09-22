@@ -261,6 +261,60 @@ async fn documentation_is_named_then_read() {
 }
 
 #[tokio::test]
+async fn documentation_falls_back_when_context7s_best_match_is_stale() {
+    let server = Server::start(vec![
+        (
+            "/c7/search",
+            "application/json",
+            serde_json::json!({"results":[
+                {"id":"/mozilla/pdfjs-dist","title":"PDF.js Dist","description":"stale","trustScore":9.8},
+                {"id":"/axodotdev/cargo-dist","title":"dist","description":"unrelated","trustScore":7.9},
+                {"id":"/websites/deepwiki_mozilla_pdfjs-dist","title":"PDF.js DeepWiki","description":"usable","trustScore":9.3}
+            ]}).to_string(),
+        ),
+        (
+            "/c7/websites/deepwiki_mozilla_pdfjs-dist",
+            "text/plain",
+            "Use getDocument and configure the worker explicitly.".to_owned(),
+        ),
+    ]);
+    let answer = server
+        .pointed()
+        .docs("pdfjs-dist@6.3.289", Some("worker"))
+        .await
+        .unwrap();
+    assert_eq!(answer.id, "/websites/deepwiki_mozilla_pdfjs-dist");
+    assert!(answer.text.contains("getDocument"));
+    assert!(answer.notes.iter().any(|note| note.contains("自动切换")));
+    let asked = server.asked();
+    assert!(asked.iter().any(|path| path.contains("/mozilla/pdfjs-dist")));
+    assert!(asked.iter().any(|path| path.contains("/websites/deepwiki_mozilla_pdfjs-dist")));
+    assert!(!asked.iter().any(|path| path.contains("cargo-dist")));
+}
+
+#[test]
+fn documentation_lookup_ignores_versions_and_unrelated_search_hits() {
+    assert_eq!(package_without_version("pdfjs-dist@6.3.289"), "pdfjs-dist");
+    assert_eq!(package_without_version("@scope/name@1.2.3"), "@scope/name");
+    let related = Hit {
+        source: "context7".into(),
+        title: "PDF.js DeepWiki".into(),
+        url: String::new(),
+        snippet: None,
+        version: None,
+        id: Some("/websites/deepwiki_mozilla_pdfjs-dist".into()),
+        score: None,
+    };
+    let unrelated = Hit {
+        id: Some("/axodotdev/cargo-dist".into()),
+        title: "dist".into(),
+        ..related.clone()
+    };
+    assert!(relevant_library_hit("pdfjs-dist", &related));
+    assert!(!relevant_library_hit("pdfjs-dist", &unrelated));
+}
+
+#[tokio::test]
 async fn a_page_is_read_as_text_and_never_from_this_machine() {
     let server = Server::start(vec![
         (
@@ -292,6 +346,11 @@ async fn a_page_is_read_as_text_and_never_from_this_machine() {
         .await
         .expect_err("a picture is not reading material");
     assert!(refused.contains("不是可以读的文本"), "{refused}");
+    let missing = network
+        .page(&format!("{}/missing", server.base))
+        .await
+        .expect_err("a stale search result must be explained");
+    assert!(missing.contains("404") && missing.contains("其他公开来源"), "{missing}");
     // Anything pointing at this machine or its network is refused before a request is made.
     let mut strict = server.pointed();
     strict.local_ok = false;
@@ -317,7 +376,8 @@ async fn a_page_is_read_as_text_and_never_from_this_machine() {
         .iter()
         .all(|path| path.starts_with("/doc")
             || path.starts_with("/data")
-            || path.starts_with("/image")));
+            || path.starts_with("/image")
+            || path.starts_with("/missing")));
 }
 
 #[test]

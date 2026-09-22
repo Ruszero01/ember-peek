@@ -101,6 +101,7 @@ function populateProviders(){
     const button=document.createElement('button');
     button.type='button';
     button.className=provider.id===editingProvider?'provider-item selected':'provider-item';
+    button.disabled=busy;
     const name=document.createElement('strong');name.textContent=providerLabel(provider);
     const meta=document.createElement('span');
     meta.textContent=[provider.model,provider.id===state.config?.id?'使用中':null,state.keys?.[provider.id]?'已存密钥':'无密钥'].filter(Boolean).join(' · ');
@@ -121,7 +122,7 @@ function editProvider(config){
   $('temperature').value=config?.temperature??'';
   $('timeout').value=config?.timeoutSeconds??'';
   $('key').value='';$('key').type='password';$('reveal-key').textContent='显示';$('test-result').textContent='';
-  $('remove-provider').disabled=draftingProvider;
+  $('remove-provider').disabled=busy||draftingProvider;
   credentialConfigured=!!editingProvider&&!!state.keys?.[editingProvider];keyReset=false;showKeyState();
   const active=!!config&&config.id===state.config?.id;
   $('provider-state').textContent=active?'使用中':config?'已保存':'未保存';
@@ -174,8 +175,8 @@ function build(p){return p.builds?.find(item=>item.version===p.version);}
 /* ---------- conversation ----------
    One turn reads the way a coding agent's does: how long it has been working, what it
    said, and the steps it ran between saying it. */
-const TOOL_ICONS={read_file:'file-text',write_file:'file-pen',edit_file:'pencil',validate:'shield-check',preview:'play',list_icons:'shapes',add_dependency:'package-plus',search_web:'search',read_docs:'book-open',read_page:'globe'};
-const TOOL_VERBS={read_file:'读取',write_file:'写入',edit_file:'修改',validate:'校验',preview:'试运行',list_icons:'查询图标',add_dependency:'取用库',search_web:'联网搜索',read_docs:'查文档',read_page:'读取网页'};
+const TOOL_ICONS={read_file:'file-text',read_attachment:'paperclip',write_file:'file-pen',edit_file:'pencil',validate:'shield-check',preview:'play',list_icons:'shapes',add_dependency:'package-plus',search_web:'search',read_docs:'book-open',read_page:'globe'};
+const TOOL_VERBS={read_file:'读取',read_attachment:'读取附件',write_file:'写入',edit_file:'修改',validate:'校验',preview:'试运行',list_icons:'查询图标',add_dependency:'取用库',search_web:'联网搜索',read_docs:'查文档',read_page:'读取网页'};
 const icons=new Map();
 function icon(name){
   if(icons.has(name))return icons.get(name);
@@ -254,55 +255,44 @@ function renderConversation(p){
     setTimeout(()=>{scroll.scrollTop=scroll.scrollHeight;},0);
   }
 }
-/* ---------- the task's progress, kept apart from what the model said ----------
-   One tree: each stage is a node, and the execution record lines the task wrote while that
-   stage was current hang under it. A node opens to show them. */
-const phases=[['需求分析',['analyzing','planned']],['代码生成',['generating']],['规范校验',['validating']],['构建插件',['building']],['试预览',['awaitingPreview','previewFailed','ready','installed']]];
-const nodeOpen=new Map();
-let flowSignature='';
-function phaseOf(status){return phases.findIndex(([,statuses])=>statuses.includes(status));}
-function clock(at){return at?new Date(at*1000).toLocaleTimeString()+'  ':'';}
-function renderFlow(p){
-  const signature=JSON.stringify([p.status,p.logs,p.usage,p.version,p.tested,p.runtimeLogs,p.error,state.sdkFingerprint,build(p)?.summary]);
-  if(signature===flowSignature)return;
-  flowSignature=signature;
-  const active=phaseOf(p.status);
-  // A line belongs to the stage that was current when it was written; anything written
-  // outside a stage (installed, cancelled, a plugin removed elsewhere) belongs to the last
-  // stage the task reached, which is where the reader looks for it.
-  const groups=phases.map(()=>[]);
-  for(const entry of p.logs||[]){
-    const own=entry.status?phaseOf(entry.status):-1;
-    groups[own<0?Math.max(active,0):own].push(entry);
-  }
-  const summary=build(p)?.summary;
-  if(summary)groups[3].unshift({at:0,status:'',text:summary});
-  $('pipeline').replaceChildren(...phases.map(([label],i)=>{
-    const li=document.createElement('li');
-    li.className=`node${i===active?' active':''}${i<active?' complete':''}`;
-    const head=document.createElement('button');
-    head.type='button';head.className='node-head';
-    const open=nodeOpen.has(label)?nodeOpen.get(label):i===active;
-    head.setAttribute('aria-expanded',String(open));
-    head.textContent=`${label}${groups[i].length?` · ${groups[i].length}`:''}`;
-    head.onclick=()=>{nodeOpen.set(label,!open);render();};
-    li.append(head);
-    const entries=document.createElement('ul');
-    entries.className='node-entries';entries.hidden=!open;
-    entries.replaceChildren(...groups[i].map(entry=>{const row=document.createElement('li');row.textContent=`${clock(entry.at)}${entry.text}`;return row;}));
-    li.append(entries);
-    return li;
-  }));
-  $('flow-metrics').textContent=p.usage?.total_tokens?`${p.usage.total_tokens.toLocaleString()} tokens`:'';
-  $('generation-wait').hidden=!running(p);
-  // Everything that went wrong belongs here: the task's own failure, the note that the
+/* ---------- files and diagnostics ----------
+   The conversation already carries every execution step. The side rail is therefore the
+   task's compact source/generated-file inventory, with failures left in their old place. */
+let artifactFiles=[];
+let fileSignature='';
+let diagnosticSignature='';
+function fileExtension(name){return (String(name||'').split('.').pop()||'file').slice(0,4);}
+function railFile(file){
+  const row=document.createElement('div');row.className='rail-file';row.title=file.name;
+  const icon=document.createElement('span');icon.className='rail-file-icon';icon.textContent=fileExtension(file.name);
+  const copy=document.createElement('span');copy.className='rail-file-copy';
+  const name=document.createElement('span');name.className='rail-file-name';name.textContent=file.name;
+  const meta=document.createElement('span');meta.className='rail-file-meta';meta.textContent=[file.role,formatBytes(file.size)].filter(Boolean).join(' · ');
+  copy.append(name,meta);row.append(icon,copy);return row;
+}
+function emptyFileRow(text){const row=document.createElement('p');row.className='rail-empty';row.textContent=text;return row;}
+function renderFiles(p){
+  const sources=[];
+  if(p.sample)sources.push({name:baseName(p.sample),size:p.sampleSize,role:'样例'});
+  for(const file of p.attachments||[])sources.push({name:file.name||baseName(file.path),size:file.size,role:file.image?'图片':'附件'});
+  const signature=JSON.stringify([p.id,sources,artifactFiles.map(file=>[file.name,file.size]),running(p)]);
+  if(signature===fileSignature)return;
+  fileSignature=signature;
+  $('source-files').replaceChildren(...(sources.length?sources.map(railFile):[emptyFileRow('暂无来源文件')]));
+  $('generated-files').replaceChildren(...(artifactFiles.length?artifactFiles.map(file=>railFile({...file,role:'生成'})):[emptyFileRow(running(p)?'正在生成文件…':'暂未生成文件')]));
+  $('file-metrics').textContent=artifactFiles.length?`${artifactFiles.length} 个`:'';
+}
+function renderDiagnostics(p){
+  const signature=JSON.stringify([p.runtimeLogs,p.error,state.sdkFingerprint,build(p)?.sdkFingerprint]);
+  if(signature===diagnosticSignature)return;
+  diagnosticSignature=signature;
+  // Everything that went wrong stays here: the task's own failure, the note that the
   // host SDK changed, and whatever the plugin's document logged while it ran.
   const sdkChanged=!!(build(p)&&build(p).sdkFingerprint!==state.sdkFingerprint);
   const message=sdkChanged?'宿主 SDK 已更新，请重新生成并试预览。已安装版本不受影响。':(p.error?diagnosticText(p.error):'');
   $('diagnostic').textContent=message;
   $('error-details').hidden=!p.error;
   $('error-raw').textContent=p.error||'';
-  $('build-result').hidden=!summary;
   const diagnostics=p.runtimeLogs||[];
   $('runtime-log-lines').replaceChildren(...diagnostics.map(line=>{const row=document.createElement('div');row.textContent=line;return row;}));
   $('diagnostics').hidden=!message&&!diagnostics.length;
@@ -312,11 +302,13 @@ async function refreshArtifacts(){
   if(!selected)return;
   const id=selected;const files=await call('artifacts',{id});if(selected!==id)return;
   const signature=JSON.stringify(files);if(signature===artifactSignature)return;artifactSignature=signature;
+  artifactFiles=files;
   const opened=new Set([...$('artifact-files').querySelectorAll('details[open]')].map(item=>item.dataset.name));
   $('artifact-files').replaceChildren(...files.map(file=>{const details=document.createElement('details');details.dataset.name=file.name;details.open=opened.has(file.name);const title=document.createElement('summary');title.textContent=`${file.name} · ${formatBytes(file.size)}`;const pre=document.createElement('pre');pre.textContent=file.content;details.append(title,pre);return details;}));
+  const p=current();if(p)renderFiles(p);
 }
 $('inspect-artifacts').onclick=()=>action(refreshArtifacts);
-function resetProjectView(){artifactSignature='';transcriptSignature='';flowSignature='';$('artifact-files').replaceChildren();}
+function resetProjectView(){artifactSignature='';artifactFiles=[];transcriptSignature='';fileSignature='';diagnosticSignature='';$('artifact-files').replaceChildren();}
 function renderProjectList(){
   const projects=state?.projects||[];
   $('empty-projects').hidden=!!projects.length||creatingProject;
@@ -333,11 +325,13 @@ function renderProjectList(){
     // The row is narrow: an installed task is marked with a dot, and the header carries
     // the wording, so the name keeps the line.
     button.type='button';button.className=p.installedVersion?'project-item installed':'project-item';
+    button.disabled=busy;
     button.replaceChildren(nameNode(p.name));button.title=p.name;
     button.onclick=()=>{resetProjectView();creatingProject=false;selected=p.id;render();};
     row.append(button);
     const remove=document.createElement('button');
     remove.type='button';remove.className='project-remove';remove.textContent='×';remove.title='删除任务';
+    remove.disabled=busy||running(p);
     remove.setAttribute('aria-label',`删除任务：${p.name}`);
     remove.onclick=()=>{void action(()=>removeProject(p.id));};
     row.append(remove);
@@ -347,29 +341,26 @@ function renderProjectList(){
 function render(){
   $('provider-hint').textContent=state.config?.model?`${providerLabel(state.config)} · ${state.config.model}`:'开始前，请通过右上角入口配置供应商和模型。';
   renderProjectList();
-  // The confirmation buttons must stay clickable while the rest of the page waits.
-  for(const button of document.querySelectorAll('button'))if(!button.closest?.('#dialog')&&!button.className?.includes('node-head'))button.disabled=busy;
   populateProviders();
+  // Only controls that start another host operation are locked. Blanket-disabling every
+  // button made the creator and settings stay grey when a bootstrap request was interrupted.
+  for(const id of ['new-project','create-text','create-sample','new-provider','save-config','test-config','search-save'])$(id).disabled=busy;
+  $('remove-provider').disabled=busy||draftingProvider;
   const p=current();$('creator').hidden=!!p;$('project').hidden=!p;if(!p)return;
   $('project-name').replaceChildren(nameNode(p.name));$('project-flag').hidden=!p.installedVersion;
   // The agent runs the plugin itself now, so say whose eyes approved this build.
   $('self-check').hidden=!p.selfChecked;$('self-check').textContent='模型自检通过';
   $('status').textContent=p.status==='failed'&&/429|502|503|504/.test(p.error||'')?'服务暂不可用':labels[p.status]||p.status;
   $('generate').textContent=['failed','cancelled','interrupted'].includes(p.status)?'继续生成':p.status==='previewFailed'?'修复预览问题':p.version?'重新生成':'生成插件';
-  const name=baseName(p.sample);const hasSample=!!p.sample;
-  $('sample-card').hidden=!hasSample;
-  if(hasSample){
-    $('sample-badge').textContent=((p.extension||'').toUpperCase()||'FILE').slice(0,4);
-    $('sample-name').textContent=name;
-    $('sample-info').textContent=[formatBytes(p.sampleSize),p.version?`构建 ${p.version}`:'待生成'].filter(Boolean).join(' · ');
-  }
+  const hasSample=!!p.sample;
   $('sample').hidden=hasSample;
   $('sample').textContent=hasSample?'':'这个任务没有样例文件，模型会按需求决定插件支持的扩展名。';
-  renderConversation(p);renderFlow(p);
+  renderConversation(p);renderFiles(p);renderDiagnostics(p);
   // The gates below care about the same fact the diagnostics report: a build made against
   // an older SDK cannot be installed or shared.
   const sdkChanged=!!(build(p)&&build(p).sdkFingerprint!==state.sdkFingerprint);
   $('analyze').disabled=busy||running(p);
+  $('select-sample').disabled=busy||running(p);$('add-files').disabled=busy||running(p);$('message-attach').disabled=busy||running(p);$('inspect-artifacts').disabled=busy;
   $('restore').disabled=busy||running(p)||!p.builds?.some(b=>b.verified&&b.version<p.version);
   $('cancel').hidden=!running(p);$('preview').hidden=!p.version;$('install').hidden=!p.tested;
   $('generate').classList.toggle('primary',!p.version||p.status==='previewFailed');
@@ -378,7 +369,7 @@ function render(){
   $('install').disabled=busy||!p.tested||running(p)||sdkChanged;$('export').disabled=busy||!p.tested||running(p)||sdkChanged;$('open').disabled=busy||!p.installedVersion||!p.sample;
   $('delete').disabled=busy||running(p);
 }
-async function refresh(){state=await call('state');render();}
+async function refresh(){state=await call('state',{}, {timeoutMs:15000});render();}
 /* ---------- confirmation, drawn in the page: a sandboxed iframe has no native dialog ---------- */
 let dialogResolve=null;
 function closeDialog(choice){$('dialog').hidden=true;const resolve=dialogResolve;dialogResolve=null;if(resolve)resolve(choice);}
@@ -494,10 +485,14 @@ async function createFromPath(path){
   opened(await call('createPath',{path,requirement:$('requirement').value.trim()}));
 }
 $('create-text').onclick=()=>action(()=>create(false));$('create-sample').onclick=()=>action(()=>create(true));
-// Dropped files arrive from the host as paths: the sample stays where the user keeps it
-// and only its path and extension are recorded. Contents are never read or transferred.
+// Dropped files arrive from the host as paths. On the creator the first path is the sample;
+// inside a task they become extra conversation sources and remain where the user keeps them.
 onDrop(paths=>{
   if(settingsPage||!paths?.length)return;
+  if(current()){
+    void action(()=>call('addPaths',{id:selected,paths}));
+    return;
+  }
   if(paths.length!==1){error('请一次拖入一个样例文件');return;}
   void action(()=>createFromPath(paths[0]));
 });
@@ -516,27 +511,30 @@ $('generate').onclick=()=>action(async()=>{
 $('analyze').onclick=()=>action(async()=>{resetProjectView();await call('analyze',{id:selected,message:$('message').value.trim()});$('message').value='';});
 $('cancel').onclick=()=>action(()=>call('cancel',{id:selected}));
 $('select-sample').onclick=()=>action(async()=>{resetProjectView();await call('selectSample',{id:selected});});
+async function addAttachments(){await call('addAttachments',{id:selected});}
+$('add-files').onclick=()=>action(addAttachments);
+$('message-attach').onclick=()=>action(addAttachments);
 $('install').onclick=()=>action(()=>call('install',{id:selected}));
 $('restore').onclick=()=>action(async()=>{resetProjectView();await call('restore',{id:selected});});
 $('export').onclick=()=>action(()=>call('export',{id:selected}));
 $('open').onclick=()=>action(()=>call('openSample',{id:selected}));
 $('delete').onclick=()=>action(()=>removeProject(selected));
 $('preview').onclick=()=>action(async()=>{await call('openPreview',{id:selected});$('notice').textContent='已打开独立试预览窗口；看过后可以直接安装。';});
-ready.then(()=>{
+ready.then(async()=>{
   // The host answered, so the page can stop the bootstrap's watchdog.
   globalThis.__emberBoot?.();
-  return action(async()=>{
   applyPage(context().page);
-  try{catalog=await call('catalog')||catalog;}catch{}populatePresets();
-  await refresh();
-  // Opening the workshop from a file already creates the project; show it instead of
-  // the empty creator so the user lands on the task that file produced.
-  if(!selected&&state.projects.length){selected=state.projects[0].id;creatingProject=false;}
-  else if(!state.projects.length)creatingProject=true;
-  render();
-  editProvider(state.config.endpoint?state.config:null);
-  try{await loadSearchSettings();}catch{}
-  if(state.warnings?.length)$('notice').textContent=state.warnings.join('\n');
-  });
+  try{
+    try{catalog=await call('catalog',{}, {timeoutMs:15000})||catalog;}catch{}populatePresets();
+    await refresh();
+    // Opening the workshop from a file already creates the project; show it instead of
+    // the empty creator so the user lands on the task that file produced.
+    if(!selected&&state.projects.length){selected=state.projects[0].id;creatingProject=false;}
+    else if(!state.projects.length)creatingProject=true;
+    render();
+    editProvider(state.config.endpoint?state.config:null);
+    try{await loadSearchSettings();}catch{}
+    if(state.warnings?.length)$('notice').textContent=state.warnings.join('\n');
+  }catch(e){error(e);}
 }).catch(error);
 setInterval(async()=>{if(polling)return;polling=true;try{await refresh();if(current())await refreshArtifacts();}catch(e){error(e);}finally{polling=false;}},2000);

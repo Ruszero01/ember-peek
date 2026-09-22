@@ -16,6 +16,7 @@ function fixture(page='',options={}){
   let onContext;let onDrop;let onDrag;let hostContext={};let connect;const ready=new Promise(resolve=>{connect=resolve;});const calls=[];
   const state={projects:[],providers:[],keys:{},config:{endpoint:'',model:''},warnings:[],sdkFingerprint:'sdk'};
   const sdk={ready,context:()=>hostContext,onContext(fn){onContext=fn;},onDrop(fn){onDrop=fn;},onDrag(fn){onDrag=fn;},call:async(method,params)=>{calls.push({method,params});
+    if(options.call)return options.call(method,params,{state,calls});
     if(method==='state')return state;if(method==='searchSettings')return options.searchSettings||{provider:'',endpoint:'',hasKey:false};if(method==='modelsDraft')return options.models||[];if(method==='create')return {id:'p1'};if(method==='createPath')return {id:'p1'};if(method==='catalog')return options.catalog||null;if(method==='artifacts')return [];return null;}};
   // CJS conversion deliberately rejects top-level await: mounting must not wait for the parent's load callback.
   const code=transformSync(source,{format:'cjs',target:'es2022'}).code;
@@ -23,7 +24,7 @@ function fixture(page='',options={}){
   return {elements,calls,state,connect,drop(paths){onDrop(paths);},drag(state){onDrag(state);},setPage(page){hostContext={page};onContext(hostContext);},async settle(){await new Promise(resolve=>setImmediate(resolve));}};
 }
 function project(overrides={}){
-  return {id:'p1',name:'三维预览插件',status:'draft',messages:[],sample:null,sampleSize:0,extension:'',version:0,tested:false,installedVersion:null,builds:[],logs:[],shots:[],transcript:[],...overrides};
+  return {id:'p1',name:'三维预览插件',status:'draft',messages:[],sample:null,sampleSize:0,attachments:[],extension:'',version:0,tested:false,installedVersion:null,builds:[],logs:[],shots:[],transcript:[],...overrides};
 }
 test('workshop mounts without waiting for host readiness, and owns no header of its own',async()=>{
  const f=fixture();
@@ -32,6 +33,21 @@ test('workshop mounts without waiting for host readiness, and owns no header of 
  assert.equal(f.elements['settings-toggle'],undefined);
  assert.equal(html.includes('workshop-header'),false);
  f.connect();await f.settle();assert.equal(f.elements['create-text'].disabled,false);
+});
+test('bootstrap does not globally lock the page behind a second state refresh',async()=>{
+ let stateCalls=0;
+ const state={projects:[],providers:[],keys:{},config:{endpoint:'',model:''},warnings:[],sdkFingerprint:'sdk'};
+ const f=fixture('',{call:async method=>{
+   if(method==='catalog')return null;
+   if(method==='state'){stateCalls++;return state;}
+   if(method==='searchSettings')return {provider:'',endpoint:'',hasKey:false};
+   return null;
+ }});
+ f.connect();await f.settle();
+ assert.equal(stateCalls,1);
+ assert.equal(f.elements['create-text'].disabled,false);
+ assert.equal(f.elements['create-sample'].disabled,false);
+ assert.equal(f.elements['new-project'].disabled,false);
 });
 test('a task starts from the user requirement alone, with no built-in direction',async()=>{
  const f=fixture();f.connect();await f.settle();
@@ -59,11 +75,12 @@ test('a task with a sample but no requirement still generates, and the typed mes
  await f.elements.generate.onclick();
  start=f.calls.filter(c=>c.method==='start').pop();
  assert.equal(start.params.message,'加上线框切换');
- assert.equal(f.elements['sample-card'].hidden,false);assert.equal(f.elements['sample-badge'].textContent,'XYZ');
- assert.equal(f.elements['sample-name'].textContent,'model.xyz');
- assert.match(f.elements['sample-info'].textContent,/2\.0 KB/);
+ const source=f.elements['source-files'].children[0];
+ assert.equal(source.children[0].textContent,'xyz');
+ assert.equal(source.children[1].children[0].textContent,'model.xyz');
+ assert.match(source.children[1].children[1].textContent,/样例 · 2\.0 KB/);
 });
-test('the conversation keeps the model output, the flow rail keeps the stages',async()=>{
+test('the conversation keeps execution steps while the right rail is reserved for files and diagnostics',async()=>{
  const f=fixture();
  f.state.projects=[project({status:'generating',busy:true,
    logs:[{at:1758350000,status:'generating',text:'Pi Agent 已启动 · deepseek-chat'},{at:1758350020,status:'validating',text:'校验反馈：controls 图标名不存在'}],
@@ -78,21 +95,11 @@ test('the conversation keeps the model output, the flow rail keeps the stages',a
  assert.equal(messages[1].className,'message assistant streaming');
  assert.equal(messages[1].children[0].textContent,'工坊助手');
  assert.equal(messages[1].children[1].textContent,'正在写文件…');
- // Stage and record text belong to the flow rail, not to the assistant message.
- const nodes=f.elements.pipeline.children;
- assert.equal(nodes.length,5);
- assert.equal(nodes.map(node=>node.children[0].textContent).join(','),'需求分析,代码生成 · 1,规范校验 · 1,构建插件,试预览');
- assert.equal(nodes[1].className,'node active');
- // The line the task wrote while it was generating hangs under that stage, and the stage
- // the task is in is the one that is open.
- assert.equal(nodes[1].children[1].hidden,false);
- assert.match(nodes[1].children[1].children[0].textContent,/Pi Agent 已启动/);
- // An entry is filed under the stage its own status names, not under the current one.
- assert.equal(nodes[2].children[1].hidden,true);
- assert.match(nodes[2].children[1].children[0].textContent,/校验反馈/);
- assert.equal(nodes[0].children[1].hidden,true);
- assert.equal(f.elements['flow-metrics'].textContent,'1,234 tokens');
- // The page's own errors belong beside the flow, not inside the model's message.
+ // There is no duplicate stage tree: the side rail is now a compact file surface.
+ assert.equal(f.elements.pipeline,undefined);
+ assert.equal(f.elements['file-rail'].hidden,false);
+ assert.equal(f.elements['source-files'].children[0].textContent,'暂无来源文件');
+ // The page's own errors stay in the same right-side diagnostics area, not in the message.
  assert.equal(f.elements.diagnostics.hidden,false);
  assert.match(f.elements['runtime-log-lines'].children[0].textContent,/Cannot read properties of null/);
  assert.equal(messages[1].children[1].textContent.includes('Cannot read'),false);
@@ -249,6 +256,39 @@ test('dropping files only lights the drop zone; nothing is imported or created',
  f.drop(['C:/a.txt','C:/b.txt']);await f.settle();
  assert.equal(f.calls.some(c=>c.method==='createPath'),false);
  assert.match(f.elements.error.textContent,/一次拖入一个/);
+});
+test('an open task can append several files and images from either attachment entry',async()=>{
+ const f=fixture();
+ f.state.projects=[project({sample:'C:/tmp/model.xyz',sampleSize:2048,extension:'xyz',attachments:[
+  {path:'C:/tmp/reference.png',name:'reference.png',size:4096,image:true,mime:'image/png'},
+ ]})];
+ f.connect();await f.settle();
+ const sources=f.elements['source-files'].children;
+ assert.equal(sources.length,2);
+ assert.equal(sources[0].children[1].children[0].textContent,'model.xyz');
+ assert.equal(sources[1].children[1].children[0].textContent,'reference.png');
+ assert.match(sources[1].children[1].children[1].textContent,/图片/);
+ await f.elements['message-attach'].onclick();
+ await f.elements['add-files'].onclick();
+ assert.equal(f.calls.filter(call=>call.method==='addAttachments').length,2);
+ f.drop(['C:/tmp/notes.txt','C:/tmp/second.png']);await f.settle();
+ const added=f.calls.find(call=>call.method==='addPaths');
+ assert.deepEqual(added.params.paths,['C:/tmp/notes.txt','C:/tmp/second.png']);
+ assert.equal(f.calls.some(call=>call.method==='createPath'),false);
+});
+test('the compact file rail lists generated files as one-row truncated items',async()=>{
+ const artifacts=[{name:'metadata.json',size:267,content:'{}'},{name:'ui/parsers/very-long-format-reader.js',size:32000,content:'export {}'}];
+ const f=fixture('',{call:async(method,params,{state})=>{
+  if(method==='state')return state;if(method==='searchSettings')return {provider:'',endpoint:'',hasKey:false};if(method==='artifacts')return artifacts;if(method==='catalog')return null;return null;
+ }});
+ f.state.projects=[project()];f.connect();await f.settle();
+ await f.elements['inspect-artifacts'].onclick();
+ const rows=f.elements['generated-files'].children;
+ assert.equal(rows.length,2);
+ assert.equal(rows[0].children[1].children[0].textContent,'metadata.json');
+ assert.equal(rows[1].children[1].children[0].textContent,'ui/parsers/very-long-format-reader.js');
+ assert.equal(rows[1].className,'rail-file');
+ assert.equal(f.elements['file-metrics'].textContent,'2 个');
 });
 test('deleting a task asks first, and offers to uninstall when a plugin is installed',async()=>{
  const f=fixture();

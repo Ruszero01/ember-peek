@@ -44,7 +44,7 @@ function finished(){
  * Run the loop against a mock provider that replays `script`, one tool call per request.
  * Returns what the model was sent and what the loop emitted.
  */
-async function replay({script,init={},reply}){
+async function replay({script,init={},reply,usageTokens=0}){
  const {runner}=await bundle();
  let count=0;let rateLimited=false;const requests=[];
  const server=createServer(async(req,res)=>{
@@ -56,7 +56,9 @@ async function replay({script,init={},reply}){
   const [name,args]=script[count++];
   res.writeHead(200,{'Content-Type':'text/event-stream'});
   const chunk=(delta,finish_reason=null)=>`data: ${JSON.stringify({id:'test',object:'chat.completion.chunk',created:1,model:'test',choices:[{index:0,delta,finish_reason}]})}\n\n`;
-  res.write(chunk({role:'assistant',content:'Working. '}));res.write(chunk({tool_calls:[call(name,args)]}));res.write(chunk({},'tool_calls'));res.end('data: [DONE]\n\n');
+  res.write(chunk({role:'assistant',content:'Working. '}));res.write(chunk({tool_calls:[call(name,args)]}));res.write(chunk({},'tool_calls'));
+  if(usageTokens)res.write(`data: ${JSON.stringify({id:'test',object:'chat.completion.chunk',created:1,model:'test',choices:[],usage:{prompt_tokens:usageTokens,completion_tokens:0,total_tokens:usageTokens}})}\n\n`);
+  res.end('data: [DONE]\n\n');
  });
  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
  const child=spawn(process.execPath,[runner],{stdio:['pipe','pipe','pipe']});
@@ -85,8 +87,9 @@ test('bundled Pi loop streams tools, saves files, and repairs host validation er
  assert.equal(code,0,stderr+JSON.stringify(events));assert.equal(calls,7);assert.equal(events.at(-1).type,'done');
  assert(events.some(e=>e.type==='output'&&e.text.includes('Working')));
  assert(events.some(e=>e.type==='file'&&e.content==='fixed'));
- assert.equal(requests[0].tools.length,10);
+ assert.equal(requests[0].tools.length,11);
  assert.equal(requests[0].tools.some(tool=>tool.function.name==='preview'),true);
+ assert.equal(requests[0].tools.some(tool=>tool.function.name==='read_attachment'),true);
  assert.equal(requests.length,8);assert.deepEqual(requests[2],requests[3]);
  assert(events.some(e=>e.type==='activity'&&e.message.includes('429')));
  // Every tool call becomes one step of the turn, with what it touched and what came back.
@@ -101,7 +104,7 @@ test('bundled Pi loop streams tools, saves files, and repairs host validation er
 test('a library the model pulls is fetched, and its bytes are never faked back to the model',async()=>{
  // The workshop is the fallback for formats no first-party plugin covers, so the loop has to
  // be able to take a library it did not ship: ask what a package holds, then take one file.
- const {code,events,requests,stderr}=await replay({
+ const {code,events,requests,calls,stderr}=await replay({
   script:[
    ['add_dependency',{package:'mp4box'}],
    ['add_dependency',{package:'mp4box',version:'0.5.4',files:['dist/mp4box.all.js']}],
@@ -136,6 +139,38 @@ test('a library the model pulls is fetched, and its bytes are never faked back t
  // UMD build's global instead of its (nonexistent) exports.
  const note=requests.flatMap(request=>request.messages).find(message=>typeof message.content==='string'&&message.content.includes('MP4Box'));
  assert.notEqual(note,undefined,'the host note about the build has to reach the model');
+});
+
+test('a page that failed is not requested from the host twice',async()=>{
+ const url='https://docs.example.test/missing';
+ const {code,events,stderr}=await replay({
+  script:[['read_page',{url}],['read_page',{url}],...finished()],
+  reply:(_,event)=>event.method==='page'
+   ?{ok:false,error:'目标站点返回 404；请换用其他公开来源'}
+   :event.method==='preview'?PREVIEW_PASSED:{ok:true},
+ });
+ assert.equal(code,0,stderr+JSON.stringify(events));
+ assert.equal(events.filter(event=>event.type==='request'&&event.method==='page').length,1);
+ const pageSteps=events.filter(event=>event.type==='activity'&&event.tool==='read_page');
+ assert.equal(pageSteps.length,2);
+ assert(pageSteps.every(step=>step.detail==='失败'));
+});
+
+test('the host-owned SDK is readable through every path the model naturally tries',async()=>{
+ const sdkSource='export const marker = "exact-host-sdk";';
+ const {code,events,requests,stderr}=await replay({
+  script:[
+   ['read_file',{path:'ui/sdk.js'}],
+   ['read_file',{path:'sdk.js'}],
+   ['read_file',{path:'./sdk.js'}],
+   ...finished(),
+  ],
+  init:{sdkSource},
+ });
+ assert.equal(code,0,stderr+JSON.stringify(events));
+ const seen=requests.flatMap(request=>request.messages).filter(message=>typeof message.content==='string'&&message.content.includes('exact-host-sdk'));
+ assert.equal(seen.length>=3,true,'each SDK alias must return the exact host source');
+ assert.equal(events.filter(event=>event.type==='activity'&&event.tool==='read_file'&&event.detail===`${sdkSource.length} 字符`).length,3);
 });
 
 test('a failed self-check hands the page diagnostics and the screenshot to the model',async()=>{
@@ -181,6 +216,53 @@ test('a run that never self-checks stops instead of asking forever',async()=>{
  assert(events.some(e=>e.type==='activity'&&e.message.includes('没有试运行')),JSON.stringify(events.filter(e=>e.type==='activity')));
 });
 
+test('a failed self-check stops after three turns without a repair',async()=>{
+ const reads=[['read_file',{path:'sdk.md'}],['read_file',{path:'sdk.md'}],['read_file',{path:'sdk.md'}]];
+ const {code,events,requests,calls,stderr}=await replay({
+  script:finished().slice(0,4).concat([['preview',{}]],reads),
+  reply:(_,event)=>event.method==='preview'
+   ?{value:{ok:false,error:'MEDIA_ERR_SRC_NOT_SUPPORTED',logs:[],probes:1,probeLimit:4}}
+   :{ok:true},
+ });
+ assert.equal(code,0,stderr+JSON.stringify(events));
+ assert.equal(events.at(-1).type,'done');
+ assert.equal(calls,8);
+ assert.equal(requests.length,9); // one provider request is retried after the scripted 429
+ assert(events.some(e=>e.type==='activity'&&e.message.includes('连续 3 轮没有修改')),JSON.stringify(events.filter(e=>e.type==='activity')));
+});
+
+test('the advertised preview budget is a terminal limit, without a fifth request',async()=>{
+ const previews=[['preview',{}],['preview',{}],['preview',{}],['preview',{}]];
+ let probe=0;
+ const {code,events,requests,calls,stderr}=await replay({
+  script:finished().slice(0,4).concat(previews),
+  init:{probeLimit:4},
+  reply:(_,event)=>event.method==='preview'
+   ?{value:{ok:false,error:'still broken',logs:[],probes:++probe,probeLimit:4}}
+   :{ok:true},
+ });
+ assert.equal(code,0,stderr+JSON.stringify(events));
+ assert.equal(events.at(-1).type,'done');
+ assert.equal(calls,8);
+ assert.equal(requests.length,9); // four previews, never a fifth; plus the scripted 429 retry
+ assert(events.some(e=>e.type==='activity'&&e.message.includes('4 次上限')),JSON.stringify(events.filter(e=>e.type==='activity')));
+});
+
+test('cumulative token usage does not stop an unvalidated build',async()=>{
+ const {code,events,calls,stderr}=await replay({
+  script:[
+   ['read_file',{path:'sdk.md'}],
+   ...finished(),
+  ],
+  init:{},
+  usageTokens:100000,
+  reply:(_,event)=>event.method==='preview'?PREVIEW_PASSED:{ok:true},
+ });
+ assert.equal(code,0,stderr+JSON.stringify(events));
+ assert.equal(calls,6);
+ assert.equal(events.at(-1).type,'done');
+});
+
 test('a file the agent brings along is written and imported',async()=>{
  const {code,events}=await replay({
   script:[
@@ -199,11 +281,13 @@ test('a file the agent brings along is written and imported',async()=>{
  assert.deepEqual(written,['metadata.json','ui/vendor/tiny.js','ui/view.js','ui/style.css']);
 });
 
-test('the request carries the user requirement, the host facts and the captured frame',async()=>{
+test('the request carries requirements, host facts, captured frame and added reference images',async()=>{
  const image={name:'shot-1.png',data:'iVBORw0KGgoAAAANSUhEUg=='};
+ const reference='iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB';
  const {code,events,requests}=await replay({
   script:finished(),
-  init:{image,context:{requirements:['把 .xyz 渲染成三维预览','加上线框切换'],sample:{name:'model.xyz',extension:'xyz',size:12},plan:null,previousDiagnostics:'上一次自检：页面抛了异常'}},
+  init:{image,context:{requirements:['把 .xyz 渲染成三维预览','加上线框切换'],sample:{name:'model.xyz',extension:'xyz',size:12},attachments:[{id:'attachment-1',name:'参考.png',size:28,image:true,mime:'image/png'}],plan:null,previousDiagnostics:'上一次自检：页面抛了异常'}},
+  reply:(_,event)=>event.method==='attachment'?{value:{name:'参考.png',encoding:'base64',data:reference,mime:'image/png'}}:event.method==='preview'?PREVIEW_PASSED:{ok:true},
  });
  assert.equal(code,0,JSON.stringify(events));
  const content=requests[0].messages.find(message=>message.role==='user').content;
@@ -212,8 +296,10 @@ test('the request carries the user requirement, the host facts and the captured 
  assert.match(content[0].text,/需求 1：把 \.xyz 渲染成三维预览/);
  assert.match(content[0].text,/需求 2：加上线框切换/);
  assert.match(content[0].text,/"extension":"xyz"/);
+ assert.match(content[0].text,/"name":"参考.png"/);
  assert.match(content[0].text,/上一次自检/);
  assert.deepEqual(content[1],{type:'image_url',image_url:{url:`data:image/png;base64,${image.data}`}});
+ assert.deepEqual(content[2],{type:'image_url',image_url:{url:`data:image/png;base64,${reference}`}});
 });
 
 test('a request without a captured frame stays plain text',async()=>{

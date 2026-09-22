@@ -46,7 +46,7 @@
 </section>
 <section id="project" hidden>
 <div class="project-column">
-<div class="project-heading"><div class="project-ident"><h2 id="project-name"></h2><span id="sample-card" class="sample-card" hidden><span id="sample-badge" class="sample-badge"></span><strong id="sample-name"></strong><span id="sample-info"></span><button id="select-sample" type="button" class="subtle">更换文件</button></span><span id="project-flag" class="project-flag" hidden>已安装</span><span id="self-check" class="project-flag self-check" hidden></span></div><span id="status" role="status"></span></div>
+<div class="project-heading"><div class="project-ident"><h2 id="project-name"></h2><span id="project-flag" class="project-flag" hidden>已安装</span><span id="self-check" class="project-flag self-check" hidden></span></div><span id="status" role="status"></span></div>
 <p id="sample" class="muted" hidden></p>
 <nav class="workspace-tabs" aria-label="工作区"><button data-pane="progress" class="selected" type="button">对话</button><button data-pane="files" type="button">生成文件</button></nav>
 <div id="workspace-content">
@@ -56,16 +56,17 @@
 <section data-panel="files" class="workspace-pane files-pane" hidden><div class="artifact-head"><strong>生成文件</strong><button id="inspect-artifacts" type="button">刷新</button></div><div id="artifact-files" class="artifact-files"><p>暂未生成文件</p></div></section>
 </div>
 <div class="composer">
-<textarea id="message" rows="2" placeholder="描述要调整的地方，或补充需求…"></textarea>
+<button id="message-attach" class="composer-attach" type="button" title="追加文件或图片" aria-label="追加文件或图片">＋</button><textarea id="message" rows="2" placeholder="描述要调整的地方，或补充需求…"></textarea>
 </div>
 <footer class="project-footer"><div class="actions project-actions"><button id="generate" class="primary">生成插件</button><button id="cancel">停止</button><button id="preview">打开试预览 ↗</button><button id="install" class="primary">安装插件</button></div>
 <details class="more-actions"><summary>更多 ···</summary><div><button id="analyze">分析需求</button><button id="export">导出分享</button><button id="restore">恢复已验证版本</button><button id="open">打开原文件</button><button id="delete" class="danger-subtle">删除任务</button></div></details></footer>
 </div>
-<aside id="flow" class="flow-pane">
-<div class="flow-head"><strong>流程</strong><span id="flow-metrics"></span></div>
-<ol id="pipeline" class="pipeline"></ol>
-<p id="generation-wait" class="generation-wait" hidden>正在处理…</p>
-<p id="build-result" hidden></p>
+<aside id="file-rail" class="file-rail">
+<section class="file-card">
+<div class="file-rail-head"><strong>文件</strong><button id="add-files" type="button" title="追加文件或图片" aria-label="追加文件或图片">＋</button></div>
+<div class="file-group"><div class="file-group-title"><span>来源</span><button id="select-sample" type="button" class="subtle">更换样例</button></div><div id="source-files" class="rail-files"></div></div>
+<div class="file-group generated-group"><div class="file-group-title"><span>生成</span><span id="file-metrics"></span></div><div id="generated-files" class="rail-files"></div></div>
+</section>
 <div id="diagnostics" class="diagnostics" hidden><div class="flow-section-head">诊断</div><p id="diagnostic" role="status"></p><div id="runtime-log-lines"></div><details id="error-details" hidden><summary>错误详情</summary><pre id="error-raw"></pre></details></div>
 </aside>
 </section>
