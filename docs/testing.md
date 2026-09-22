@@ -17,9 +17,10 @@
 
 ## CI 触发
 
-`Baseline checks` 对 `dev`、`main` 的推送和以它们为目标的 Pull Request 运行，并支持手动
-触发。插件发布与桌面发布再次执行同一个 `npm run ci`，然后才生成可发布产物。桌面安装包
-只由 `Release Windows desktop` 构建，避免普通 CI 重复耗时打包。
+普通分支推送和 Pull Request 不触发远程构建；开发者应先在本机运行 `npm run ci`。
+`Manual baseline checks` 只在维护者显式操作时运行。推送与版本一致的 `v*` 标签会触发
+`Release Windows desktop`，在同一个发布任务中执行完整 CI 并仅构建一次安装包。插件发布
+同样只允许手动触发，且在生成可发布产物前执行统一门禁。
 
 ## 手动 Windows 验收
 

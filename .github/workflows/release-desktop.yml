@@ -2,7 +2,6 @@ name: Release Windows desktop
 on:
   push:
     tags: ['v*']
-  workflow_dispatch:
 permissions:
   contents: read
 concurrency:
@@ -28,7 +27,6 @@ jobs:
       - name: Extract changelog for this version
         run: node scripts/release-notes.mjs "$env:RUNNER_TEMP\release-notes.md"
       - name: Check release tag matches application version
-        if: startsWith(github.ref, 'refs/tags/')
         shell: pwsh
         run: |
           $version = (Get-Content -LiteralPath "$env:GITHUB_WORKSPACE\package.json" -Raw | ConvertFrom-Json).version
@@ -58,7 +56,6 @@ jobs:
           path: ${{ runner.temp }}/release-notes.md
           if-no-files-found: error
   release:
-    if: startsWith(github.ref, 'refs/tags/')
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 15

@@ -4,8 +4,8 @@
 
 `npm run build:desktop -- --bundles nsis --ci -- --locked` 构建 Windows x64 NSIS 安装程序，输出到 `target/release/bundle/nsis/*-setup.exe`。按当前用户安装，提供简体中文和英文界面；缺少 WebView2 时使用 Tauri 默认的联网引导安装方式。安装包包含官方插件源配置，插件独立从 OSS 下载，不包含发布凭据。
 
-- `Baseline checks` 在 `dev` / `main` 推送、以它们为目标的 PR 以及手动运行时触发；统一执行版本与发布日志校验、Rust 格式与 Clippy、前端构建、插件构建和全部自动化测试。CI 不重复生成安装包。
-- `Release Windows desktop` 可手动执行，只构建可下载的 Actions 产物；推送与应用版本一致的标签（例如 `v0.1.0`）则同时创建 GitHub Release 草稿，附安装包和 `SHA256SUMS.txt`，由维护者验收后发布。产物保留 30 天，Release 附件不受此期限影响。
+- 普通分支推送和 PR 不触发远程构建；`Manual baseline checks` 仅供维护者显式运行，统一执行版本与发布日志校验、Rust 格式与 Clippy、前端构建、插件构建和全部自动化测试。
+- 只有推送与应用版本一致的标签（例如 `v0.1.0`）才触发 `Release Windows desktop`。该任务先执行完整 CI，再构建一次安装包并创建 GitHub Release 草稿，附安装包和 `SHA256SUMS.txt`，由维护者验收后发布。产物保留 30 天，Release 附件不受此期限影响。
 - 本体发布使用 GitHub 自带的 `GITHUB_TOKEN`，不需要 OSS 密钥。工作流必须先提交推送；手动入口需要工作流进入默认分支。
 - Release 正文来自根目录 `CHANGELOG.md` 的 `## [版本号]` 章节，自动按 `package.json` 版本提取，缺失、重复或为空时构建失败；重跑草稿发布会同步更新正文。发版前先写日志，再更新版本和推送标签。`npm run release:notes` 可本地预览正文。
 - 当前未配置 Windows 代码签名证书，安装包未签名。CI 的构建成功不等于安装、卸载和 Explorer 集成验收通过；请在 Windows 测试机验证。
