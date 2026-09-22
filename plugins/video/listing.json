@@ -1,0 +1,10 @@
+{
+  "summary": "视频预览：视口只渲染画面，播放、进度与音量在浮层里控制；遇到系统播不动的编码时按需生成临时兼容代理。",
+  "i18n": {
+    "en": {
+      "summary": "Video preview: the viewport renders the picture, playback, position and volume live in a floating panel, and a codec the system cannot decode gets a temporary compatibility proxy on demand."
+    }
+  },
+  "publisher": "Ember Peek",
+  "recommended": true
+}

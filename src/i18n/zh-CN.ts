@@ -191,6 +191,7 @@ export const zhCN: Catalog = {
   "protocol.invalidControlId": "插件控件 ID 无效",
   "protocol.invalidControl": "插件控件声明无效",
   "protocol.invalidScrubRange": "数值拖动控件范围无效",
+  "protocol.invalidDialog": "插件确认弹窗参数无效",
   "protocol.workshopControlIcon": "生成插件的功能控件必须声明 Lucide 图标",
   "protocol.workshopToggleState": "生成插件的切换控件必须声明当前状态",
 

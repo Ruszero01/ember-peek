@@ -321,6 +321,11 @@ export function call(method, value = null) {
 export function clipboard(text) {
   return request("clipboard", { text });
 }
+/** Open host-owned modal chrome with plugin-owned wording and opaque action ids.
+ * Resolves to the chosen action id, or null when the user cancels. */
+export function confirmDialog(options) {
+  return request("confirm", options);
+}
 export function onVisibility(fn) {
   visibilityListeners.add(fn);
   return () => visibilityListeners.delete(fn);
@@ -329,9 +334,9 @@ export async function read(offset, length) {
   const encoded = await request("read", { offset, length });
   return Uint8Array.from(atob(encoded), (char) => char.charCodeAt(0));
 }
-/** The whole sample as a `Blob`, read in 1 MiB steps. This is the route for a media element:
- * the page may only load `blob:` media sources, so a `<video>` or `<audio>` gets its source
- * from `URL.createObjectURL(await fileBlob(file.size, "video/mp4"))` and not from `fileUrl()`. */
+/** The whole sample as a `Blob`, read in 1 MiB steps. Use this only when a parser needs one
+ * contiguous value; range-aware browser consumers should prefer `streamUrl()` so large files
+ * can begin rendering without a complete copy in WebView memory. */
 export async function fileBlob(size = sourceFile?.size, type = "") {
   if (!Number.isSafeInteger(size) || size < 0)
     throw new TypeError(
@@ -348,11 +353,19 @@ export async function fileBlob(size = sourceFile?.size, type = "") {
 
 /** A permission-checked URL for the session's source file, for the browser to load directly:
  * an image source, a fetch, or a library that takes a URL. The host answers with the whole
- * file and refuses anything over 32 MiB. Media elements cannot use it — their sources are
- * limited to `blob:`, so read the bytes with `fileBlob()` instead. */
+ * file and refuses anything over 32 MiB. Use `streamUrl()` for a range-aware large-file
+ * consumer. */
 export function fileUrl() {
   if (!sessionId) throw new Error("Plugin session is not ready");
   return new URL(`/${encodeURIComponent(sessionId)}/@file`, location.origin).href;
+}
+
+/** A permission-checked, byte-range URL for the current file. Use it for a browser-native
+ * consumer that can request only the bytes it needs instead of first copying the complete file
+ * into a Blob. The host transports ranges and deliberately knows nothing about the format. */
+export function streamUrl() {
+  if (!sessionId) throw new Error("Plugin session is not ready");
+  return new URL(`/${encodeURIComponent(sessionId)}/@stream`, location.origin).href;
 }
 
 /** Resolve a document-owned resource through the current session. Relative paths are based
@@ -384,34 +397,6 @@ export async function resourceBlob(reference) {
   return response.blob();
 }
 
-let lastEdge = "";
-let edgeTimer;
-let pendingEdge = "";
-addEventListener(
-  "pointermove",
-  (event) => {
-    const value = event.buttons
-      ? ""
-      : event.clientY < 6
-        ? "top"
-        : event.clientY > innerHeight - 6
-          ? "bottom"
-          : "";
-    if (value === pendingEdge) return;
-    pendingEdge = value;
-    clearTimeout(edgeTimer);
-    if (!value) {
-      if (lastEdge) port?.postMessage({ type: "edge", value: "" });
-      lastEdge = "";
-    } else {
-      edgeTimer = setTimeout(() => {
-        lastEdge = value;
-        port?.postMessage({ type: "edge", value });
-      }, 160);
-    }
-  },
-  { passive: true },
-);
 addEventListener("keydown", (event) => {
   const key =
     event.key === "Escape"

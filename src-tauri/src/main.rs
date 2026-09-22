@@ -710,6 +710,80 @@ fn mime(path: &std::path::Path) -> &'static str {
     }
 }
 
+const STREAM_CHUNK: u64 = 4 * 1024 * 1024;
+
+struct ProtocolAsset {
+    status: u16,
+    kind: String,
+    body: Vec<u8>,
+    content_range: Option<String>,
+    accept_ranges: bool,
+}
+
+fn requested_range(header: Option<&str>, size: u64) -> Result<(u64, u64), String> {
+    if size == 0 {
+        return Err("Cannot stream an empty file".into());
+    }
+    let value = header.unwrap_or("bytes=0-");
+    let range = value
+        .strip_prefix("bytes=")
+        .filter(|value| !value.contains(','))
+        .ok_or("Invalid byte range")?;
+    let (start, requested_end) = range.split_once('-').ok_or("Invalid byte range")?;
+    let (start, end) = if start.is_empty() {
+        let suffix = requested_end
+            .parse::<u64>()
+            .ok()
+            .filter(|value| *value > 0)
+            .ok_or("Invalid byte range")?;
+        (size.saturating_sub(suffix), size - 1)
+    } else {
+        let start = start.parse::<u64>().map_err(|_| "Invalid byte range")?;
+        if start >= size {
+            return Err("Byte range starts beyond the file".into());
+        }
+        let end = if requested_end.is_empty() {
+            size - 1
+        } else {
+            requested_end
+                .parse::<u64>()
+                .map_err(|_| "Invalid byte range")?
+                .min(size - 1)
+        };
+        if end < start {
+            return Err("Invalid byte range".into());
+        }
+        (start, end)
+    };
+    Ok((start, end.min(start.saturating_add(STREAM_CHUNK - 1))))
+}
+
+async fn stream_asset(path: &Path, range: Option<&str>) -> Result<ProtocolAsset, String> {
+    let size = tokio::fs::metadata(path)
+        .await
+        .map_err(|error| error.to_string())?
+        .len();
+    let (start, end) = requested_range(range, size)?;
+    let length = end - start + 1;
+    let mut file = tokio::fs::File::open(path)
+        .await
+        .map_err(|error| error.to_string())?;
+    file.seek(std::io::SeekFrom::Start(start))
+        .await
+        .map_err(|error| error.to_string())?;
+    let mut body = vec![0; length as usize];
+    file.read_exact(&mut body)
+        .await
+        .map_err(|error| error.to_string())?;
+    Ok(ProtocolAsset {
+        status: 206,
+        kind: mime(path).to_owned(),
+        body,
+        content_range: Some(format!("bytes {start}-{end}/{size}")),
+        accept_ranges: true,
+    })
+}
+
 fn main() {
     let app = tauri::Builder::default()
         .register_asynchronous_uri_scheme_protocol("plugin", |context, request, responder| {
@@ -719,7 +793,7 @@ fn main() {
                 let decoded = percent_encoding::percent_decode_str(request.uri().path()).decode_utf8_lossy();
                 let path = decoded.trim_start_matches('/');
                 let (session, asset) = path.split_once('/').unwrap_or((path, ""));
-                let result: Result<(String, Vec<u8>), String> = async {
+                let result: Result<ProtocolAsset, String> = async {
                     if let Some(reference) = asset.strip_prefix("@resource/") {
                         // The route itself has already been URL-decoded once. A local document
                         // reference may still contain its own `%20`; a remote signed URL must
@@ -733,7 +807,8 @@ fn main() {
                             percent_encoding::percent_decode_str(reference).decode_utf8_lossy().into_owned()
                         };
                         let loaded = resource::load(&host, session, &reference).await?;
-                        return Ok((loaded.kind, loaded.bytes));
+                        return Ok(ProtocolAsset { status: 200, kind: loaded.kind, body: loaded.bytes,
+                            content_range: None, accept_ranges: false });
                     }
                     let path = if let Some(id) = session.strip_prefix("@tool-") {
                         let package = host.tool_package(id).await?;
@@ -743,26 +818,37 @@ fn main() {
                     } else if asset == "@file" {
                         host.authorize(session, Permission::ReadFile).await?;
                         host.session_file(session).await?
+                    } else if asset == "@stream" {
+                        host.authorize(session, Permission::ReadFile).await?;
+                        let path = host.session_file(session).await?;
+                        let range = request.headers().get("Range").and_then(|value| value.to_str().ok());
+                        return stream_asset(&path, range).await;
                     } else {
                         host.asset(session, asset).await?
                     };
                     let size = tokio::fs::metadata(&path).await.map_err(|e| e.to_string())?.len();
                     if size > 32 * 1024 * 1024 { return Err("Plugin file exceeds 32 MiB".to_string()); }
                     let body = tokio::fs::read(&path).await.map_err(|e| e.to_string())?;
-                    Ok((mime(&path).to_owned(), body))
+                    Ok(ProtocolAsset { status: 200, kind: mime(&path).to_owned(), body,
+                        content_range: None, accept_ranges: false })
                 }.await;
-                let (status, content_type, body) = match result {
-                    Ok((kind, body)) => (200, kind, body),
-                    Err(error) => (404, "text/plain; charset=utf-8".to_owned(), error.into_bytes()),
+                let asset = match result {
+                    Ok(asset) => asset,
+                    Err(error) => ProtocolAsset { status: 404,
+                        kind: "text/plain; charset=utf-8".to_owned(), body: error.into_bytes(),
+                        content_range: None, accept_ranges: false },
                 };
-                let response = tauri::http::Response::builder().status(status)
-                    .header("Content-Type", content_type)
+                let mut response = tauri::http::Response::builder().status(asset.status)
+                    .header("Content-Type", asset.kind)
+                    .header("Content-Length", asset.body.len().to_string())
                     .header("Access-Control-Allow-Origin", "*")
+                    .header("Access-Control-Expose-Headers", "Accept-Ranges, Content-Range")
                     .header("Cache-Control", "no-store")
                     .header("X-Content-Type-Options", "nosniff")
-                    .header("Content-Security-Policy", "default-src 'none'; script-src http://plugin.localhost plugin: 'wasm-unsafe-eval'; style-src http://plugin.localhost plugin: 'unsafe-inline'; img-src http://plugin.localhost plugin: blob: data:; media-src blob:; font-src http://plugin.localhost plugin: data:; connect-src http://plugin.localhost plugin:; frame-src http://plugin.localhost plugin:; worker-src blob:; object-src 'none'; base-uri 'none'")
-                    .body(body).unwrap();
-                responder.respond(response);
+                    .header("Content-Security-Policy", "default-src 'none'; script-src http://plugin.localhost plugin: 'wasm-unsafe-eval'; style-src http://plugin.localhost plugin: 'unsafe-inline'; img-src http://plugin.localhost plugin: blob: data:; media-src http://plugin.localhost plugin: blob:; font-src http://plugin.localhost plugin: data:; connect-src http://plugin.localhost plugin:; frame-src http://plugin.localhost plugin:; worker-src blob:; object-src 'none'; base-uri 'none'");
+                if asset.accept_ranges { response = response.header("Accept-Ranges", "bytes"); }
+                if let Some(range) = asset.content_range { response = response.header("Content-Range", range); }
+                responder.respond(response.body(asset.body).unwrap());
             });
         })
         .setup(|app| {
@@ -899,4 +985,25 @@ fn main() {
             tauri::async_runtime::block_on(handle.state::<Arc<Runtime>>().shutdown());
         }
     });
+}
+
+#[cfg(test)]
+mod stream_tests {
+    use super::*;
+
+    #[test]
+    fn open_ended_ranges_are_bounded() {
+        assert_eq!(
+            requested_range(Some("bytes=7-"), 10_000_000).unwrap(),
+            (7, 4_194_310)
+        );
+    }
+
+    #[test]
+    fn suffix_ranges_respect_the_file_end() {
+        assert_eq!(
+            requested_range(Some("bytes=-128"), 1_000).unwrap(),
+            (872, 999)
+        );
+    }
 }

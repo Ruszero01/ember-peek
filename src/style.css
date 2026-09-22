@@ -932,15 +932,18 @@ kbd {
   transform: none;
 }
 /* Floating bars must not own the content's pixels: a bar catches the pointer on its pills
-   only, never on the gaps between them or the transparent rest of its row. */
+   only, never on the gaps between them or the transparent rest of its row. The pills also
+   take the pointer only while the bar is on screen — a hidden pill is an invisible click
+   target, and every pixel of the immersive window belongs to the plugin until the bars
+   arrive. */
 .preview-app[data-viewport="window"] .title-layer.shown,
 .preview-app[data-viewport="window"] .preview-overlays.shown {
   pointer-events: none;
 }
-.preview-app[data-viewport="window"] .title-layer .brand,
-.preview-app[data-viewport="window"] .title-layer .window-buttons,
-.preview-app[data-viewport="window"] .preview-overlays .floating-file-info,
-.preview-app[data-viewport="window"] .preview-overlays .preview-action-groups {
+.preview-app[data-viewport="window"] .title-layer.shown .brand,
+.preview-app[data-viewport="window"] .title-layer.shown .window-buttons,
+.preview-app[data-viewport="window"] .preview-overlays.shown .floating-file-info,
+.preview-app[data-viewport="window"] .preview-overlays.shown .preview-action-groups {
   pointer-events: auto;
 }
 /* The window's whole title row is a drag handle; over the content that would swallow every
@@ -948,35 +951,42 @@ kbd {
 .preview-app[data-viewport="window"] .title-layer .drag-zone {
   pointer-events: none;
 }
-/* Sensors for the auto-hiding bars. The bottom one is only 6px of the window's true edge, so
-   the plugin keeps the scrollbar lane and everything above it; the top stays 8px, where a
-   plugin has nothing to hit anyway. */
-.preview-app[data-viewport="window"] .edge {
-  pointer-events: auto;
-}
-.preview-app[data-viewport="window"] .edge.top {
-  height: 8px;
-}
-.preview-app[data-viewport="window"] .edge.bottom {
-  height: 6px;
-}
-/* Both sensors would sit at the wrong edge once the viewport is the band; the bars are
-   always shown there, so they are not sensing anything anyway. */
-.preview-app[data-viewport="band"] .edge {
+/* Reveal targets for the auto-hiding bars. The rule belongs to the host, and it is the corners
+   or nothing: each zone is one bar's height and a share of the window's width, so it is what a
+   cursor flung into a corner reaches, while the middle of the viewport — where a plugin puts
+   its own controls — never triggers the chrome. A zone is only a sensor: it must not swallow a
+   click, and once the bars are up their pills sit above it. */
+.corner {
+  position: absolute;
+  width: min(30vw, 420px);
+  z-index: 25;
   pointer-events: none;
 }
-.edge {
-  position: absolute;
-  left: 0;
-  right: 0;
-  height: 10px;
-  z-index: 25;
-}
-.edge.top {
+.corner.top-left,
+.corner.top-right {
   top: 0;
+  height: 56px;
 }
-.edge.bottom {
+.corner.bottom-left,
+.corner.bottom-right {
   bottom: 0;
+  height: calc(50px + var(--chrome-gap) - var(--chrome-pad));
+}
+.corner.top-left,
+.corner.bottom-left {
+  left: 0;
+}
+.corner.top-right,
+.corner.bottom-right {
+  right: 0;
+}
+.preview-app[data-viewport="window"] .corner {
+  pointer-events: auto;
+}
+/* In the band viewport the bars are always shown, so the corners are not sensing anything;
+   over the content their strips would steal clicks from the plugin at every window edge. */
+.preview-app[data-viewport="band"] .corner {
+  pointer-events: none;
 }
 .preview-overlays {
   position: relative;
@@ -1527,6 +1537,7 @@ kbd {
 .confirm-icon { width: 48px; height: 48px; border-radius: 14px; background: var(--accent-bg); color: var(--accent); display: grid; place-items: center; margin-bottom: 18px; }
 .plugin-confirm h2 { font-size: 18px; margin: 0 0 12px; overflow-wrap: anywhere; }
 .plugin-confirm p { color: var(--muted); font-size: 12px; line-height: 1.8; }
+.plugin-dialog p { white-space: pre-wrap; }
 .confirm-source { padding: 12px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; color: var(--muted); font-size: 11px; overflow-wrap: anywhere; max-height: 120px; overflow: auto; }
 .plugin-confirm footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px; }
 .confirm-submit { background: var(--accent); color: var(--bg); padding: 8px 16px; border-radius: 7px; font-size: 12px; font-weight: 600; }
@@ -1591,6 +1602,7 @@ kbd {
 .toolbar-actions .scrub-control {
   width: 58px;
   min-width: 58px;
+  position: relative;
   font-size: 11px;
   font-variant-numeric: tabular-nums;
   cursor: ns-resize;
@@ -1598,7 +1610,26 @@ kbd {
   user-select: none;
 }
 .scrub-control.scrubbing { background: var(--accent-bg); color: var(--accent); }
-.scrub-track { position: relative; width: 24px; height: 22px; margin: 3px 0; }
+/* Two parts, one piece: at rest the readout sits centered on its own; hovering (or focusing, or
+   dragging) slides it left to make room for the scale on the right, which slides in from the
+   same direction, so the control looks like one object opening rather than two swapping places.
+   Hover is what teaches the control: the scale is how a user sees that this number can be
+   dragged. Letting go or moving away plays both transitions backwards, recentring the number. */
+.scrub-value { transition: transform .18s cubic-bezier(.22, 1, .36, 1); }
+.scrub-track {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  right: 4px;
+  width: 22px;
+  opacity: 0;
+  transform: translateX(7px);
+  transition:
+    opacity .16s ease,
+    transform .18s cubic-bezier(.22, 1, .36, 1);
+}
+.scrub-control:is(:hover, :focus-visible, .scrubbing) .scrub-value { transform: translateX(-11px); }
+.scrub-control:is(:hover, :focus-visible, .scrubbing) .scrub-track { opacity: 1; transform: none; }
 .scrub-ticks { position: absolute; inset: 0 5px; background: repeating-linear-gradient(to top, var(--muted) 0 1px, transparent 1px 5px); opacity: .45; }
 .scrub-thumb { position: absolute; left: 1px; right: 1px; height: 3px; border-radius: 3px; background: var(--accent); transform: translateY(50%); box-shadow: 0 0 5px var(--accent-bg); }
 

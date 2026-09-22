@@ -1,7 +1,8 @@
 import { useEffect, useRef } from "react";
 import { call, viewUrl } from "./bridge";
-import { validateControls, isSessionOwning, ROLES } from "./protocol.mjs";
+import { validateControls, validateDialog, isSessionOwning, ROLES } from "./protocol.mjs";
 import { useT } from "./i18n";
+import type { PluginDialogRequest } from "./protocol.mjs";
 import type { Control, Session, Theme, ViewReport } from "./types";
 
 export function PluginView({
@@ -17,9 +18,9 @@ export function PluginView({
   register,
   registerPeer,
   peer,
-  edge,
   shortcut,
   panel,
+  confirm,
 }: {
   session: Session;
   /** Which surface of the plugin's entry this is: its view, or its floating panel. */
@@ -46,10 +47,11 @@ export function PluginView({
   ) => void;
   /** Forward one opaque payload to the plugin's other mount; false when it is not up. */
   peer: (to: string, payload: unknown) => boolean;
-  edge: (value: string) => void;
   shortcut: (key: string) => void;
   /** Ask the host to show or hide this plugin's floating panel. */
   panel: (open: boolean) => void;
+  /** Show format-agnostic modal chrome and return the plugin's selected action id. */
+  confirm: (request: PluginDialogRequest) => Promise<string | null>;
 }) {
   const t = useT();
   // When one entry owns both a view and a panel, the panel mount is secondary: it renders
@@ -67,9 +69,9 @@ export function PluginView({
     settings,
     controls,
     report,
-    edge,
     shortcut,
     panel,
+    confirm,
     peer,
   });
   latest.current = {
@@ -80,9 +82,9 @@ export function PluginView({
     settings,
     controls,
     report,
-    edge,
     shortcut,
     panel,
+    confirm,
     peer,
   };
   const generation = useRef(0);
@@ -189,9 +191,7 @@ export function PluginView({
           typeof message.text === "string"
         ) {
           throw new Error(t("view.searchNotHost"));
-        } else if (message?.type === "edge" && latest.current.visible)
-          latest.current.edge(message.value);
-        else if (message?.type === "shortcut" && latest.current.visible)
+        } else if (message?.type === "shortcut" && latest.current.visible)
           latest.current.shortcut(message.key);
         else if (message?.type === "request") {
           if (!Number.isSafeInteger(message.id) || requests >= 8)
@@ -318,6 +318,8 @@ export function PluginView({
               await call("authorize_clipboard", { id: session.id });
               await navigator.clipboard.writeText(params.text);
               value = null;
+            } else if (message.method === "confirm" && latest.current.interactive) {
+              value = await latest.current.confirm(validateDialog(params, t));
             } else throw new Error(t("view.unsupportedCapability"));
             connection.port1.postMessage({
               type: "reply",

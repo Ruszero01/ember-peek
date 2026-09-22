@@ -1,0 +1,56 @@
+{
+  "api": 1,
+  "id": "ember.video",
+  "name": "视频预览",
+  "i18n": {
+    "en": {
+      "name": "Video Preview",
+      "settings": {
+        "autoplay": {
+          "label": "Autoplay",
+          "help": "Start playback automatically after the video is ready."
+        },
+        "loop": {
+          "label": "Loop playback",
+          "help": "Start over instead of stopping at the end."
+        }
+      }
+    }
+  },
+  "version": "0.1.0",
+  "extensions": [
+    "mp4", "m4v", "mov", "qt", "avi", "mkv", "webm", "ogv", "ogg",
+    "mpeg", "mpg", "mpe", "m2v", "ts", "m2ts", "mts", "wmv", "asf",
+    "flv", "f4v", "3gp", "3g2", "vob", "rm", "rmvb", "divx"
+  ],
+  "icon": "video",
+  "settings": [
+    {
+      "key": "autoplay",
+      "type": "bool",
+      "label": "自动播放",
+      "help": "视频准备好后自动开始播放。",
+      "default": true
+    },
+    {
+      "key": "loop",
+      "type": "bool",
+      "label": "循环播放",
+      "help": "播完从头继续，而不是停在结尾。",
+      "default": false
+    }
+  ],
+  "executable": "bin/ember-video-plugin.exe",
+  "entry": "ui/index.html",
+  "capabilities": ["view", "overlay", "controls"],
+  "overlay": {
+    "width": 620,
+    "height": 48,
+    "anchor": "bottomRight"
+  },
+  "permissions": ["readFile", "writeFile"],
+  "activation": {
+    "mode": "auto",
+    "priority": 100
+  }
+}

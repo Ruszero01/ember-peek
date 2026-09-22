@@ -22,8 +22,8 @@ Every view imports `./sdk.js` and awaits `ready` before using session-bound APIs
 | Area | Exports |
 | --- | --- |
 | Lifecycle | `ready`, `presented`, `onVisibility`, `pending`, `fileChanged`, `returnView` |
-| Host UI | `controls`, `status`, `panel`, `findIcons`, `createIcon` |
-| Current file | `read`, `fileUrl`, `fileBlob` |
+| Host UI | `controls`, `status`, `panel`, `confirmDialog`, `findIcons`, `createIcon` |
+| Current file | `read`, `fileUrl`, `streamUrl`, `fileBlob` |
 | Linked resources | `resourceUrl`, `resourceBlob` (requires `readResources`) |
 | Native/source calls | `call`, `mutate`, `sourceCall` |
 | Settings | `configuration`, `onSettings`, `setSetting` |
@@ -32,6 +32,9 @@ Every view imports `./sdk.js` and awaits `ready` before using session-bound APIs
 | Diagnostics and clipboard | `diagnosticsOf`, `clipboard` |
 
 `read()` is capped at 1 MiB per call. `fileUrl()` serves the current file up to 32 MiB.
+`streamUrl()` is the format-neutral large-file path: a browser-native consumer requests byte
+ranges and the host answers in bounded chunks, so playback or parsing can begin without first
+copying the whole file into WebView memory.
 `resourceUrl()` resolves paths relative to the current document (including `../`, absolute paths,
 and `file:` URLs) or proxies public HTTP(S) resources. Each linked resource is capped at 64 MiB;
 private, loopback, and link-local network targets are rejected. Use `resourceBlob()` when a parser
@@ -39,6 +42,12 @@ needs bytes or a media element requires a `blob:` URL.
 
 The SDK rejects pending requests immediately when its MessagePort is replaced. Requests otherwise
 use the host protocol timeout because native parsing may legitimately run for up to 120 seconds.
+
+`confirmDialog()` is declarative and format-neutral. A plugin supplies the title, optional message
+and detail, up to three labelled actions with opaque ids, and an optional cancel label. The host
+owns modal placement and focus, then returns the selected id or `null`; it never interprets or
+executes the action. Plugin-owned functional UI stays in its view or panel. Reusable presentation
+rules, including media-range and popover styles, live in `web/ui.css` rather than host components.
 
 ## Tool SDK
 

@@ -5,6 +5,8 @@ export function validateControls(value:unknown, say?:(key:MessageKey)=>string):C
 /** The stricter contract a generated plugin is held to: a real icon name and an explicit
  * toggle state, so a trial preview matches the installed host toolbar. */
 export function validateWorkshopControls(value:unknown, say?:(key:MessageKey)=>string):Control[];
+export type PluginDialogRequest = {title:string;message:string;detail:string;cancelLabel:string;actions:{id:string;label:string;tone:"default"|"danger";primary:boolean}[]};
+export function validateDialog(value:unknown, say?:(key:MessageKey)=>string):PluginDialogRequest;
 export function isSessionOwning(method:string):boolean;
 export const ROLES:string[];
 export class Selection {generation:number;begin():number;current(ticket:number):boolean;}

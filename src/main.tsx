@@ -50,12 +50,14 @@ import { PluginView } from "./PluginView";
 import { PluginStage } from "./PluginStage";
 import { PluginDetails } from "./PluginDetails";
 import { PluginConfirm, type PluginAction } from "./PluginConfirm";
+import { PluginDialog } from "./PluginDialog";
 import { Marketplace } from "./Marketplace";
 import { WorkshopPreview } from "./WorkshopPreview";
 import { ToolPage } from "./ToolPage";
 import { Welcome } from "./Welcome";
 import { call, desktop, windowAction } from "./bridge";
 import { Selection, isContributionCurrent } from "./protocol.mjs";
+import type { PluginDialogRequest } from "./protocol.mjs";
 import { pluginIcon } from "./pluginIcons";
 import {
   LOCALE_NAMES,
@@ -481,6 +483,30 @@ function App() {
     settings.locale === "system" ? systemLanguage : settings.locale;
   const [theme, setTheme] = useState<Theme>({});
   const [reports, setReports] = useState<Record<string, ViewReport>>({});
+  type PendingDialog = {
+    request: PluginDialogRequest;
+    resolve: (result: string | null) => void;
+  };
+  const dialogQueue = useRef<PendingDialog[]>([]);
+  const activeDialog = useRef<PendingDialog | null>(null);
+  const [pluginDialog, setPluginDialog] = useState<PendingDialog | null>(null);
+  const requestPluginDialog = useCallback((request: PluginDialogRequest) =>
+    new Promise<string | null>((resolve) => {
+      const next = { request, resolve };
+      if (activeDialog.current) dialogQueue.current.push(next);
+      else {
+        activeDialog.current = next;
+        setPluginDialog(next);
+      }
+    }), []);
+  const resolvePluginDialog = useCallback((result: string | null) => {
+    const current = activeDialog.current;
+    if (!current) return;
+    current.resolve(result);
+    const next = dialogQueue.current.shift() ?? null;
+    activeDialog.current = next;
+    setPluginDialog(next);
+  }, []);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [filter, setFilter] = useState("");
@@ -586,6 +612,21 @@ function App() {
     [theme, safeInsets],
   );
   const chromeShown = scrubbingControl || !settings.immersive || hot !== "" || !current;
+  /**
+   * Reveal while the pointer is inside one of the four corners, hide the moment it is not.
+   * A leave that lands back on the chrome's own surface — a pill, or a corner — keeps the bars
+   * up, so moving along a pill never hides the thing being clicked. Nothing else may ask for
+   * them: the bars are the host's, and only the host decides when they are on screen.
+   */
+  const holdChrome = (event: React.PointerEvent) => {
+    if (!event.buttons) setHot("hover");
+  };
+  const dropChrome = (event: React.PointerEvent) => {
+    const held = document
+      .elementsFromPoint(event.clientX, event.clientY)
+      .some((element) => element.closest("[data-reveal]"));
+    if (!held) setHot("");
+  };
   const viewReport = active ? reports[active] : undefined;
   const contributors = snapshot.sessions
     .filter((s) => s.fileId === current?.fileId && s.available)
@@ -1077,6 +1118,12 @@ function App() {
       data-viewport={windowViewport ? "window" : "band"}
     >
       {pluginAction && <PluginConfirm action={pluginAction} onClose={() => setPluginAction(null)} />}
+      {pluginDialog && (
+        <PluginDialog
+          request={pluginDialog.request}
+          onResolve={resolvePluginDialog}
+        />
+      )}
       {error && (
         <div className="error-toast" role="alert">
           <span>{error}</span>
@@ -1133,7 +1180,6 @@ function App() {
                   target(payload, role);
                   return true;
                 }}
-                edge={setHot}
                 shortcut={shortcut}
                 panel={(open) =>
                   setExpanded((old) =>
@@ -1145,6 +1191,7 @@ function App() {
                       : old.filter((id) => id !== session.pluginId),
                   )
                 }
+                confirm={requestPluginDialog}
               />
             ) : null;
           }}
@@ -1209,29 +1256,35 @@ function App() {
       </div>
       {page === "preview" ? (
         <>
-          <div
-            className="edge top"
-            onPointerEnter={(event) => {
-              if (!event.buttons) setHot("top");
-            }}
-          />
-          <div
-            className="edge bottom"
-            onPointerEnter={(event) => {
-              if (!event.buttons) setHot("bottom");
-            }}
-          />
+          {/* The four corners are the whole reveal rule, and the host owns it: a plugin never
+              asks for the bars, because a plugin's floating panel is a document with its own
+              edges and a panel would drag the chrome on and off for reasons the user cannot
+              see. Each zone is a bar's height and a share of the width — what a cursor flung
+              at a corner reaches, without the middle of the viewport belonging to chrome. */}
+          {(["top-left", "top-right", "bottom-left", "bottom-right"] as const).map(
+            (corner) => (
+              <div
+                key={corner}
+                className={`corner ${corner}`}
+                data-reveal
+                onPointerEnter={holdChrome}
+                onPointerLeave={dropChrome}
+              />
+            ),
+          )}
           <div
             className={`title-layer ${chromeShown ? "shown" : ""}`}
-            onPointerEnter={() => setHot("top")}
-            onPointerLeave={() => setHot("")}
+            data-reveal
+            onPointerEnter={holdChrome}
+            onPointerLeave={dropChrome}
           >
             {title}
           </div>
           <footer
             className={`preview-overlays ${chromeShown ? "shown" : ""}`}
-            onPointerEnter={() => setHot("bottom")}
-            onPointerLeave={() => setHot("")}
+            data-reveal
+            onPointerEnter={holdChrome}
+            onPointerLeave={dropChrome}
           >
             <div className="floating-file-info">
               <span className="file-icon">

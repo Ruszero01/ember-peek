@@ -215,6 +215,7 @@ export const en = {
   "protocol.invalidControlId": "Invalid plugin control id",
   "protocol.invalidControl": "Invalid plugin control declaration",
   "protocol.invalidScrubRange": "Invalid numeric scrub range",
+  "protocol.invalidDialog": "Invalid plugin confirmation dialog",
   "protocol.workshopControlIcon": "Generated plugin controls must declare a Lucide icon",
   "protocol.workshopToggleState": "Generated plugin toggles must declare their current state",
 

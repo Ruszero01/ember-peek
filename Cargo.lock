@@ -1183,6 +1183,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ember-video-plugin"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "ember-plugin-sdk",
+ "serde_json",
+]
+
+[[package]]
 name = "ember-workshop-plugin"
 version = "0.1.0"
 dependencies = [

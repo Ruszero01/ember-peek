@@ -1,0 +1,9 @@
+[package]
+name = "ember-video-plugin"
+version = "0.1.0"
+edition.workspace = true
+
+[dependencies]
+base64 = "0.22"
+ember-plugin-sdk = { path = "../../../sdk/native" }
+serde_json.workspace = true

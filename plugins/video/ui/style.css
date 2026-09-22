@@ -1,0 +1,49 @@
+:root {
+  background: transparent;
+  color: var(--text, #e5e5e6);
+  font: 12px "Segoe UI", sans-serif;
+}
+html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+#viewer {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: var(--canvas, #141519);
+}
+#viewer[hidden], #transport[hidden] { display: none; }
+/* WebView2 composites a playing <video> as its own DirectComposition plane, and that plane
+   lands above everything the host paints in its own document: the window's two bars and the
+   viewport's edge fade disappear over the video, while the same buttons stay clickable (hit
+   testing is unaffected) and an open plugin panel brings them back, because an overlapping
+   layer forces the page to composite normally. A rounded or clipped quad is not eligible for
+   that plane, so the video keeps the page in one composite. Neither is visible at this size. */
+video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+  border-radius: 1px;
+  clip-path: inset(0);
+}
+#message {
+  position: absolute;
+  max-width: min(520px, calc(100% - 48px));
+  margin: 0;
+  padding: 9px 13px;
+  border: 1px solid var(--border, #303137);
+  border-radius: var(--radius-control, 7px);
+  background: color-mix(in srgb, var(--panel, #1d1e22) 88%, transparent);
+  color: var(--muted, #9a9aa2);
+  text-align: center;
+  backdrop-filter: blur(14px);
+}
+#message:empty { display: none; }
+#transport { position: fixed; inset: 0; }
+#transport .ui-media-transport { height: 48px; padding-block: 5px; }
+.ui-icon-button svg { pointer-events: none; }
+@media (max-width: 520px) {
+  #transport .ui-media-transport { gap: 4px; padding-inline: 6px; }
+  .ui-media-time { min-width: 30px; font-size: 9px; }
+}

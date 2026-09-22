@@ -34,6 +34,13 @@ the manual Windows matrix in [docs/testing.md](docs/testing.md).
 ## Change boundaries
 
 - Keep the host unaware of document formats and plugin-specific controls.
+- Keep host surfaces semantic-free: they provide placement, focus, lifecycle, and result
+  transport, while feature meaning and interaction stay in the plugin. Reusable presentation
+  belongs in the plugin-side SDK kit. Extend the host only with a format-neutral primitive whose
+  payload and result remain opaque, so plugin features can normally ship without a host update.
+- Keep preview plugins focused on fast, read-oriented inspection. Any compatibility processing
+  must be temporary and implementation-only; persistent editing or conversion belongs in a
+  separate plugin with an explicit editing contract.
 - Preserve existing manifest `api` behavior. Additive SDK exports are compatible; removing or
   changing an export requires a new protocol version and a documented migration.
 - Treat package files, documents, model output, web pages, and plugin messages as untrusted data.

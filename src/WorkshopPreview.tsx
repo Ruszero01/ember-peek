@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { call, viewUrl } from "./bridge";
 import { useT } from "./i18n";
 import { pluginIcon } from "./pluginIcons";
-import { validateWorkshopControls } from "./protocol.mjs";
+import { validateDialog, validateWorkshopControls } from "./protocol.mjs";
+import type { PluginDialogRequest } from "./protocol.mjs";
+import { PluginDialog } from "./PluginDialog";
 import { ScrubControl } from "./ScrubControl";
 import type { Control } from "./types";
 
@@ -15,6 +17,11 @@ export function WorkshopPreview({project,tool}:{project:string;tool:string}) {
  const [controls,setControls]=useState<Control[]>([]);
  const [scrubbing,setScrubbing]=useState(false);
  const port=useRef<MessagePort|null>(null);
+ const dialogQueue=useRef<{request:PluginDialogRequest;resolve:(value:string|null)=>void}[]>([]);
+ const dialogActive=useRef<{request:PluginDialogRequest;resolve:(value:string|null)=>void}|null>(null);
+ const [dialog,setDialog]=useState<{request:PluginDialogRequest;resolve:(value:string|null)=>void}|null>(null);
+ const ask=useCallback((request:PluginDialogRequest)=>new Promise<string|null>(resolve=>{const next={request,resolve};if(dialogActive.current)dialogQueue.current.push(next);else{dialogActive.current=next;setDialog(next);}}),[]);
+ const answer=useCallback((value:string|null)=>{const current=dialogActive.current;if(!current)return;current.resolve(value);const next=dialogQueue.current.shift()||null;dialogActive.current=next;setDialog(next);},[]);
  useEffect(()=>{
   let disposed=false;let timer:ReturnType<typeof setTimeout>;let frame:HTMLIFrameElement;
   const invoke=<T,>(method:string,params:Record<string,unknown>={})=>call<T>('tool_call',{id:tool,method,params:{id:project,...params}});
@@ -48,6 +55,7 @@ export function WorkshopPreview({project,tool}:{project:string;tool:string}) {
       if(m.method==='read')value=await invoke('readSample',{offset:m.params?.offset,length:m.params?.length});
       else if(m.method==='presented'){await verdict(m.params?.error?String(m.params.error):null);value=null;}
       else if(m.method==='icons')value=await invoke('icons',m.params);
+      else if(m.method==='confirm')value=await ask(validateDialog(m.params,t));
       else throw Error('预览不支持该接口：'+m.method);
       channel.port1.postMessage({type:'reply',id:m.id,value});
      }catch(e){channel.port1.postMessage({type:'reply',id:m.id,error:String(e)});}finally{active--;}
@@ -58,11 +66,11 @@ export function WorkshopPreview({project,tool}:{project:string;tool:string}) {
    timer=setTimeout(()=>void verdict('初始化超时，请返回工坊修复后重试').catch(e=>setStatus(String(e))),30000);
   }).catch(e=>{if(!disposed){setFailed(true);setStatus(String(e));}});
   return()=>{disposed=true;clearTimeout(timer);port.current?.close();frame?.remove();};
- },[project,t,tool]);
+ },[ask,project,t,tool]);
  const send=(id:string,value?:number)=>port.current?.postMessage({type:'action',id,value});
- return <main className="workshop-preview-window"><header><strong>插件试预览</strong><span className={failed?'warning':''} role="status">{status}</span></header><div className="workshop-preview-canvas" ref={mount}/><footer className="toolbar-actions workshop-preview-controls">{controls.map(control=>{
+ return <><main className="workshop-preview-window"><header><strong>插件试预览</strong><span className={failed?'warning':''} role="status">{status}</span></header><div className="workshop-preview-canvas" ref={mount}/><footer className="toolbar-actions workshop-preview-controls">{controls.map(control=>{
   if(control.kind==='scrub')return <ScrubControl key={control.id} control={control} active={!scrubbing} onActiveChange={setScrubbing} onChange={value=>send(control.id,value)}/>;
   const Icon=pluginIcon(control.icon||'sliders-horizontal');
   return <button key={control.id} title={control.label} aria-label={control.label} aria-pressed={control.kind==='toggle'?Boolean(control.active):undefined} className={control.kind==='toggle'&&control.active?'on':''} onClick={()=>send(control.id)}><Icon size={18}/></button>;
- })}</footer></main>;
+ })}</footer></main>{dialog&&<PluginDialog request={dialog.request} onResolve={answer}/>}</>;
 }

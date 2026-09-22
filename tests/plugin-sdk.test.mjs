@@ -37,6 +37,7 @@ test('file and related-resource helpers use the initialized session safely',asyn
  assert.equal(blob.size,bytes.length);
  assert.equal(blob.type,'');
  assert.deepEqual(Buffer.from(await blob.arrayBuffer()),bytes);
+ assert.equal(sdk.streamUrl(),'http://plugin.localhost/test/@stream');
  const related=sdk.resourceUrl('../assets/cover image.png');
  assert.equal(related,'http://plugin.localhost/test/@resource/..%2Fassets%2Fcover%20image.png');
  const remote=sdk.resourceUrl('https://cdn.example.test/a%20b.png?size=2');
