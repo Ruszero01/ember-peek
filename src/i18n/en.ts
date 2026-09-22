@@ -5,7 +5,8 @@
 // A value may be a string, or `{ one, other }` for a message whose wording depends on a
 // `count` parameter. `{name}` placeholders are filled from the parameters passed to `t`.
 export const en = {
-  "plugins.noViewer": "No enabled viewer matches this file. Install or enable a plugin that can open it.",
+  "plugins.createWithAI": "Create with AI",
+  "plugins.noViewer": "No enabled viewer matches this file. Find a plugin or create one in Workshop.",
   "plugins.installFromFile": "Install package",
   "plugins.origin.local": "Local imports",
   "plugins.origin.official": "Official plugins",
@@ -93,6 +94,7 @@ export const en = {
     "Off, the viewport is the band between the title bar and the action bar. On, it fills the window: the bars appear when the pointer reaches the top or bottom edge, and the space they leave does not block the plugin.",
 
   "plugins.market": "Plugin marketplace",
+  "plugins.openToolSettings": "Open settings ↗",
   "plugins.manage": "Plugin manager",
   "plugins.installedCount": {
     one: "{count} installed plugin",
@@ -213,6 +215,8 @@ export const en = {
   "protocol.invalidControlId": "Invalid plugin control id",
   "protocol.invalidControl": "Invalid plugin control declaration",
   "protocol.invalidScrubRange": "Invalid numeric scrub range",
+  "protocol.workshopControlIcon": "Generated plugin controls must declare a Lucide icon",
+  "protocol.workshopToggleState": "Generated plugin toggles must declare their current state",
 
   "bridge.desktopOnly": "Files and plugin processes need the desktop window",
 };

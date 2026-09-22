@@ -51,6 +51,8 @@ import { PluginStage } from "./PluginStage";
 import { PluginDetails } from "./PluginDetails";
 import { PluginConfirm, type PluginAction } from "./PluginConfirm";
 import { Marketplace } from "./Marketplace";
+import { WorkshopPreview } from "./WorkshopPreview";
+import { ToolPage } from "./ToolPage";
 import { Welcome } from "./Welcome";
 import { call, desktop, windowAction } from "./bridge";
 import { Selection, isContributionCurrent } from "./protocol.mjs";
@@ -482,7 +484,8 @@ function App() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [filter, setFilter] = useState("");
-  const [pluginTab, setPluginTab] = useState<"market" | "installed">("market");
+  const [pluginTab, setPluginTab] = useState<string>("market");
+  const [toolPageRevision, setToolPageRevision] = useState(0);
   const [hot, setHot] = useState("");
   const [scrubbingControl, setScrubbingControl] = useState(false);
   const [opening, setOpening] = useState(false);
@@ -730,8 +733,9 @@ function App() {
             status.settingsRevision !== seenSettingsRevision
           ) {
             seenSettingsRevision = status.settingsRevision;
+            if (status.settingsPage.startsWith("tool:")) { setPluginTab(status.settingsPage.slice(5)); setToolPageRevision(status.settingsRevision); }
             setPage(
-              status.settingsPage === "plugins"
+              status.settingsPage === "plugins" || status.settingsPage.startsWith("tool:")
                 ? "plugins"
                 : status.settingsPage === "about"
                   ? "about"
@@ -928,11 +932,22 @@ function App() {
     addEventListener("keydown", key);
     let cleanup: (() => void) | undefined;
     let disposed = false;
+    // A file dropped on a tool page belongs to that page as a path; dropping one anywhere
+    // else in the preview window opens it. The settings window has no other drop target,
+    // so a file dropped on its own chrome is ignored instead of previewed.
     if (desktop)
       void getCurrentWindow()
         .onDragDropEvent((event) => {
-          if (event.payload.type === "drop" && event.payload.paths[0])
-            void open(event.payload.paths[0]);
+          const accepts = document.querySelector('.tool-page[data-tool-drop="enabled"]');
+          if (!accepts) {
+            if (!settingsWindow && event.payload.type === "drop" && event.payload.paths[0])
+              void open(event.payload.paths[0]);
+            return;
+          }
+          if (event.payload.type === "drop")
+            window.dispatchEvent(new CustomEvent("ember-tool-drop", { detail: event.payload.paths }));
+          else if (event.payload.type === "enter" || event.payload.type === "leave")
+            window.dispatchEvent(new CustomEvent("ember-tool-drag", { detail: event.payload.type }));
         })
         .then((un) => {
           if (disposed) un();
@@ -1157,6 +1172,7 @@ function App() {
               >
                 {t("empty.manage")}
               </button>
+              <button className="text-button" onClick={() => void guard(() => call("open_workshop"))}>{t("plugins.createWithAI")}</button>
             </div>
           </div>
         )}
@@ -1164,6 +1180,7 @@ function App() {
           <div className="empty-state">
             <p>{t("plugins.noViewer")}</p>
             <button className="secondary-button" onClick={() => settingsPage("plugins")}>{t("empty.manage")}</button>
+            <button className="primary-button" onClick={() => void guard(() => call("open_workshop"))}>{t("plugins.createWithAI")}</button>
           </div>
         )}
         <DelayedLoading
@@ -1183,6 +1200,7 @@ function App() {
             <Package size={30} />
             <strong>{t("preview.failed")}</strong>
             <p>{current?.error || viewReport?.error}</p>
+            <button className="secondary-button" onClick={() => void guard(() => call("open_workshop"))}>{t("plugins.createWithAI")}</button>
             <button className="secondary-button" onClick={() => void pick()}>
               {t("preview.openOther")}
             </button>
@@ -1458,7 +1476,12 @@ function App() {
                 <span className="version">v{APP_VERSION}</span>
               </div>
             </aside>
-            <main className="settings-main">
+            <main className={`settings-main${
+              (page === "plugins" && snapshot.plugins.some(p => p.id === pluginTab && p.tool && p.enabled)) ||
+              (page === "plugin" && currentPlugin?.tool && currentPlugin.origin === "official" && currentPlugin.enabled)
+                ? " tool-surface"
+                : ""
+            }`}>
               <div className="page-top">
                 <h1>
                   {page === "general"
@@ -1471,7 +1494,9 @@ function App() {
                 </h1>
               </div>
               {page === "plugin" && (
-                <PluginSettingsPane plugin={currentPlugin} />
+                currentPlugin?.tool && currentPlugin.origin === "official" && currentPlugin.enabled
+                  ? <ToolPage key={`settings:${currentPlugin.id}:${currentPlugin.revision}`} plugin={currentPlugin} theme={theme} locale={language} settings />
+                  : <PluginSettingsPane plugin={currentPlugin} />
               )}
               {page === "general" && (
                 <>
@@ -1589,20 +1614,36 @@ function App() {
               )}
               {page === "plugins" && (
                 <>
-                  <div className="plugin-tabs">
-                    <button
-                      className={pluginTab === "market" ? "selected" : ""}
-                      onClick={() => setPluginTab("market")}
-                    >
-                      {t("plugins.market")}
-                    </button>
+                  <div className="plugin-tabs-row">
+                    <div className="plugin-tabs">
+                      <button
+                        className={pluginTab === "market" ? "selected" : ""}
+                        onClick={() => setPluginTab("market")}
+                      >
+                        {t("plugins.market")}
+                      </button>
                     <button
                       className={pluginTab === "installed" ? "selected" : ""}
                       onClick={() => setPluginTab("installed")}
                     >
                       {t("plugins.manage")}
                     </button>
+                    {snapshot.plugins.filter(p => p.tool && p.enabled && p.origin === "official").map(p => (
+                      <button key={p.id} className={pluginTab === p.id ? "selected" : ""} onClick={() => setPluginTab(p.id)}>{p.name}</button>
+                    ))}
+                    </div>
+                    {/* A tool's own page has no header of its own, so its settings entry sits
+                        here, on the row that already names the tool. */}
+                    {snapshot.plugins.some(p => p.id === pluginTab && p.tool && p.enabled) && (
+                      <button
+                        className="text-button tool-settings-link"
+                        onClick={() => { setPluginPage(pluginTab); setPage("plugin"); }}
+                      >
+                        {t("plugins.openToolSettings")}
+                      </button>
+                    )}
                   </div>
+                  {(pluginTab === "market" || pluginTab === "installed") && <>
                   <div className="list-toolbar">
                     <span>{t("plugins.installedCount", { count: snapshot.plugins.length })}</span>
                     <div>
@@ -1637,7 +1678,10 @@ function App() {
                       onChange={(e) => setFilter(e.target.value)}
                     />
                   </label>
-                  {pluginTab === "market" ? (
+                  </>}
+                  {snapshot.plugins.some(p => p.id === pluginTab && p.tool && p.enabled) ? (
+                    <ToolPage key={`${pluginTab}:${toolPageRevision}:${snapshot.plugins.find(p => p.id === pluginTab)?.revision}`} plugin={snapshot.plugins.find(p => p.id === pluginTab)!} theme={theme} locale={language} onOpenSettings={() => { setPluginPage(pluginTab); setPage("plugin"); }} />
+                  ) : pluginTab === "market" ? (
                     <Marketplace
                       filter={filter}
                       onInstalled={refresh}
@@ -1757,4 +1801,6 @@ function App() {
 // Resolve the interface language before the first paint: a window that renders one frame
 // in the wrong language and then swaps is worse than one that starts in it.
 setLocale(resolveLocale(savedSettings().locale));
-createRoot(document.getElementById("root")!).render(<App />);
+const previewQuery = new URLSearchParams(location.search);
+const previewProject = previewQuery.get("workshopPreview");
+createRoot(document.getElementById("root")!).render(previewProject && previewQuery.get("tool") ? <WorkshopPreview project={previewProject} tool={previewQuery.get("tool")!} /> : <App />);

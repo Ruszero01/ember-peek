@@ -3,6 +3,7 @@ let port;
 let sequence = 0;
 let settings = {};
 let sessionId = "";
+let sourceFile = null;
 const awaiting = new Map();
 const actions = new Map();
 const visibilityListeners = new Set();
@@ -163,6 +164,7 @@ window.addEventListener("message", (event) => {
     const message = event.data;
     if (message.type === "init") {
       sessionId = message.session || "";
+      sourceFile = message.file || null;
       // Before anything else: the plugin's first render is already in the right language.
       applyLocale(message.locale);
       theme(message.theme);
@@ -226,6 +228,9 @@ export function controls(items) {
     items: items.map(({ run, ...item }) => item),
   });
 }
+/** Publish one concise line of parsed facts or viewer state in the host's file-information
+ * area. The host already owns the file name and size; keep status/metadata chrome out of the
+ * preview DOM and update this line when page, zoom, selection or other useful state changes. */
 export function status(text) {
   port?.postMessage({ type: "status", text });
 }
@@ -296,7 +301,11 @@ export async function read(offset, length) {
 /** The whole sample as a `Blob`, read in 1 MiB steps. This is the route for a media element:
  * the page may only load `blob:` media sources, so a `<video>` or `<audio>` gets its source
  * from `URL.createObjectURL(await fileBlob(file.size, "video/mp4"))` and not from `fileUrl()`. */
-export async function fileBlob(size, type) {
+export async function fileBlob(size = sourceFile?.size, type = "") {
+  if (!Number.isSafeInteger(size) || size < 0)
+    throw new TypeError(
+      "fileBlob size is unavailable; await ready and pass file.size",
+    );
   const chunks = [];
   for (let offset = 0; offset < size; offset += 1024 * 1024) {
     const chunk = await read(offset, Math.min(1024 * 1024, size - offset));

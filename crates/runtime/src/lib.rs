@@ -5,6 +5,7 @@ pub mod manifest;
 pub mod market;
 mod process;
 pub mod sharing;
+pub mod tool;
 
 use crate::i18n::{msg, text, Locale, Refusal};
 use manifest::{Activation, ActivationMode, Capability, Manifest, Package, Permission};
@@ -123,6 +124,7 @@ fn blocking_change(inner: &Inner, plugin_id: Option<&str>) -> Option<PendingChan
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PluginInfo {
+    pub tool: Option<tool::Tool>,
     #[serde(flatten)]
     pub manifest: Manifest,
     pub enabled: bool,
@@ -442,6 +444,7 @@ impl Runtime {
             }
             plugins.push(PluginInfo {
                 source: inner.sources.get(&package.manifest.id).cloned(),
+                tool: package.tool.clone(),
                 origin: inner
                     .origins
                     .get(&package.manifest.id)
@@ -1042,6 +1045,24 @@ impl Runtime {
         Ok(())
     }
 
+    pub async fn tool_package(&self, id: &str) -> Result<Package, String> {
+        let inner = self.inner.lock().await;
+        let package = inner
+            .packages
+            .get(id)
+            .filter(|package| package.tool.is_some())
+            .ok_or("Tool is not installed")?;
+        if inner.disabled.contains(id) {
+            return Err("Tool is disabled".into());
+        }
+        if inner.origins.get(id).map(String::as_str) != Some("official") {
+            return Err(
+                "Tool service access requires an installation from a host-trusted official source"
+                    .into(),
+            );
+        }
+        Ok(package.clone())
+    }
     /// Recover provenance only when a verified source package exactly matches a legacy install.
     pub(crate) async fn recover_origin(
         &self,

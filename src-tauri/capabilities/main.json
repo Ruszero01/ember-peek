@@ -1,6 +1,6 @@
 {
   "identifier": "main",
-  "windows": ["preview", "settings"],
+  "windows": ["preview", "settings", "workshop-preview-*"],
   "permissions": [
     "core:event:default",
     "core:window:allow-close",

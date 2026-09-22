@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   validateControls,
+  validateWorkshopControls,
   isSessionOwning,
   ROLES,
   Selection,
@@ -36,6 +37,15 @@ test("a toggle control carries the state the host draws", () => {
   // Only an explicit true lights a control up, so a typo cannot silently press it.
   assert.equal(off.active, false);
   assert.equal(on.active, false);
+});
+test("workshop controls declare host icons and explicit toggle state", () => {
+  const controls = validateWorkshopControls([
+    { id: "copy", kind: "button", label: "复制", icon: "copy" },
+    { id: "wrap", kind: "toggle", label: "换行", icon: "text-wrap", active: true },
+  ]);
+  assert.equal(controls[1].active, true);
+  assert.throws(() => validateWorkshopControls([{ id: "copy", kind: "button", label: "复制" }]));
+  assert.throws(() => validateWorkshopControls([{ id: "wrap", kind: "toggle", label: "换行", icon: "text-wrap" }]));
 });
 test("malformed or excessive controls never enter the host UI", () => {
   for (const bad of [

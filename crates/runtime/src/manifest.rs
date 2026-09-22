@@ -542,6 +542,7 @@ impl Manifest {
 
 #[derive(Clone, Debug)]
 pub struct Package {
+    pub tool: Option<crate::tool::Tool>,
     pub manifest: Manifest,
     pub directory: PathBuf,
 }
@@ -670,6 +671,7 @@ impl Package {
             }
         }
         Ok(Self {
+            tool: crate::tool::load(directory)?,
             manifest,
             directory: directory.canonicalize().map_err(|e| e.to_string())?,
         })

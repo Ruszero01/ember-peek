@@ -72,6 +72,7 @@ pub struct Status {
 }
 #[derive(Default)]
 struct Inner {
+    last_path: Option<PathBuf>,
     status: Status,
     generation: u64,
     hidden: HashMap<String, Instant>,
@@ -176,7 +177,7 @@ fn queue_show(app: &AppHandle, label: &'static str, revision: u64) {
             };
             // Every window keeps the native file-drop handler, including the settings
             // window: a dropped file has to arrive as a path, and a web page never sees
-            // one.
+            // one. The workshop's tool page lives here and takes samples by path only.
             let result = builder.build();
             if let Err(error) = result {
                 eprintln!("Create {label}: {error}");
@@ -224,6 +225,7 @@ fn present(app: &AppHandle, revision: u64) {
 pub async fn open(app: &AppHandle, path: PathBuf) -> Result<(), String> {
     let desktop = app.state::<Desktop>();
     let revision = desktop.begin();
+    desktop.inner.lock().unwrap().last_path = Some(path.clone());
     let _selection = desktop.selection.lock().await;
     let runtime = app.state::<Arc<Runtime>>();
     // Runtime owns loading tasks: moving to another file never cancels the plugin.
@@ -244,6 +246,14 @@ pub async fn open(app: &AppHandle, path: PathBuf) -> Result<(), String> {
     Ok(())
 }
 
+pub fn last_path(app: &AppHandle) -> Option<PathBuf> {
+    app.state::<Desktop>()
+        .inner
+        .lock()
+        .unwrap()
+        .last_path
+        .clone()
+}
 pub async fn refresh_file(app: &AppHandle, id: &str, return_to_source: bool) -> Result<(), String> {
     let desktop = app.state::<Desktop>();
     let revision = desktop.inner.lock().unwrap().generation;
@@ -362,7 +372,10 @@ pub struct DesktopSnapshot {
 #[tauri::command]
 pub fn show_settings(app: AppHandle, page: Option<String>) -> Result<(), String> {
     let page = page
-        .filter(|v| matches!(v.as_str(), "general" | "plugins" | "about" | "welcome"))
+        .filter(|v| {
+            matches!(v.as_str(), "general" | "plugins" | "about" | "welcome")
+                || v.starts_with("tool:")
+        })
         .unwrap_or_else(|| "general".into());
     let revision = {
         let desktop = app.state::<Desktop>();
