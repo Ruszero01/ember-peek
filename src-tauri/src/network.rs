@@ -147,7 +147,7 @@ fn client() -> reqwest::Client {
         // Following a redirect is how documentation links usually work, so each hop is
         // checked instead of refusing them all.
         .redirect(reqwest::redirect::Policy::custom(|attempt| {
-            if attempt.previous().len() > 5 || !public_address(attempt.url()) {
+            if attempt.previous().len() > 5 || !crate::public_http::public_url(attempt.url()) {
                 attempt.stop()
             } else {
                 attempt.follow()
@@ -215,7 +215,15 @@ impl Network {
             match self.engine(engine, query).await {
                 Ok(mut hits) => {
                     results.append(&mut hits);
-                    notes.push(format!("网页结果来自 {}{}", engine.provider, if engine.endpoint.is_empty() { String::new() } else { format!("（{}）", engine.url()) }));
+                    notes.push(format!(
+                        "网页结果来自 {}{}",
+                        engine.provider,
+                        if engine.endpoint.is_empty() {
+                            String::new()
+                        } else {
+                            format!("（{}）", engine.url())
+                        }
+                    ));
                 }
                 Err(error) => failures.push(format!("{}：{error}", engine.provider)),
             }
@@ -275,7 +283,13 @@ impl Network {
                 id = id.trim_start_matches('/')
             );
             if let Some(topic) = topic {
-                url.push_str(&format!("&topic={}", percent_encoding::utf8_percent_encode(topic, percent_encoding::NON_ALPHANUMERIC)));
+                url.push_str(&format!(
+                    "&topic={}",
+                    percent_encoding::utf8_percent_encode(
+                        topic,
+                        percent_encoding::NON_ALPHANUMERIC
+                    )
+                ));
             }
             match self.text(&url, true).await {
                 Ok(text) if !text.trim().is_empty() => {
@@ -287,7 +301,9 @@ impl Network {
                         ));
                     }
                     if let Some(topic) = topic {
-                        notes.push(format!("只取了与「{topic}」相关的部分；换 topic 可以再取别的部分"));
+                        notes.push(format!(
+                            "只取了与「{topic}」相关的部分；换 topic 可以再取别的部分"
+                        ));
                     }
                     if text.len() >= MAX_TEXT {
                         notes.push("文档很长，已截断；用 topic 缩小范围".into());
@@ -314,59 +330,25 @@ impl Network {
     /// anything public, nothing that points back at this machine or its network.
     pub async fn page(&self, url: &str) -> Result<Page, String> {
         let url = url.trim();
-        let location =
-            reqwest::Url::parse(url).map_err(|_| format!("{url}：不是有效的地址"))?;
-        let reachable = public_address(&location)
-            || (self.local_ok && matches!(location.scheme(), "http" | "https"));
-        if !reachable {
-            return Err(format!(
-                "{}：只能读公开的 http/https 地址（本机、内网与其它协议都不行）",
-                location.host_str().unwrap_or(url)
-            ));
-        }
-        let response = self
-            .client
-            .get(location.clone())
-            .header("accept", "text/html,application/xhtml+xml,text/plain,application/json;q=0.9,*/*;q=0.5")
-            .header("accept-language", "en,zh-CN;q=0.8")
-            .send()
-            .await
-            .map_err(|error| page_request_error(url, &error))?;
-        if !response.status().is_success() {
-            return Err(format!(
-                "{url}：目标站点返回 {}；不要重试同一地址，请换用搜索结果中的其他公开来源",
-                response.status()
-            ));
-        }
-        let kind = response
-            .headers()
-            .get("content-type")
-            .and_then(|value| value.to_str().ok())
-            .unwrap_or_default()
-            .to_owned();
-        if response
-            .content_length()
-            .is_some_and(|length| length > MAX_PAGE as u64)
-        {
-            return Err(format!("{url}：页面超过 1 MiB，不适合作为阅读材料"));
-        }
-        let body = response
-            .bytes()
-            .await
-            .map_err(|error| {
-                format!(
-                    "读取 {url} 中断：{}；不要重试同一地址，请换用其他公开来源",
-                    if error.is_timeout() {
-                        "目标站点响应超时".to_owned()
-                    } else {
-                        error.to_string()
-                    }
-                )
-            })?;
-        if body.len() > MAX_PAGE {
-            return Err(format!("{url}：页面超过 1 MiB，不适合作为阅读材料"));
-        }
-        let body = String::from_utf8_lossy(&body).into_owned();
+        let response = crate::public_http::download(
+            url,
+            crate::public_http::Options {
+                accept:
+                    "text/html,application/xhtml+xml,text/plain,application/json;q=0.9,*/*;q=0.5",
+                accept_language: Some("en,zh-CN;q=0.8"),
+                max_bytes: MAX_PAGE,
+                timeout: TIMEOUT,
+                redirects: 5,
+                allow_private: self.local_ok,
+            },
+        )
+        .await
+        .map_err(|error| {
+            format!("读取 {url} 失败：{error}；不要重试同一地址，请换用搜索结果中的其他公开来源")
+        })?;
+        let location = response.url;
+        let kind = response.content_type;
+        let body = String::from_utf8_lossy(&response.bytes).into_owned();
         let mut notes = Vec::new();
         let (title, text) = if kind.contains("html") {
             let title = title_of(&body);
@@ -385,7 +367,9 @@ impl Network {
             notes.push("内容较长，已截断".into());
         }
         if text.trim().is_empty() {
-            return Err(format!("{url}：页面没有可读的正文（可能是需要脚本才能显示）"));
+            return Err(format!(
+                "{url}：页面没有可读的正文（可能是需要脚本才能显示）"
+            ));
         }
         Ok(Page {
             url: location.to_string(),
@@ -543,7 +527,10 @@ impl Network {
                 .client
                 .get(format!(
                     "{endpoint}{separator}q={}&format=json",
-                    percent_encoding::utf8_percent_encode(query, percent_encoding::NON_ALPHANUMERIC)
+                    percent_encoding::utf8_percent_encode(
+                        query,
+                        percent_encoding::NON_ALPHANUMERIC
+                    )
                 ))
                 .header("accept-encoding", "identity");
             if let Some(key) = engine.key.as_deref().filter(|key| !key.is_empty()) {
@@ -554,7 +541,11 @@ impl Network {
                 .await
                 .map_err(|error| format!("{}：{error}", host_of(&endpoint)))?;
             if !response.status().is_success() {
-                return Err(format!("{}：返回 {}", host_of(&endpoint), response.status()));
+                return Err(format!(
+                    "{}：返回 {}",
+                    host_of(&endpoint),
+                    response.status()
+                ));
             }
             let body = response
                 .bytes()
@@ -645,19 +636,6 @@ impl Network {
     }
 }
 
-fn page_request_error(url: &str, error: &reqwest::Error) -> String {
-    let reason = if error.is_timeout() {
-        "目标站点连接或响应超时"
-    } else if error.is_connect() {
-        "无法连接目标站点（可能被当前网络、代理或站点策略阻断）"
-    } else if error.is_redirect() {
-        "目标站点重定向无效或次数过多"
-    } else {
-        "目标站点请求失败"
-    };
-    format!("读取 {url} 失败：{reason}；不要重试同一地址，请换用其他公开来源")
-}
-
 fn host_of(url: &str) -> String {
     reqwest::Url::parse(url)
         .ok()
@@ -684,55 +662,9 @@ fn relevant_library_hit(library: &str, hit: &Hit) -> bool {
     if terms.is_empty() {
         return true;
     }
-    let haystack = format!(
-        "{} {}",
-        hit.id.as_deref().unwrap_or_default(),
-        hit.title
-    )
-    .to_ascii_lowercase();
+    let haystack =
+        format!("{} {}", hit.id.as_deref().unwrap_or_default(), hit.title).to_ascii_lowercase();
     terms.iter().all(|term| haystack.contains(term))
-}
-
-/// Whether this address is somewhere on the public internet. A lookup must not become a way to
-/// read the machine it runs on, or the network it sits in, by asking a URL. Host names that
-/// resolve to a private address are not caught here — that needs the resolved address, which is
-/// the next step up in effort.
-fn public_address(url: &reqwest::Url) -> bool {
-    if !matches!(url.scheme(), "http" | "https") {
-        return false;
-    }
-    let Some(host) = url.host_str() else {
-        return false;
-    };
-    let host = host.trim_matches(['[', ']']).to_ascii_lowercase();
-    if host == "localhost" || host.ends_with(".localhost") || host.ends_with(".local") {
-        return false;
-    }
-    if let Ok(address) = host.parse::<std::net::IpAddr>() {
-        return match address {
-            std::net::IpAddr::V4(address) => {
-                !(address.is_private()
-                    || address.is_loopback()
-                    || address.is_link_local()
-                    || address.is_broadcast()
-                    || address.is_documentation()
-                    || address.is_unspecified()
-                    || address.is_multicast()
-                    || address.octets()[0] == 0
-                    || address.octets()[0] >= 240)
-            }
-            std::net::IpAddr::V6(address) => {
-                !(address.is_loopback()
-                    || address.is_unspecified()
-                    || address.is_multicast()
-                    // Unique local and link-local: the IPv6 versions of a private network.
-                    || (address.segments()[0] & 0xfe00) == 0xfc00
-                    || (address.segments()[0] & 0xffc0) == 0xfe80)
-            }
-        };
-    }
-    // A single label is a machine on some network, never a public site.
-    host.contains('.') && !host.ends_with('.')
 }
 
 fn shorten(text: &str, limit: usize) -> String {
@@ -783,7 +715,12 @@ fn html_to_text(html: &str) -> String {
             .chars()
             .take_while(|character| character.is_ascii_alphanumeric())
             .collect();
-        if !tag.starts_with('/') && matches!(name.as_str(), "script" | "style" | "noscript" | "svg" | "template" | "iframe") {
+        if !tag.starts_with('/')
+            && matches!(
+                name.as_str(),
+                "script" | "style" | "noscript" | "svg" | "template" | "iframe"
+            )
+        {
             // Skip the element entirely, closing tag included.
             let close_tag = format!("</{name}");
             index = match html[close..].to_ascii_lowercase().find(&close_tag) {
@@ -794,8 +731,25 @@ fn html_to_text(html: &str) -> String {
         }
         if matches!(
             name.as_str(),
-            "p" | "div" | "br" | "li" | "tr" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "section"
-                | "article" | "pre" | "blockquote" | "table" | "ul" | "ol" | "header" | "footer"
+            "p" | "div"
+                | "br"
+                | "li"
+                | "tr"
+                | "h1"
+                | "h2"
+                | "h3"
+                | "h4"
+                | "h5"
+                | "h6"
+                | "section"
+                | "article"
+                | "pre"
+                | "blockquote"
+                | "table"
+                | "ul"
+                | "ol"
+                | "header"
+                | "footer"
         ) {
             text.push('\n');
         }

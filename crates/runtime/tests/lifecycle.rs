@@ -1021,7 +1021,7 @@ async fn a_superseded_revision_is_retired_on_the_next_scan() {
     assert_eq!(installed.len(), 1);
 
     // What the older scheme produced: a second directory, a higher revision, newer contents.
-    let newer = format!("test.one-9999999999999");
+    let newer = "test.one-9999999999999".to_owned();
     let copy = root.join(&newer);
     let worker = std::fs::copy(
         root.join(&installed[0]).join("worker.exe"),

@@ -10,6 +10,7 @@ mod libraries;
 mod local_packages;
 mod model_catalog;
 mod network;
+mod public_http;
 mod resource;
 mod workshop;
 

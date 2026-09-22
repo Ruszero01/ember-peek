@@ -177,9 +177,12 @@ onSettings(next => { /* 应用新值 */ });
 
 ## 插件网页
 
+完整导出清单、兼容规则与视图 SDK / 工具 SDK 的边界见 [SDK contracts](../sdk/README.md)。
+
 ```js
 import {
   ready, controls, call, read, status, presented, onVisibility,
+  fileUrl, fileBlob, resourceUrl, resourceBlob,
   setSetting, panel, postTo, onMessage,
 } from './sdk.js';
 const {data, file, role} = await ready;   // role 是 'view' 或 'panel'

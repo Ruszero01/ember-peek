@@ -108,8 +108,7 @@ export function PluginView({
     () => () => {
       generation.current++;
       clearTimeout(handshake.current);
-      channel.current?.port1.close();
-      channel.current?.port2.close();
+      closeChannel("Plugin view closed");
       register(instanceId, null);
       // Peers are keyed by the session both mounts belong to, not by the mount.
       registerPeer(session.id, role, null);
@@ -117,9 +116,23 @@ export function PluginView({
     [instanceId, register, registerPeer, role, session.id],
   );
 
+  function closeChannel(reason: string) {
+    const current = channel.current;
+    if (!current) return;
+    try {
+      current.port1.postMessage({ type: "disconnect", error: reason });
+    } catch {
+      // The old endpoint may already be gone; closing both local ports is still required.
+    } finally {
+      current.port1.close();
+      current.port2.close();
+      if (channel.current === current) channel.current = null;
+    }
+  }
+
   function connect() {
     const ticket = ++generation.current;
-    channel.current?.port1.close();
+    closeChannel("Plugin view reconnected");
     const connection = new MessageChannel();
     channel.current = connection;
     clearTimeout(handshake.current);

@@ -20,6 +20,23 @@ export const ready = new Promise((resolve) => {
   resolveReady = resolve;
 });
 
+function rejectAwaiting(message) {
+  for (const entry of awaiting.values()) {
+    clearTimeout(entry.timer);
+    entry.reject(new Error(message));
+  }
+  awaiting.clear();
+}
+
+function disconnect(message, expected = port) {
+  if (!expected || port !== expected) return;
+  try {
+    expected.close();
+  } catch {}
+  port = undefined;
+  rejectAwaiting(message);
+}
+
 /** Search the host's pinned, offline Lucide catalog (up to 200 results). */
 export function findIcons(query = "") { return request("icons", { query }); }
 /** A trusted, themeable SVG element from the host registry. Unknown names fall back. */
@@ -158,11 +175,15 @@ window.addEventListener("message", (event) => {
     !event.ports[0]
   )
     return;
-  port?.close();
-  port = event.ports[0];
-  port.onmessage = (event) => {
+  const nextPort = event.ports[0];
+  if (port && port !== nextPort)
+    disconnect("Host connection was replaced", port);
+  port = nextPort;
+  nextPort.onmessage = (event) => {
     const message = event.data;
-    if (message.type === "init") {
+    if (message.type === "disconnect") {
+      disconnect(message.error || "Host connection closed", nextPort);
+    } else if (message.type === "init") {
       sessionId = message.session || "";
       sourceFile = message.file || null;
       // Before anything else: the plugin's first render is already in the right language.
@@ -197,8 +218,10 @@ window.addEventListener("message", (event) => {
         : entry.resolve(message.value);
     }
   };
-  port.start();
-  port.postMessage({ type: "connected" });
+  nextPort.onmessageerror = () =>
+    disconnect("Host connection failed", nextPort);
+  nextPort.start();
+  nextPort.postMessage({ type: "connected" });
 });
 
 function request(method, params) {
@@ -209,8 +232,16 @@ function request(method, params) {
       awaiting.delete(id);
       reject(new Error("Host request timed out"));
     }, 125000);
+    const requestPort = port;
     awaiting.set(id, { resolve, reject, timer });
-    port.postMessage({ type: "request", id, method, params });
+    try {
+      requestPort.postMessage({ type: "request", id, method, params });
+    } catch (error) {
+      awaiting.delete(id);
+      clearTimeout(timer);
+      disconnect("Host connection failed", requestPort);
+      reject(error);
+    }
   });
 }
 

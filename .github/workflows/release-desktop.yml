@@ -11,14 +11,20 @@ concurrency:
 jobs:
   build:
     runs-on: windows-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
       - run: npm ci
-      - run: npm run version:check
       - name: Extract changelog for this version
         run: node scripts/release-notes.mjs "$env:RUNNER_TEMP\release-notes.md"
       - name: Check release tag matches application version
@@ -27,7 +33,7 @@ jobs:
         run: |
           $version = (Get-Content -LiteralPath "$env:GITHUB_WORKSPACE\package.json" -Raw | ConvertFrom-Json).version
           if ($env:GITHUB_REF_NAME -cne "v$version") { throw "Tag must match package version v$version" }
-      - run: npm test
+      - run: npm run ci
       - name: Build Windows NSIS installer
         run: npm run build:desktop -- --bundles nsis --ci -- --locked
       - name: Generate SHA256 checksums
@@ -55,6 +61,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: write
     steps:

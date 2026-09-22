@@ -135,7 +135,11 @@ fn search_routes(extra: Routes) -> Routes {
 async fn a_search_answers_from_the_sources_that_need_no_account() {
     let server = Server::start(search_routes(Vec::new()));
     let answer = server.pointed().search("mp4box", None).await.unwrap();
-    let sources: Vec<&str> = answer.results.iter().map(|hit| hit.source.as_str()).collect();
+    let sources: Vec<&str> = answer
+        .results
+        .iter()
+        .map(|hit| hit.source.as_str())
+        .collect();
     assert_eq!(sources, vec!["npm", "stackoverflow", "context7"]);
     // An npm hit carries the version worth pinning, a package's reach, and a question's score.
     assert_eq!(answer.results[0].version.as_deref(), Some("0.5.4"));
@@ -175,7 +179,10 @@ async fn a_search_answers_from_the_sources_that_need_no_account() {
         .search("mp4box", None)
         .await
         .expect_err("a search that found nothing must say so");
-    assert!(error.contains("没有回答") || error.contains("没有找到"), "{error}");
+    assert!(
+        error.contains("没有回答") || error.contains("没有找到"),
+        "{error}"
+    );
 }
 
 #[tokio::test]
@@ -287,8 +294,12 @@ async fn documentation_falls_back_when_context7s_best_match_is_stale() {
     assert!(answer.text.contains("getDocument"));
     assert!(answer.notes.iter().any(|note| note.contains("自动切换")));
     let asked = server.asked();
-    assert!(asked.iter().any(|path| path.contains("/mozilla/pdfjs-dist")));
-    assert!(asked.iter().any(|path| path.contains("/websites/deepwiki_mozilla_pdfjs-dist")));
+    assert!(asked
+        .iter()
+        .any(|path| path.contains("/mozilla/pdfjs-dist")));
+    assert!(asked
+        .iter()
+        .any(|path| path.contains("/websites/deepwiki_mozilla_pdfjs-dist")));
     assert!(!asked.iter().any(|path| path.contains("cargo-dist")));
 }
 
@@ -333,7 +344,11 @@ async fn a_page_is_read_as_text_and_never_from_this_machine() {
     // Markup, scripts and styles are not documentation — an entity that decodes to `<` is.
     assert!(!page.text.contains("secret"), "{}", page.text);
     assert!(!page.text.contains("color:red"), "{}", page.text);
-    assert!(!page.text.contains("</") && !page.text.contains("<p"), "{}", page.text);
+    assert!(
+        !page.text.contains("</") && !page.text.contains("<p"),
+        "{}",
+        page.text
+    );
     // JSON is still readable, and something that is not text is refused.
     assert!(network
         .page(&format!("{}/data", server.base))
@@ -350,7 +365,10 @@ async fn a_page_is_read_as_text_and_never_from_this_machine() {
         .page(&format!("{}/missing", server.base))
         .await
         .expect_err("a stale search result must be explained");
-    assert!(missing.contains("404") && missing.contains("其他公开来源"), "{missing}");
+    assert!(
+        missing.contains("404") && missing.contains("其他公开来源"),
+        "{missing}"
+    );
     // Anything pointing at this machine or its network is refused before a request is made.
     let mut strict = server.pointed();
     strict.local_ok = false;
@@ -368,16 +386,16 @@ async fn a_page_is_read_as_text_and_never_from_this_machine() {
             .page(url)
             .await
             .expect_err("a private address must be refused");
-        assert!(error.contains("公开") || error.contains("http/https"), "{url}: {error}");
+        assert!(
+            error.contains("公开") || error.contains("http/https"),
+            "{url}: {error}"
+        );
     }
     // None of those reached the server they named.
-    assert!(server
-        .asked()
-        .iter()
-        .all(|path| path.starts_with("/doc")
-            || path.starts_with("/data")
-            || path.starts_with("/image")
-            || path.starts_with("/missing")));
+    assert!(server.asked().iter().all(|path| path.starts_with("/doc")
+        || path.starts_with("/data")
+        || path.starts_with("/image")
+        || path.starts_with("/missing")));
 }
 
 #[test]

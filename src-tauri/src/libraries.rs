@@ -272,7 +272,9 @@ impl Libraries {
             None | Some("latest") => None,
             Some(value) if exact_version(value) => Some(value.to_owned()),
             Some(value) => {
-                return Err(format!("{value}：版本要写确切值（例如 0.5.4），不支持范围或标签"))
+                return Err(format!(
+                    "{value}：版本要写确切值（例如 0.5.4），不支持范围或标签"
+                ))
             }
         };
         if let Some(pinned) = wanted.as_deref() {
@@ -325,8 +327,8 @@ impl Libraries {
         if body.len() > 8 * 1024 * 1024 {
             return Err(format!("{package}：包元数据异常地大，已放弃"));
         }
-        let document: Value =
-            serde_json::from_slice(&body).map_err(|_| format!("{package}：源返回的不是包元数据"))?;
+        let document: Value = serde_json::from_slice(&body)
+            .map_err(|_| format!("{package}：源返回的不是包元数据"))?;
         let version = match wanted {
             Some(value) => value,
             None => document["dist-tags"]["latest"]
@@ -507,9 +509,7 @@ fn valid_package(name: &str) -> bool {
 }
 
 fn name_character(byte: u8) -> bool {
-    byte.is_ascii_lowercase()
-        || byte.is_ascii_digit()
-        || b"-_.~".contains(&byte)
+    byte.is_ascii_lowercase() || byte.is_ascii_digit() || b"-_.~".contains(&byte)
 }
 
 fn exact_version(version: &str) -> bool {
@@ -517,10 +517,7 @@ fn exact_version(version: &str) -> bool {
     let (Some(major), Some(minor), Some(patch)) = (parts.next(), parts.next(), parts.next()) else {
         return false;
     };
-    let patch = patch
-        .split(['-', '+'])
-        .next()
-        .unwrap_or_default();
+    let patch = patch.split(['-', '+']).next().unwrap_or_default();
     [major, minor, patch]
         .iter()
         .all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()))
@@ -589,7 +586,9 @@ fn unpack(tarball: &[u8], into: &Path) -> Result<(), String> {
         if unpacked > MAX_UNPACKED {
             return Err("包解压后超过 256 MiB，已放弃".into());
         }
-        let path = entry.path().map_err(|_| "包里有无法解析的路径".to_owned())?;
+        let path = entry
+            .path()
+            .map_err(|_| "包里有无法解析的路径".to_owned())?;
         let target = into.join(inside_package(&path)?);
         if let Some(parent) = target.parent() {
             std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
@@ -793,7 +792,9 @@ fn declared_entry(directory: &Path) -> (Option<String>, Vec<String>) {
         if let Some(value) = document[field].as_str() {
             if directory.join(value).is_file() {
                 if field != "module" && document["module"].is_string() && field == "browser" {
-                    notes.push("这个包同时给了 module 与 browser 入口，浏览器用的通常是 module".into());
+                    notes.push(
+                        "这个包同时给了 module 与 browser 入口，浏览器用的通常是 module".into(),
+                    );
                 }
                 return (Some(value.to_owned()), notes);
             }
@@ -862,7 +863,9 @@ fn collect(root: &Path, directory: &Path, files: &mut Vec<(String, u64)>) {
     };
     for entry in entries.flatten() {
         let path = entry.path();
-        let Ok(metadata) = entry.metadata() else { continue };
+        let Ok(metadata) = entry.metadata() else {
+            continue;
+        };
         if metadata.is_dir() {
             collect(root, &path, files);
             continue;
@@ -1050,7 +1053,10 @@ mod tests {
 
     fn package_bytes() -> Vec<u8> {
         tarball(&[
-            ("package.json", r#"{"name":"mp4box","version":"0.5.4","module":"dist/mp4box.all.js"}"#),
+            (
+                "package.json",
+                r#"{"name":"mp4box","version":"0.5.4","module":"dist/mp4box.all.js"}"#,
+            ),
             ("LICENSE", "MIT-ish test licence"),
             ("dist/mp4box.all.js", "export const MP4Box = 1;\n"),
             ("src/isofile.js", "export const internal = 2;\n"),
@@ -1066,15 +1072,28 @@ mod tests {
         assert_eq!(catalogue.version, "0.5.4");
         assert_eq!(catalogue.entry.as_deref(), Some("dist/mp4box.all.js"));
         assert_eq!(catalogue.licence.as_deref(), Some("LICENSE"));
-        let paths: Vec<&str> = catalogue.files.iter().map(|file| file.path.as_str()).collect();
+        let paths: Vec<&str> = catalogue
+            .files
+            .iter()
+            .map(|file| file.path.as_str())
+            .collect();
         // A bundled build is offered before the sources it was built from.
-        assert_eq!(paths.first().copied(), Some("dist/mp4box.all.js"), "{paths:?}");
+        assert_eq!(
+            paths.first().copied(),
+            Some("dist/mp4box.all.js"),
+            "{paths:?}"
+        );
         assert!(paths.contains(&"src/isofile.js"), "{paths:?}");
         // The listing is what a page can import, and it is bounded and honest about the rest.
         assert_eq!(catalogue.total, 4);
         let vendor = temp.path().join("v1/ui/vendor");
         let vendored = libraries
-            .vendor("mp4box", Some("0.5.4"), &["dist/mp4box.all.js".into()], &vendor)
+            .vendor(
+                "mp4box",
+                Some("0.5.4"),
+                &["dist/mp4box.all.js".into()],
+                &vendor,
+            )
             .await
             .unwrap();
         assert_eq!(vendored.version, "0.5.4");
@@ -1100,7 +1119,12 @@ mod tests {
         let vendor = temp.path().join("ui/vendor");
         registry
             .store(&root)
-            .vendor("mp4box", Some("0.5.4"), &["dist/mp4box.all.js".into()], &vendor)
+            .vendor(
+                "mp4box",
+                Some("0.5.4"),
+                &["dist/mp4box.all.js".into()],
+                &vendor,
+            )
             .await
             .unwrap();
         let asked = registry.asked().len();
@@ -1108,7 +1132,12 @@ mod tests {
         // store, which is what keeps a repeat run working on a machine that is offline.
         let offline = Libraries::new(root, Some("http://127.0.0.1:9".into()));
         let again = offline
-            .vendor("mp4box", Some("0.5.4"), &["dist/mp4box.all.js".into()], &vendor)
+            .vendor(
+                "mp4box",
+                Some("0.5.4"),
+                &["dist/mp4box.all.js".into()],
+                &vendor,
+            )
             .await
             .unwrap();
         assert_eq!(again.files[0].name, "mp4box.all.js");
@@ -1116,7 +1145,11 @@ mod tests {
         // And asking for the latest version falls back to what is here, saying so.
         let latest = offline.catalogue("mp4box", None).await.unwrap();
         assert_eq!(latest.version, "0.5.4");
-        assert!(latest.notes.iter().any(|note| note.contains("未联网")), "{:?}", latest.notes);
+        assert!(
+            latest.notes.iter().any(|note| note.contains("未联网")),
+            "{:?}",
+            latest.notes
+        );
     }
 
     #[tokio::test]
@@ -1131,7 +1164,12 @@ mod tests {
         let vendor = temp.path().join("ui/vendor");
         let error = registry
             .store(&temp.path().join("libraries"))
-            .vendor("mp4box", Some("0.5.4"), &["dist/mp4box.all.js".into()], &vendor)
+            .vendor(
+                "mp4box",
+                Some("0.5.4"),
+                &["dist/mp4box.all.js".into()],
+                &vendor,
+            )
             .await
             .expect_err("a mismatched tarball must be refused");
         assert!(error.contains("哈希不一致"), "{error}");
@@ -1146,8 +1184,14 @@ mod tests {
             "0.5.4",
             tarball(&[
                 ("package.json", r#"{"name":"mp4box"}"#),
-                ("dist/parts.js", "import { x } from 'three';\nexport const y = x;\n"),
-                ("dist/legacy.js", "(function (global) { global.MP4Box = 1; })(this);\n"),
+                (
+                    "dist/parts.js",
+                    "import { x } from 'three';\nexport const y = x;\n",
+                ),
+                (
+                    "dist/legacy.js",
+                    "(function (global) { global.MP4Box = 1; })(this);\n",
+                ),
                 ("dist/common.cjs", "module.exports = require('mp4box');\n"),
             ]),
         );

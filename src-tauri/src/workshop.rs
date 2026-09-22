@@ -417,7 +417,9 @@ fn record_dependency(draft: &Path, vendored: &crate::libraries::Vendored) -> Res
         existing["name"] == entry["name"] && existing["version"] == entry["version"]
     }) {
         Some(existing) => {
-            let files = existing["files"].as_array_mut().ok_or("dependencies.json 内容已损坏")?;
+            let files = existing["files"]
+                .as_array_mut()
+                .ok_or("dependencies.json 内容已损坏")?;
             for file in entry["files"].as_array().into_iter().flatten() {
                 if !files.iter().any(|known| known["name"] == file["name"]) {
                     files.push(file.clone());
@@ -619,8 +621,8 @@ impl Workshop {
             return Err("未知的搜索来源".into());
         }
         if engine.provider == "searxng" {
-            let endpoint = reqwest::Url::parse(engine.endpoint.trim())
-                .map_err(|_| "搜索端点不是有效地址")?;
+            let endpoint =
+                reqwest::Url::parse(engine.endpoint.trim()).map_err(|_| "搜索端点不是有效地址")?;
             if !matches!(endpoint.scheme(), "http" | "https") {
                 return Err("搜索端点必须是 http/https".into());
             }
@@ -978,7 +980,10 @@ impl Workshop {
             let sample = project.sample.as_deref();
             for file in additions {
                 if sample == Some(file.path.as_str())
-                    || project.attachments.iter().any(|known| known.path == file.path)
+                    || project
+                        .attachments
+                        .iter()
+                        .any(|known| known.path == file.path)
                 {
                     continue;
                 }
@@ -1360,7 +1365,7 @@ impl Workshop {
                         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
                     }
                     let previous = std::fs::read_to_string(&located).unwrap_or_default();
-                    deltas.insert(name.to_owned(), line_delta(&previous, &text));
+                    deltas.insert(name.to_owned(), line_delta(&previous, text));
                     ember_file_store::atomic_write(&located, text.as_bytes())
                         .map_err(|e| e.to_string())?;
                     accepted = None;
@@ -1375,19 +1380,17 @@ impl Workshop {
                     let reply = match event["method"].as_str().unwrap_or_default() {
                         "validate" => {
                             self.change(id, |p| p.status = "validating".into()).await?;
-                            let result = parse_output(
-                                &event["args"].to_string(),
-                                &package_files(&draft),
-                            )
-                            .and_then(|out| {
-                                if !project.extension.is_empty()
-                                    && out.extension != project.extension
-                                {
-                                    Err("必须保持样例文件的扩展名".into())
-                                } else {
-                                    Ok(out)
-                                }
-                            });
+                            let result =
+                                parse_output(&event["args"].to_string(), &package_files(&draft))
+                                    .and_then(|out| {
+                                        if !project.extension.is_empty()
+                                            && out.extension != project.extension
+                                        {
+                                            Err("必须保持样例文件的扩展名".into())
+                                        } else {
+                                            Ok(out)
+                                        }
+                                    });
                             self.change(id, |p| p.status = "generating".into()).await?;
                             match result {
                                 Ok(out) => {
@@ -1408,7 +1411,9 @@ impl Workshop {
                         }
                         "attachment" => match read_attachment_value(&project, &event["args"]) {
                             Ok(value) => json!({"type":"reply","id":event["id"],"value":value}),
-                            Err(error) => json!({"type":"reply","id":event["id"],"ok":false,"error":error}),
+                            Err(error) => {
+                                json!({"type":"reply","id":event["id"],"ok":false,"error":error})
+                            }
                         },
                         // The long tail of formats needs libraries this repository does not
                         // ship, so the agent names one and the host fetches it: pinned,
@@ -1438,7 +1443,14 @@ impl Workshop {
                                 if files.is_empty() {
                                     match self.libraries.catalogue(&package, version).await {
                                         Ok(catalogue) => {
-                                            self.log(id, format!("查询库 {package}@{} · 共 {} 个文件", catalogue.version, catalogue.total)).await?;
+                                            self.log(
+                                                id,
+                                                format!(
+                                                    "查询库 {package}@{} · 共 {} 个文件",
+                                                    catalogue.version, catalogue.total
+                                                ),
+                                            )
+                                            .await?;
                                             json!({"type":"reply","id":event["id"],"value":serde_json::to_value(&catalogue).map_err(|e| e.to_string())?})
                                         }
                                         Err(error) => {
@@ -1501,9 +1513,7 @@ impl Workshop {
                                     "note": format!("本次生成已经用过 {MAX_PROBES} 次自检，不能再试运行了。请按最后一次自检的结果收尾，并在总结里说明它是否通过。"),
                                 })})
                             } else {
-                                let outcome = self
-                                    .probe(id, tool, accepted.clone())
-                                    .await?;
+                                let outcome = self.probe(id, tool, accepted.clone()).await?;
                                 // Either way the current version was built from the files
                                 // the agent has now, so the run must not build them again.
                                 built_here = true;
@@ -1533,12 +1543,16 @@ impl Workshop {
                                 let library = arguments["library"].as_str().unwrap_or_default();
                                 let url = arguments["url"].as_str().unwrap_or_default();
                                 let lookup = match event["method"].as_str().unwrap_or_default() {
-                                    "search" => self.network.search(query, engine.as_ref()).await.map(|answer| {
-                                        (
-                                            serde_json::to_value(&answer),
-                                            format!("{query} · {} 条", answer.results.len()),
-                                        )
-                                    }),
+                                    "search" => self
+                                        .network
+                                        .search(query, engine.as_ref())
+                                        .await
+                                        .map(|answer| {
+                                            (
+                                                serde_json::to_value(&answer),
+                                                format!("{query} · {} 条", answer.results.len()),
+                                            )
+                                        }),
                                     "docs" => self
                                         .network
                                         .docs(library, arguments["topic"].as_str())
@@ -1612,8 +1626,7 @@ impl Workshop {
         if !analysis {
             let output = accepted.ok_or("插件尚未通过校验")?;
             if !built_here {
-                self.build_candidate(id, tool, output)
-                    .await?;
+                self.build_candidate(id, tool, output).await?;
                 self.log(id, "构建完成，可查看文件并试预览".into()).await?;
             }
         }
@@ -2226,13 +2239,18 @@ fn read_attachment_value(project: &Project, arguments: &Value) -> Result<Value, 
         return Err("读取位置超出附件大小".into());
     }
     let requested = arguments["length"].as_u64().unwrap_or(64 * 1024);
-    let maximum = if attachment.image { 12 * 1024 * 1024 } else { 1024 * 1024 };
+    let maximum = if attachment.image {
+        12 * 1024 * 1024
+    } else {
+        1024 * 1024
+    };
     let length = requested.min(attachment.size.saturating_sub(offset));
     if length > maximum {
         return Err(format!("单次最多读取 {} MiB", maximum / 1024 / 1024));
     }
     let mut file = std::fs::File::open(&attachment.path).map_err(|e| e.to_string())?;
-    file.seek(SeekFrom::Start(offset)).map_err(|e| e.to_string())?;
+    file.seek(SeekFrom::Start(offset))
+        .map_err(|e| e.to_string())?;
     let mut bytes = vec![0; usize::try_from(length).map_err(|_| "读取长度无效")?];
     file.read_exact(&mut bytes).map_err(|e| e.to_string())?;
     let encoding = arguments["encoding"].as_str().unwrap_or("auto");
@@ -2746,13 +2764,12 @@ fn validate_javascript(source: &str, files: &[String]) -> Result<(), String> {
             {
                 self.ready = true;
             }
-            let file_blob =
-                matches!(&call.callee, Expression::Identifier(identifier) if identifier.name == "fileBlob")
-                    || call
-                        .callee
-                        .as_member_expression()
-                        .and_then(|member| member.static_property_name())
-                        .is_some_and(|name| name == "fileBlob");
+            let file_blob = matches!(&call.callee, Expression::Identifier(identifier) if identifier.name == "fileBlob")
+                || call
+                    .callee
+                    .as_member_expression()
+                    .and_then(|member| member.static_property_name())
+                    .is_some_and(|name| name == "fileBlob");
             if file_blob && call.arguments.is_empty() {
                 self.file_blob_without_size = true;
             }
@@ -3212,9 +3229,7 @@ mod tests {
             );
         }
         // Turning it off leaves the built-in sources, which need no setting at all.
-        workshop
-            .configure_search(Default::default(), true)
-            .unwrap();
+        workshop.configure_search(Default::default(), true).unwrap();
         assert!(!workshop.search_setting().configured());
     }
     #[tokio::test]
@@ -3290,7 +3305,7 @@ mod tests {
                 "write_file",
                 json!({"path":"ui/view.js","content":format!(
                     "import {{tiny}} from './vendor/tiny.js';
-{}",
+                {}",
                     viewer().replace("from './sdk.js'", "from './sdk.js';
                 void tiny")
                 )}),
@@ -3346,10 +3361,8 @@ mod tests {
         // page it wrote.
         let package = workshop.directory(&project.id).unwrap().join("v1");
         assert!(package.join("ui/vendor/tiny.js").is_file());
-        let manifest: Value = serde_json::from_slice(
-            &std::fs::read(package.join("plugin.json")).unwrap(),
-        )
-        .unwrap();
+        let manifest: Value =
+            serde_json::from_slice(&std::fs::read(package.join("plugin.json")).unwrap()).unwrap();
         assert_eq!(
             manifest["permissions"],
             json!(["readFile", "readResources"])
@@ -3450,7 +3463,11 @@ mod tests {
             .await
             .unwrap();
         let project = workshop.get(&project.id).await.unwrap();
-        assert_eq!(project.attachments.len(), 2, "the primary sample is not duplicated");
+        assert_eq!(
+            project.attachments.len(),
+            2,
+            "the primary sample is not duplicated"
+        );
         assert!(!project.attachments[0].image);
         assert!(project.attachments[1].image);
         let value = read_attachment_value(
@@ -3461,7 +3478,10 @@ mod tests {
         assert_eq!(value["text"], "参考说明");
         assert_eq!(value["encoding"], "utf8");
         let reopened = service(temp.path().join("workshop"));
-        assert_eq!(reopened.get(&project.id).await.unwrap().attachments.len(), 2);
+        assert_eq!(
+            reopened.get(&project.id).await.unwrap().attachments.len(),
+            2
+        );
     }
     /// A sample the task references by path. The workshop takes samples as paths and never
     /// as bytes, so a test writes the file it wants the task to point at.
@@ -3554,8 +3574,7 @@ mod tests {
             &output("import {ready,presented} from './sdk.js'; ready().then(() => presented());"),
             &[],
         )
-        .err()
-        .expect("ready() must be rejected");
+        .expect_err("ready() must be rejected");
         assert!(wrong_ready.contains("ready is a Promise"), "{wrong_ready}");
         for wrong_blob in [
             "import {ready,fileBlob,presented} from './sdk.js'; const {file}=await ready; const blob=await fileBlob(); await presented();",
@@ -3650,7 +3669,8 @@ mod tests {
         }];
         record_dependency(&draft, &more).unwrap();
         let record: Value =
-            serde_json::from_slice(&std::fs::read(draft.join("dependencies.json")).unwrap()).unwrap();
+            serde_json::from_slice(&std::fs::read(draft.join("dependencies.json")).unwrap())
+                .unwrap();
         let packages = record["packages"].as_array().unwrap();
         assert_eq!(packages.len(), 1, "{record}");
         assert_eq!(packages[0]["name"], "tiny-lib");
@@ -3672,7 +3692,8 @@ mod tests {
         assert!(built.join("ui/vendor/tiny.js").is_file());
         assert!(built.join("ui/vendor/tiny-lib-LICENSE.txt").is_file());
         let carried: Value =
-            serde_json::from_slice(&std::fs::read(built.join("dependencies.json")).unwrap()).unwrap();
+            serde_json::from_slice(&std::fs::read(built.join("dependencies.json")).unwrap())
+                .unwrap();
         assert_eq!(carried["packages"][0]["version"], "1.0.0");
         // `dependencies.json` is the host's record, not an import the page may name.
         assert!(!package_files(&draft).contains(&"dependencies.json".to_string()));
@@ -3932,7 +3953,7 @@ mod tests {
             .create(
                 "Read text".into(),
                 Some(sample_file(
-                    &workshop.root.parent().unwrap().to_owned(),
+                    workshop.root.parent().unwrap(),
                     sample,
                     b"Sample",
                 )),
@@ -4032,10 +4053,7 @@ mod tests {
             service_with_verdict(temp.path().join("workshop"), None, Vec::new());
         let tool = tool(&temp.path().join("tool"));
         let project = accepted_files(&workshop, "notes.txt").await;
-        let outcome = workshop
-            .probe(&project.id, &tool, None)
-            .await
-            .unwrap();
+        let outcome = workshop.probe(&project.id, &tool, None).await.unwrap();
         assert!(!outcome.ok);
         assert!(outcome.note.unwrap().contains("validate"));
         assert!(windows.shown.lock().unwrap().is_empty());

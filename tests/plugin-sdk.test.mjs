@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { MessageChannel } from 'node:worker_threads';
 
-test('file and related-resource helpers use the initialized session safely',async()=>{
+async function sdkPage(label) {
  const browserListeners=new Map();
  const pageListeners=new Map();
  const parentWindow={};
@@ -13,7 +13,12 @@ test('file and related-resource helpers use the initialized session safely',asyn
  globalThis.document={
   documentElement:{lang:'',style:{setProperty(){},colorScheme:''}},
  };
- const sdk=await import(`../sdk/web/index.js?file-blob-default=${Date.now()}`);
+ const sdk=await import(`../sdk/web/index.js?${label}=${Date.now()}-${Math.random()}`);
+ return {sdk,browserListeners,parentWindow};
+}
+
+test('file and related-resource helpers use the initialized session safely',async()=>{
+ const {sdk,browserListeners,parentWindow}=await sdkPage('file-resources');
  const {port1,port2}=new MessageChannel();
  const bytes=Buffer.from([0x00,0x01,0x02,0x03]);
  port1.onmessage=event=>{
@@ -46,4 +51,23 @@ test('file and related-resource helpers use the initialized session safely',asyn
  assert.deepEqual(Buffer.from(await resource.arrayBuffer()),Buffer.from([1,2,3]));
  globalThis.fetch=originalFetch;
  port1.close();port2.close();
+});
+
+test('replacing a view channel rejects work left on the old port',async()=>{
+ const {sdk,browserListeners,parentWindow}=await sdkPage('reconnect');
+ const first=new MessageChannel();
+ first.port1.onmessage=event=>{
+  if(event.data.type==='connected')
+   first.port1.postMessage({type:'init',session:'first',file:{name:'a.txt',size:1},theme:{},locale:'en',settings:{}});
+ };
+ first.port1.start();
+ browserListeners.get('message')({source:parentWindow,data:{type:'ember:connect'},ports:[first.port2]});
+ await sdk.ready;
+ const stranded=sdk.call('never-answers');
+ const second=new MessageChannel();
+ second.port1.onmessage=()=>{};
+ second.port1.start();
+ browserListeners.get('message')({source:parentWindow,data:{type:'ember:connect'},ports:[second.port2]});
+ await assert.rejects(stranded,/connection was replaced/i);
+ first.port1.close();first.port2.close();second.port1.close();second.port2.close();
 });

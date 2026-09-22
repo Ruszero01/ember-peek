@@ -23,8 +23,13 @@
     "version:check": "node scripts/sync-version.mjs --check",
     "release:notes": "node scripts/release-notes.mjs",
     "version:set": "node scripts/sync-version.mjs --set",
-    "check": "npm run build && npm run plugins:build && cargo check --workspace",
-    "test": "npm run plugins:build && node --test tests/*.test.mjs && cargo test -p ember-file-store -p ember-runtime -p ember-plugin-sdk -p ember-text-editor-plugin -p ember-text-plugin --features ember-runtime/test-worker && cargo test -p ember-peek --bin ember-peek"
+    "format:check": "cargo fmt --all -- --check",
+    "lint": "cargo clippy --workspace --all-targets --all-features --locked -- -D warnings",
+    "check": "npm run format:check && npm run lint && npm run build && npm run plugins:build",
+    "test:js": "node --test tests/*.test.mjs",
+    "test:rust": "cargo test -p ember-file-store -p ember-runtime -p ember-plugin-sdk -p ember-text-editor-plugin -p ember-text-plugin --features ember-runtime/test-worker && cargo test -p ember-peek --bin ember-peek",
+    "test": "npm run plugins:build && npm run test:js && npm run test:rust",
+    "ci": "npm run version:check && npm run release:notes && npm run format:check && npm run lint && npm run build && npm test"
   },
   "dependencies": {
     "@codemirror/commands": "^6.11.0",
