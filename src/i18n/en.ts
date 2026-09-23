@@ -41,6 +41,7 @@ export const en = {
   "preview.openOther": "Open another file",
   "preview.tagline": "Every preview format comes from a plugin",
 
+  "footer.openDefaultApp": "Open in default app",
   "footer.openFile": "Open file",
   "footer.settings": "Settings",
   "footer.openPlugin": "Open {label}",

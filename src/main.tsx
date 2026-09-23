@@ -11,6 +11,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { APP_VERSION, APP_VERSION_SHORT } from "./version";
 import {
   FolderOpen,
+  ExternalLink,
   Package,
   Palette,
   Info,
@@ -447,6 +448,14 @@ type DesktopStatus = {
   settingsRevision: number;
 };
 
+/** What the desktop layer reports on top of the runtime's snapshot. `file` is the file the
+ *  preview window is showing, which the host's own file-scoped actions are enabled from. */
+type DesktopReport = {
+  snapshot: Snapshot;
+  status: DesktopStatus;
+  file: string | null;
+};
+
 function DelayedLoading({ visible, name }: { visible: boolean; name: string }) {
   const t = useT();
   const [shown, setShown] = useState(false);
@@ -518,6 +527,10 @@ function App() {
   const [hot, setHot] = useState("");
   const [scrubbingControl, setScrubbingControl] = useState(false);
   const [opening, setOpening] = useState(false);
+  // The file the window is showing, as the native side reports it. It is not the same
+  // question as "is there a session": a file no plugin can preview is still a file the
+  // host can hand to the application the user has for it.
+  const [previewedFile, setPreviewedFile] = useState<string | null>(null);
   const selection = useRef(new Selection());
   const senders = useRef(
     new Map<string, (id: string, value?: unknown) => void>(),
@@ -745,10 +758,8 @@ function App() {
       inFlight = true;
       let loading = false;
       try {
-        const { snapshot: next, status } = await call<{
-          snapshot: Snapshot;
-          status: DesktopStatus;
-        }>("desktop_snapshot");
+        const { snapshot: next, status, file } =
+          await call<DesktopReport>("desktop_snapshot");
         if (!disposed) {
           loading = next.sessions.some(
             (session) =>
@@ -759,6 +770,7 @@ function App() {
           );
           setSnapshot(next);
           setActive(next.active);
+          setPreviewedFile(file);
           if (status.revision !== seenRevision) {
             seenRevision = status.revision;
             if (!settingsWindow) {
@@ -1373,6 +1385,17 @@ function App() {
                 );
               })}
               <div className="toolbar-host-actions">
+                {/* The host's own entry out of a preview. It has nothing to open until a
+                    file has been shown, so it says so instead of failing on a click. */}
+                <button
+                  title={t("footer.openDefaultApp")}
+                  disabled={!previewedFile}
+                  onClick={() =>
+                    void guard(() => call("open_in_default_app"))
+                  }
+                >
+                  <ExternalLink size={16} />
+                </button>
                 <button title={t("footer.openFile")} onClick={() => void pick()}>
                   <FolderOpen size={16} />
                 </button>

@@ -34,6 +34,7 @@ export const zhCN: Catalog = {
   "preview.openOther": "打开其他文件",
   "preview.tagline": "由插件提供每一种预览能力",
 
+  "footer.openDefaultApp": "在默认应用中打开",
   "footer.openFile": "打开文件",
   "footer.settings": "设置",
   "footer.openPlugin": "打开{label}",

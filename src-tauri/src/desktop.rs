@@ -1,4 +1,4 @@
-use ember_runtime::i18n::{text, Refusal};
+use ember_runtime::i18n::{fill, text, Refusal};
 use ember_runtime::{PendingChange, Runtime, Snapshot};
 use serde::Serialize;
 use std::{
@@ -254,6 +254,85 @@ pub fn last_path(app: &AppHandle) -> Option<PathBuf> {
         .last_path
         .clone()
 }
+
+/// Hand the file the preview window is showing to the application Windows associates with
+/// it. It is the host's own way out of a preview: a file no installed plugin can draw is
+/// still a file the user has a program for, and the host offers no editing of its own to
+/// reach it with. Nothing about the preview changes — from here on the two views of the
+/// file are independent, and the host cannot see what the other program does with it.
+#[tauri::command]
+pub async fn open_in_default_app(app: AppHandle) -> Result<(), String> {
+    let path = last_path(&app).ok_or_else(|| text().open_default_missing.to_owned())?;
+    open_external(&path).map_err(|error| fill(text().open_default_failed, &[("error", error)]))
+}
+
+/// Handing a path to the shell's default application for it.
+#[cfg(windows)]
+mod shell {
+    use std::path::Path;
+    use windows::{
+        core::{w, PCWSTR},
+        Win32::UI::{Shell::ShellExecuteW, WindowsAndMessaging::SW_SHOWNORMAL},
+    };
+
+    pub fn open(path: &Path) -> Result<(), String> {
+        let file = wide(path);
+        // SAFETY: `file` outlives the call, and the other arguments are the "open" verb and
+        // nulls — what the shell wants for the default verb with no arguments and no
+        // working directory.
+        let status = unsafe {
+            ShellExecuteW(
+                None,
+                w!("open"),
+                PCWSTR(file.as_ptr()),
+                PCWSTR::null(),
+                PCWSTR::null(),
+                SW_SHOWNORMAL,
+            )
+        };
+        // The shell answers with a handle on success and with a code at or below 32 on
+        // failure, so the value is a status only at the low end of its range.
+        let code = status.0 as isize;
+        if code <= 32 {
+            return Err(format!("ShellExecuteW returned {code}"));
+        }
+        Ok(())
+    }
+
+    /// The path as the shell reads it: UTF-16 and NUL-terminated, never lossy — a path this
+    /// API cannot express exactly would name a different file.
+    fn wide(path: &Path) -> Vec<u16> {
+        use std::os::windows::ffi::OsStrExt;
+        path.as_os_str().encode_wide().chain(Some(0)).collect()
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::wide;
+        use std::path::Path;
+
+        #[test]
+        fn a_path_reaches_the_shell_as_one_utf16_string() {
+            // Spaces and non-ASCII names are the two things a hand-rolled conversion gets
+            // wrong, and both are ordinary on Windows.
+            let file = wide(Path::new("C:\\预览 图\\a b.png"));
+            assert_eq!(file.last(), Some(&0));
+            assert_eq!(
+                String::from_utf16(&file[..file.len() - 1]).unwrap(),
+                "C:\\预览 图\\a b.png"
+            );
+        }
+    }
+}
+
+#[cfg(windows)]
+use shell::open as open_external;
+
+#[cfg(not(windows))]
+fn open_external(_: &std::path::Path) -> Result<(), String> {
+    Err("Opening a file with its default application is only implemented on Windows".into())
+}
+
 pub async fn refresh_file(app: &AppHandle, id: &str, return_to_source: bool) -> Result<(), String> {
     let desktop = app.state::<Desktop>();
     let revision = desktop.inner.lock().unwrap().generation;
@@ -362,12 +441,21 @@ pub async fn desktop_snapshot(app: AppHandle) -> DesktopSnapshot {
     let _selection = desktop.selection.lock().await;
     let snapshot = app.state::<Arc<Runtime>>().snapshot().await;
     let status = desktop.inner.lock().unwrap().status.clone();
-    DesktopSnapshot { snapshot, status }
+    let file = last_path(&app).map(|path| path.to_string_lossy().into_owned());
+    DesktopSnapshot {
+        snapshot,
+        status,
+        file,
+    }
 }
 #[derive(Serialize)]
 pub struct DesktopSnapshot {
     snapshot: Snapshot,
     status: Status,
+    /// The file the preview window is showing, so the host's own file-scoped actions can
+    /// tell whether they have anything to act on. Deliberately independent of the sessions:
+    /// a file no plugin can preview is still a file the host can hand to another program.
+    file: Option<String>,
 }
 #[tauri::command]
 pub fn show_settings(app: AppHandle, page: Option<String>) -> Result<(), String> {

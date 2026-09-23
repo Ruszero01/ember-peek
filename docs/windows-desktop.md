@@ -14,7 +14,7 @@
 
 ## 入口与职责
 
-- `src-tauri/src/desktop.rs`：原生托盘、两个窗口、选择请求版本号、关闭与闲置回收。
+- `src-tauri/src/desktop.rs`：原生托盘、两个窗口、选择请求版本号、关闭与闲置回收，以及把当前预览的文件交给系统默认应用。
 - `src-tauri/src/explorer.rs`：Windows 低级键盘钩子和独立 COM 选择读取线程；不依赖 WebView 存活。
 - `src-tauri/src/main.rs`：注册通用命令、初始化插件运行时、退出清理和周期回收。
 - `src/main.tsx`：按 URL 的 `window=preview/settings` 选择窗口界面；设置窗口内部再切 `general` / `plugins` / `about` / `welcome` / 某个插件的设置页。设置窗口从不挂载插件视图。
@@ -76,6 +76,7 @@ Windows 上动态创建 WebView 使用独立阻塞线程，并以创建锁避免
 ## 参考
 
 - [Tauri 原生托盘](https://v2.tauri.app/learn/system-tray/)
+- [ShellExecuteW](https://learn.microsoft.com/en-us/windows/win32/api/shellapi/nf-shellapi-shellexecutew)
 - [Windows LowLevelKeyboardProc](https://learn.microsoft.com/en-us/windows/win32/winmsg/lowlevelkeyboardproc)
 - [IShellWindows](https://learn.microsoft.com/en-us/windows/win32/api/exdisp/nn-exdisp-ishellwindows)
 - [IFolderView2::GetSelection](https://learn.microsoft.com/en-us/windows/win32/api/shobjidl_core/nf-shobjidl_core-ifolderview2-getselection)

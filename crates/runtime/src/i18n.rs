@@ -190,6 +190,10 @@ text! {
     no_contract: "该插件没有共享数据契约", "This plugin has no shared data contract";
     plugin_disabled: "插件已停用", "The plugin is disabled";
 
+    // The host's own toolbar actions. They belong to no plugin, so their text lives here.
+    open_default_missing: "没有正在预览的文件", "No file is being previewed";
+    open_default_failed: "无法用默认应用打开该文件：{error}", "Could not open the file with its default app: {error}";
+
     // Session lookups the host answers while a view is talking to it.
     session_expired: "会话已过期", "The session expired";
     session_not_ready: "会话尚未就绪", "The session is not ready yet";

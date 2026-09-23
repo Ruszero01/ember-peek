@@ -8,7 +8,7 @@
 | 静态检查 | `npm run lint` | 全 workspace、全部 target/feature 的 Clippy，warning 视为失败 |
 | 前端构建 | `npm run build` | 图标目录同步、TypeScript、Vite 生产构建 |
 | 插件构建 | `npm run plugins:build` | 清单、引用边界、JS 语法、native 版本、开发市场 |
-| Node 测试 | `npm run test:js` | SDK、MessagePort、UI、工坊 Agent、发布和 ZIP 协议 |
+| Node 测试 | `npm run test:js` | SDK、MessagePort、UI、宿主命令接线、工坊 Agent、发布和 ZIP 协议 |
 | Rust 测试 | `npm run test:rust` | 文件写入、运行时、市场、生命周期、网络、工坊与原生插件 |
 | 完整 CI | `npm run ci` | 版本、发布日志及上述全部门禁 |
 
@@ -30,8 +30,9 @@
 2. 托盘、首次启动、窗口隐藏与 120 秒 WebView2 回收。
 3. 插件安装、覆盖更新、卸载，以及有未保存内容时的拒绝路径。
 4. 真实拖放、文件选择、剪贴板、主题和语言切换。
-5. 工坊真实模型供应商、取消、断网恢复、试预览窗口和截图回传。
-6. Markdown 的 `./`、`../`、绝对路径、`file:` 与公开 HTTP(S) 图片；失败资源应降级而不
+5. 在默认应用中打开：交给真实的系统关联程序，无关联格式的回退行为，以及预览窗口内容不受影响。
+6. 工坊真实模型供应商、取消、断网恢复、试预览窗口和截图回传。
+7. Markdown 的 `./`、`../`、绝对路径、`file:` 与公开 HTTP(S) 图片；失败资源应降级而不
    破坏正文。
 
 运行手动验收时使用已有开发服务器，不在自动化脚本中隐式启动或停止它。
