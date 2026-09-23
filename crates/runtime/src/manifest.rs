@@ -17,6 +17,10 @@ pub struct Setting {
     pub label: String,
     #[serde(default)]
     pub help: Option<String>,
+    /// Persisted by the host, never rendered: the value is the plugin's own (last volume, last
+    /// zoom), so the settings surface should not show a control for it.
+    #[serde(default)]
+    pub hidden: bool,
     #[serde(default)]
     pub default: Value,
     /// `number` only.

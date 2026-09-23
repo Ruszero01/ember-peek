@@ -136,6 +136,14 @@ if (initial.role === "panel") {
   let panelOpen = false;
   // The declared settings come first: the toolbar button reflects them, not the other way round.
   video.loop = configuration().loop === true;
+  // The volume is declared `hidden`: the host stores it and never draws a control, so the level
+  // the user left behind comes back on the next file without becoming a setting to read.
+  const rememberedVolume = Number(configuration().volume);
+  video.volume = Number.isFinite(rememberedVolume) ? Math.max(0.01, Math.min(1, rememberedVolume)) : 1;
+  // What storage already holds. Applying the level above fires `volumechange` as well, and that
+  // is not the user changing anything — without this a write would land on every file opened.
+  let storedVolume = video.volume;
+  let volumeSave;
 
   function publishControls() {
     controls([
@@ -309,7 +317,15 @@ if (initial.role === "panel") {
   for (const event of ["play", "pause", "volumechange", "durationchange", "timeupdate", "ended"])
     video.addEventListener(event, () => {
       sync(event === "play" ? say("playing") : event === "pause" ? say("paused") : note);
-      if (event === "volumechange") publishControls();
+      if (event === "volumechange") {
+        publishControls();
+        if (video.volume === storedVolume) return;
+        storedVolume = video.volume;
+        // Remember the level without making it a setting: a drag reports every pixel, so the
+        // write waits for the hand to stop instead of hitting storage on each one.
+        clearTimeout(volumeSave);
+        volumeSave = setTimeout(() => void setSetting("volume", video.volume), 400);
+      }
     });
   video.addEventListener("click", () => video.paused ? void video.play() : video.pause());
   onSettings(() => {

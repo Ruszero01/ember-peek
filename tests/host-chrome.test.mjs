@@ -24,6 +24,18 @@ function zIndexOf(selector) {
   return match ? Number(match[1]) : 0;
 }
 
+/** The declaration block of the first rule whose selector list contains `selector` verbatim,
+ * as one entry — `blockOf` only sees a selector that has a rule to itself, and half of these
+ * selectors are written in a shared list. */
+function ruleBodyOf(selector) {
+  for (const rule of css.replace(/\/\*[\s\S]*?\*\//g, "").match(/[^{}]+\{[^{}]*\}/g) || []) {
+    const index = rule.indexOf("{");
+    const selectors = rule.slice(0, index).split(",").map((entry) => entry.trim());
+    if (selectors.includes(selector)) return rule.slice(index + 1, -1);
+  }
+  return null;
+}
+
 test("the host's chrome and panels always paint above the plugin's own rendering", () => {
   // The plugin view sits in the host's flow with no z-index of its own, so every host surface
   // listed here wins by a single number instead of by document order.
@@ -34,45 +46,51 @@ test("the host's chrome and panels always paint above the plugin's own rendering
   const bars = zIndexOf(".title-layer");
   assert.equal(bars, zIndexOf(".preview-overlays"), "both bars are one layer in the window");
   assert.ok(bars > 0, "the bars must outrank the plugin view");
-  // The corner sensors outrank the plugin too, but stay under the bars: once the bars are up,
-  // their pills — not the sensors — own the pointer.
-  assert.ok(zIndexOf(".corner") > 0 && zIndexOf(".corner") < bars, "the sensors sit between the view and the bars");
   assert.ok(zIndexOf(".overlay-stack") > bars, "plugin panels paint above the bars, never below them");
 });
 
-test("a hidden bar owns no pixels: its pills only take the pointer while it is shown", () => {
-  // Every rule that hands a bar's pill back the pointer has to be scoped to `.shown`. Without
-  // that scope the pills stay clickable while the bar is transparent — the window then has
-  // invisible buttons, which is exactly what a user hits by accident. Selector lists are
-  // examined line by line, because one `\n`-joined list can hide an unscoped selector.
+test("a bar keeps its pixels to itself: only the pills in it take the pointer", () => {
+  // The bar's own row, the gaps between its pills and the whole title drag zone stay out of the
+  // way of the plugin. The pills are the one exception, and they are it on purpose: they are
+  // the reveal target, so the pointer has to be able to land on one while the bar is hidden.
+  const window = ".preview-app[data-viewport=\"window\"]";
+  for (const bar of [".title-layer", ".preview-overlays"]) {
+    assert.match(
+      ruleBodyOf(`${window} ${bar}`) || "",
+      /pointer-events:\s*none/,
+      `${bar} must not own the row it draws in`,
+    );
+  }
+  for (const pill of [".brand", ".window-buttons", ".floating-file-info", ".toolbar-actions", ".toolbar-host-actions"]) {
+    assert.match(
+      ruleBodyOf(`${window} ${pill}`) || "",
+      /pointer-events:\s*auto/,
+      `${pill} is a reveal target and must sense the pointer while its bar is hidden`,
+    );
+  }
+});
+
+test("the reveal targets are the chrome's own boxes, with no zone drawn beside them", () => {
+  // What reveals the bars is the box the user can see: the bubbles themselves. A separately
+  // drawn sensor would be a second, invisible rectangle the pointer has to find — and one that
+  // cannot follow a bubble as it changes size with a longer file name or an expanded control
+  // set. The bubbles' own boxes are always the target, so the rule is the same in both
+  // viewports and there is no geometry of the host's to keep in sync with the chrome's. The
+  // selector list is read line by line, because one `\n`-joined list can hide a selector that
+  // hands the pointer back to something invisible.
   const clean = css.replace(/\/\*[\s\S]*?\*\//g, "");
-  const pills = /\.brand|\.window-buttons|\.floating-file-info|\.preview-action-groups|\.toolbar-actions|\.bubble-controls/;
+  const zone = /\.corner/;
   const offenders = [];
   for (const rule of clean.match(/[^{}]+\{[^{}]*\}/g) || []) {
     const index = rule.indexOf("{");
     const body = rule.slice(index + 1, -1);
     if (!/pointer-events:\s*auto/.test(body)) continue;
     for (const selector of rule.slice(0, index).split(",")) {
-      if (pills.test(selector) && !/\.shown/.test(selector)) offenders.push(selector.trim());
+      if (zone.test(selector)) offenders.push(selector.trim());
     }
   }
-  assert.deepEqual(offenders, [], `pills take the pointer while their bar is hidden: ${offenders.join(" | ")}`);
-});
-
-test("the corner sensors are the host's own reveal targets", () => {
-  // Four corners, in the window viewport only: they reveal the bars, and in the band viewport
-  // the bars are always on screen, so the sensors release those pixels back to the plugin.
-  assert.match(css, /\.corner\.top-left[\s\S]*?\.corner\.bottom-right/, "style.css defines all four corners");
-  assert.match(
-    blockOf(".preview-app[data-viewport=\"window\"] .corner") || "",
-    /pointer-events:\s*auto/,
-    "in the window viewport the corners must sense the pointer",
-  );
-  assert.match(
-    blockOf(".preview-app[data-viewport=\"band\"] .corner") || "",
-    /pointer-events:\s*none/,
-    "in the band viewport the corners must not take the plugin's pixels",
-  );
+  assert.deepEqual(offenders, [], `a drawn reveal zone is back: ${offenders.join(" | ")}`);
+  assert.doesNotMatch(clean, /\.corner\s*\{/, "style.css still carries corner-zone geometry");
 });
 
 test("every plugin that renders a video opts out of the system compositing plane", async () => {

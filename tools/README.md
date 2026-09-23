@@ -5,10 +5,15 @@
 ## 启动共享环境
 
 ```powershell
-.\tools\dev-with-debug.ps1
+.\tools\dev-with-debug.ps1                      # 只起服务，窗口按需自己开
+.\tools\dev-with-debug.ps1 docs\plugins.md      # 一条命令：服务 + 直接打开这个文件的预览窗口
 ```
 
-（本机只有 Windows PowerShell 5.1，没有 `pwsh`，所以直接用脚本路径调用。）
+（本机只有 Windows PowerShell 5.1，没有 `pwsh`，所以直接用脚本路径调用。想双击启动就双击 `tools\dev-with-debug.cmd`：它用不依赖本机执行策略的方式调同一个脚本，出错时暂停好让你看见原因。`.ps1` 双击默认是记事本打开，不会运行。）
+
+**这条命令是共享的**：前端在 `1420`，调试端点在 `9444`，没有"谁的窗口"之分 —— 谁都能用 `tools/live-targets.mjs` 读同一个窗口，也都能用 `tools/live-shot.mjs` 截它。带上一个文件参数是让它真正只有一步：宿主按需创建窗口，没有窗口时调试端点没有目标可列，所以传文件＝起来就能接。
+
+起来之后先跑一次 `node tools/live-targets.mjs`，确认窗口 URL 是 `http://127.0.0.1:1420/...` 而不是 `tauri.localhost`：后者说明窗口吃的是 `dist` 产物，既没有 HMR，也不是你正在改的那份源码。
 
 它做三件事：
 
@@ -65,6 +70,8 @@ node tools/live-shot.mjs out.png 820 668 240 72 3         # 截指定区域 x y 
 ```js
 await client.typeText("插件");
 ```
+
+**但真实输入派发不了"离开"。** 用 `Input.dispatchMouseEvent` 把指针移到插件网页上方时，父文档收不到 `pointerout` / `pointerleave`（指针进了另一个 document，而这一跳是注入的，浏览器那套跨进程 hover 收尾没有发生），于是所有"移开后该收起"的状态都停在原地。宿主两条栏的显形就是这种状态：注入的移动能叫出两条栏，却收不回去。**显形一侧可以用注入输入测，收起一侧必须用手测**，别把它当成回归报上去——2026-09-23 就这么误判过一次。想在脚本里清掉这种卡住的状态，就派一个合成的 `pointerout`（`bubbles: true`，坐标指向插件区域），React 合成事件会照常走 `dropChrome`。
 
 ## 三个必须知道的坑
 

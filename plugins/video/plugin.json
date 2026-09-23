@@ -13,6 +13,9 @@
         "loop": {
           "label": "Loop playback",
           "help": "Start over instead of stopping at the end."
+        },
+        "volume": {
+          "label": "Volume"
         }
       }
     }
@@ -38,6 +41,15 @@
       "label": "循环播放",
       "help": "播完从头继续，而不是停在结尾。",
       "default": false
+    },
+    {
+      "key": "volume",
+      "type": "number",
+      "label": "音量",
+      "hidden": true,
+      "default": 1,
+      "min": 0.01,
+      "max": 1
     }
   ],
   "executable": "bin/ember-video-plugin.exe",

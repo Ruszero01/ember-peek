@@ -577,7 +577,14 @@ impl Runtime {
                 .settings
                 .iter()
                 .find(|setting| setting.key == key)
-                .is_some_and(|setting| setting.default_value() == accepted);
+                .is_some_and(|setting| {
+                    // Compared after coercion: a declared number default is stored as written, so
+                    // writing `1` back to a setting declared `1` reaches here as `1.0`, and the
+                    // two have to meet or the override is kept and shadows later default changes.
+                    setting
+                        .coerce(&setting.default_value())
+                        .is_ok_and(|default| default == accepted)
+                });
             let stored = inner.settings.entry(plugin_id.to_owned()).or_default();
             if restored {
                 // Back to the default: drop the override so later default changes apply.

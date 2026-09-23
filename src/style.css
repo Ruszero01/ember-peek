@@ -113,9 +113,6 @@ button.busy:disabled {
      reading it. */
   --chrome-gap: 24px;
   --chrome-pad: 11px;
-  /* Depth of the viewport's bottom fade. A token rather than a number in the rule, because it
-     is the one piece of the viewport treatment a plugin author may want to reason about. */
-  --viewport-fade: 44px;
 }
 .titlebar {
   height: 56px;
@@ -748,7 +745,6 @@ h2 {
   background: var(--canvas);
 }
 .preview-app[data-viewport="band"] .preview-canvas {
-  --viewport-fade: 12px;
   position: relative;
   order: 2;
   flex: 1;
@@ -760,28 +756,8 @@ h2 {
   position: absolute;
   inset: 0;
 }
-/* Host-owned edge fades do not intercept content selection or scrolling. */
-.preview-canvas::before,
-.preview-canvas::after {
-  content: "";
-  position: absolute;
-  z-index: 3;
-  left: 0;
-  right: 0;
-  height: var(--viewport-fade);
-  pointer-events: none;
-  background: var(--canvas);
-}
-.preview-canvas::before {
-  top: 0;
-  mask-image: linear-gradient(to bottom, #000, transparent);
-  -webkit-mask-image: linear-gradient(to bottom, #000, transparent);
-}
-.preview-canvas::after {
-  bottom: 0;
-  mask-image: linear-gradient(to top, #000, transparent);
-  -webkit-mask-image: linear-gradient(to top, #000, transparent);
-}
+/* Nothing of the host's is painted over the plugin's rectangle: the viewport is the plugin's
+   pixels edge to edge, and what that excludes is written down in docs/plugins.md. */
 .plugin-view {
   /* All plugin surfaces share this iframe. Exclude the replaced element from
      host selection without disabling text selection inside its own document. */
@@ -932,60 +908,28 @@ kbd {
   transform: none;
 }
 /* Floating bars must not own the content's pixels: a bar catches the pointer on its pills
-   only, never on the gaps between them or the transparent rest of its row. The pills also
-   take the pointer only while the bar is on screen — a hidden pill is an invisible click
-   target, and every pixel of the immersive window belongs to the plugin until the bars
-   arrive. */
-.preview-app[data-viewport="window"] .title-layer.shown,
-.preview-app[data-viewport="window"] .preview-overlays.shown {
+   only, never on the gaps between them or the transparent rest of its row. The pills keep the
+   pointer even while the bar is hidden, because they are the reveal target — the pointer has to
+   be able to land on one to call the bars back, and entering it shows them in the same moment,
+   so what gets clicked is a pill that is already on screen. The box that reveals the chrome is
+   then the box the user can see, instead of a second, invisible one drawn beside it. */
+.preview-app[data-viewport="window"] .title-layer,
+.preview-app[data-viewport="window"] .preview-overlays {
   pointer-events: none;
 }
-.preview-app[data-viewport="window"] .title-layer.shown .brand,
-.preview-app[data-viewport="window"] .title-layer.shown .window-buttons,
-.preview-app[data-viewport="window"] .preview-overlays.shown .floating-file-info,
-.preview-app[data-viewport="window"] .preview-overlays.shown .preview-action-groups {
+/* The reveal target is each bubble's own painted box, not the row it sits in: the flex wrapper
+   around the bottom-right bubbles draws nothing, so it is not a target — the pointer lands on a
+   bubble or it lands on the plugin. */
+.preview-app[data-viewport="window"] .brand,
+.preview-app[data-viewport="window"] .window-buttons,
+.preview-app[data-viewport="window"] .floating-file-info,
+.preview-app[data-viewport="window"] .toolbar-actions,
+.preview-app[data-viewport="window"] .toolbar-host-actions {
   pointer-events: auto;
 }
 /* The window's whole title row is a drag handle; over the content that would swallow every
    click in the top 56px. Only the two pills keep it, and the brand already drags. */
 .preview-app[data-viewport="window"] .title-layer .drag-zone {
-  pointer-events: none;
-}
-/* Reveal targets for the auto-hiding bars. The rule belongs to the host, and it is the corners
-   or nothing: each zone is one bar's height and a share of the window's width, so it is what a
-   cursor flung into a corner reaches, while the middle of the viewport — where a plugin puts
-   its own controls — never triggers the chrome. A zone is only a sensor: it must not swallow a
-   click, and once the bars are up their pills sit above it. */
-.corner {
-  position: absolute;
-  width: min(30vw, 420px);
-  z-index: 25;
-  pointer-events: none;
-}
-.corner.top-left,
-.corner.top-right {
-  top: 0;
-  height: 56px;
-}
-.corner.bottom-left,
-.corner.bottom-right {
-  bottom: 0;
-  height: calc(50px + var(--chrome-gap) - var(--chrome-pad));
-}
-.corner.top-left,
-.corner.bottom-left {
-  left: 0;
-}
-.corner.top-right,
-.corner.bottom-right {
-  right: 0;
-}
-.preview-app[data-viewport="window"] .corner {
-  pointer-events: auto;
-}
-/* In the band viewport the bars are always shown, so the corners are not sensing anything;
-   over the content their strips would steal clicks from the plugin at every window edge. */
-.preview-app[data-viewport="band"] .corner {
   pointer-events: none;
 }
 .preview-overlays {

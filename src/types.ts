@@ -23,12 +23,16 @@ export type Session = {
   viewReady: boolean;
   error: string | null;
 };
+/** A declared setting. `hidden` keeps the host's persistence without a control in the settings
+ * surface: the plugin stores a value it owns (last volume, last zoom) and the user never sees a
+ * switch for it. */
 export type PluginSetting =
   | {
       key: string;
       type: "bool";
       label: string;
       help?: string;
+      hidden?: boolean;
       default: boolean;
     }
   | {
@@ -36,6 +40,7 @@ export type PluginSetting =
       type: "number";
       label: string;
       help?: string;
+      hidden?: boolean;
       default: number;
       min?: number;
       max?: number;
@@ -48,6 +53,7 @@ export type PluginSetting =
       type: "select";
       label: string;
       help?: string;
+      hidden?: boolean;
       default: string;
       options: { value: string; label: string }[];
     }
@@ -56,6 +62,7 @@ export type PluginSetting =
       type: "text";
       label: string;
       help?: string;
+      hidden?: boolean;
       default: string;
     };
 export type Plugin = {

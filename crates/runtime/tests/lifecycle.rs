@@ -485,7 +485,7 @@ async fn an_interrupted_swap_is_put_back() {
     runtime.shutdown().await;
 }
 
-/// A package that declares two settings, so the whole declaration -> store -> plugin
+/// A package that declares a few settings, so the whole declaration -> store -> plugin
 /// path can be exercised through the echo the test worker replies with.
 fn configurable_package(path: &Path, id: &str, extension: &str) {
     std::fs::create_dir_all(path.join("ui")).unwrap();
@@ -511,7 +511,9 @@ fn configurable_package(path: &Path, id: &str, extension: &str) {
                 {"key": "zoom", "type": "number", "label": "缩放",
                  "default": 1, "min": 0.5, "max": 4, "step": 0.5},
                 {"key": "mode", "type": "select", "label": "模式", "default": "safe",
-                 "options": [{"value": "safe", "label": "稳"}, {"value": "fast", "label": "快"}]}
+                 "options": [{"value": "safe", "label": "稳"}, {"value": "fast", "label": "快"}]},
+                {"key": "lastZoom", "type": "number", "label": "上次缩放", "hidden": true,
+                 "default": 1, "min": 1, "max": 4, "step": 0.5}
             ]
         })
         .to_string(),
@@ -536,6 +538,18 @@ async fn plugin_settings_round_trip_through_storage_and_reach_the_plugin() {
     assert_eq!(plugins[0].values["zoom"].as_f64(), Some(1.0));
     assert_eq!(plugins[0].values, plugins[0].defaults);
 
+    // A hidden declaration is the plugin's own state: it is resolved, coerced and stored like any
+    // other value, and the flag travels with it so the settings surface can leave the control out
+    // instead of the host having to know which values are worth showing.
+    let hidden = plugins[0]
+        .manifest
+        .settings
+        .iter()
+        .find(|setting| setting.key == "lastZoom")
+        .unwrap();
+    assert!(hidden.hidden);
+    assert_eq!(plugins[0].values["lastZoom"], json!(1));
+
     // Values are coerced onto the declaration: 99 clamps to max, 3.7 snaps to the step.
     runtime
         .set_setting("test.one", "wrap", json!(false))
@@ -549,10 +563,15 @@ async fn plugin_settings_round_trip_through_storage_and_reach_the_plugin() {
         .set_setting("test.one", "mode", json!("fast"))
         .await
         .unwrap();
+    runtime
+        .set_setting("test.one", "lastZoom", json!(3.7))
+        .await
+        .unwrap();
     let plugins = runtime.snapshot().await.plugins;
     assert_eq!(plugins[0].values["wrap"], json!(false));
     assert_eq!(plugins[0].values["zoom"], json!(3.5));
     assert_eq!(plugins[0].values["mode"], json!("fast"));
+    assert_eq!(plugins[0].values["lastZoom"], json!(3.5));
 
     // Undeclared keys and values that fail the schema never reach storage.
     assert!(runtime
@@ -581,6 +600,7 @@ async fn plugin_settings_round_trip_through_storage_and_reach_the_plugin() {
     assert_eq!(echoed["echo"]["settings"]["wrap"], json!(false));
     assert_eq!(echoed["echo"]["settings"]["zoom"], json!(3.5));
     assert_eq!(echoed["echo"]["settings"]["mode"], json!("fast"));
+    assert_eq!(echoed["echo"]["settings"]["lastZoom"], json!(3.5));
 
     // Changing a setting with a live session succeeds (the worker accepts the
     // `settings` notification) and updates storage without disturbing the session.
@@ -602,15 +622,21 @@ async fn plugin_settings_round_trip_through_storage_and_reach_the_plugin() {
     assert_eq!(plugins[0].values["wrap"], json!(false));
     assert_eq!(plugins[0].values["zoom"], json!(2.0));
     assert_eq!(plugins[0].values["mode"], json!("fast"));
+    assert_eq!(plugins[0].values["lastZoom"], json!(3.5));
 
     // Returning a setting to its default drops the override, so a later default
-    // change is picked up instead of being shadowed forever.
+    // change is picked up instead of being shadowed forever. A number counts too: the coerced
+    // value of `lastZoom` is `1.0` where the declaration writes `1`.
     restarted
         .set_setting("test.one", "wrap", json!(true))
         .await
         .unwrap();
     restarted
         .set_setting("test.one", "mode", json!("safe"))
+        .await
+        .unwrap();
+    restarted
+        .set_setting("test.one", "lastZoom", json!(1))
         .await
         .unwrap();
     let state: serde_json::Value =

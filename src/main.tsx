@@ -369,6 +369,9 @@ function PluginSettingsPane({ plugin }: { plugin: Plugin | undefined }) {
     );
   const Icon = pluginIcon(plugin.icon);
   const values = plugin.values ?? {};
+  // Hidden declarations are the plugin's own persisted values: the host keeps them and never
+  // draws a control, so a "last volume" never becomes an entry the user has to read.
+  const visibleSettings = plugin.settings.filter((setting) => !setting.hidden);
 
   async function change(key: string, value: unknown) {
     if (!plugin) return;
@@ -408,9 +411,9 @@ function PluginSettingsPane({ plugin }: { plugin: Plugin | undefined }) {
           </div>
           <ActivationSettings key={plugin.id} plugin={plugin} />
         </div>
-        {plugin.settings.length ? (
+        {visibleSettings.length ? (
           <div className="setting-list">
-            {plugin.settings.map((setting) => (
+            {visibleSettings.map((setting) => (
               <SettingField
                 key={`${plugin.id}:${setting.key}`}
                 setting={setting}
@@ -555,7 +558,8 @@ function App() {
    * chrome bars float above it; otherwise the plugin gets exactly the band the bars leave
    * between them, so neither bar can cover content or steal a pointer meant for the plugin.
    * The band comes from flex layout. Insets additionally reserve scrollable edge space,
-   * measured independently of the chrome reveal animation.
+   * measured independently of the chrome reveal animation — the host paints nothing of its own
+   * over the rectangle, so a bar's height and a small buffer are the whole of it.
    */
   const windowViewport = settings.immersive || !current;
   const [safeInsets, setSafeInsets] = useState({ top: 44, bottom: 44 });
@@ -566,30 +570,18 @@ function App() {
     const bottom = root?.querySelector<HTMLElement>(".preview-overlays");
     if (!root || !top || !bottom) return;
     const measure = () => {
-      const fade =
-        parseFloat(
-          getComputedStyle(
-            root.querySelector(".preview-canvas") || root,
-          ).getPropertyValue("--viewport-fade"),
-        ) || 0;
       // Use layout dimensions, never animated rectangles: revealing chrome must not reflow text.
       const next = {
         top: Math.ceil(
-          Math.max(
-            fade,
-            windowViewport
-              ? top.offsetHeight + (parseFloat(getComputedStyle(top).top) || 0)
-              : 0,
-          ) + (windowViewport ? 8 : 6),
+          (windowViewport
+            ? top.offsetHeight + (parseFloat(getComputedStyle(top).top) || 0)
+            : 0) + (windowViewport ? 8 : 6),
         ),
         bottom: Math.ceil(
-          Math.max(
-            fade,
-            windowViewport
-              ? bottom.offsetHeight +
-                  (parseFloat(getComputedStyle(bottom).bottom) || 0)
-              : 0,
-          ) + (windowViewport ? 8 : 6),
+          (windowViewport
+            ? bottom.offsetHeight +
+              (parseFloat(getComputedStyle(bottom).bottom) || 0)
+            : 0) + (windowViewport ? 8 : 6),
         ),
       };
       setSafeInsets((old) =>
@@ -613,10 +605,14 @@ function App() {
   );
   const chromeShown = scrubbingControl || !settings.immersive || hot !== "" || !current;
   /**
-   * Reveal while the pointer is inside one of the four corners, hide the moment it is not.
-   * A leave that lands back on the chrome's own surface — a pill, or a corner — keeps the bars
-   * up, so moving along a pill never hides the thing being clicked. Nothing else may ask for
-   * them: the bars are the host's, and only the host decides when they are on screen.
+   * Reveal while the pointer is on one of the chrome's own bubbles, hide the moment it is
+   * not. Those bubbles are the whole reveal rule and the host owns it: a plugin never asks
+   * for the bars, because a plugin's floating panel is a document with its own edges and a
+   * panel would drag the chrome on and off for reasons the user cannot see. The target is the
+   * bubble's own box — no separately drawn zone — so the area that reveals the bars is the area
+   * the user can actually see, and it follows the bubble as it grows with a longer file name or
+   * an expanded control set. A leave that lands on another host surface keeps the bars up, so
+   * moving along the chrome never hides the thing being clicked.
    */
   const holdChrome = (event: React.PointerEvent) => {
     if (!event.buttons) setHot("hover");
@@ -1256,22 +1252,6 @@ function App() {
       </div>
       {page === "preview" ? (
         <>
-          {/* The four corners are the whole reveal rule, and the host owns it: a plugin never
-              asks for the bars, because a plugin's floating panel is a document with its own
-              edges and a panel would drag the chrome on and off for reasons the user cannot
-              see. Each zone is a bar's height and a share of the width — what a cursor flung
-              at a corner reaches, without the middle of the viewport belonging to chrome. */}
-          {(["top-left", "top-right", "bottom-left", "bottom-right"] as const).map(
-            (corner) => (
-              <div
-                key={corner}
-                className={`corner ${corner}`}
-                data-reveal
-                onPointerEnter={holdChrome}
-                onPointerLeave={dropChrome}
-              />
-            ),
-          )}
           <div
             className={`title-layer ${chromeShown ? "shown" : ""}`}
             data-reveal
