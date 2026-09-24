@@ -108,6 +108,16 @@ struct Inner {
     /// The most recent size imposed by the host. Set before `set_size`, because its resize
     /// event can run before that call returns; it must never become the user's baseline.
     imposing: Option<(u32, u32)>,
+    /// Whether the preview window has been minimized since it last reported a geometry of its
+    /// own, and the geometry it reported then. A window in the icon state has no size of its
+    /// own: what it reports while it is down is the size of the icon, and what it reports when it
+    /// comes back is `underneath` — which can be a shape a plugin fitted to a file that is no
+    /// longer open, and never a size the user just chose. The host recognizes that geometry,
+    /// keeps it out of the record, and sizes the window again for what is showing now
+    /// (`restore_content_size`). Live state, not part of the placement: a window does not outlive
+    /// the run, and the placement is what gets written to disk.
+    put_aside: bool,
+    underneath: Option<(u32, u32)>,
     /// The session whose window is being held back, with the revision it was opened for. The
     /// preview window exists but has not been shown yet, because this session's view has not
     /// prepared — showing it first would make the content jump into place after the user is
@@ -151,6 +161,16 @@ struct Prepared {
     window: Option<(f64, f64)>,
     user_resized: bool,
 }
+impl Prepared {
+    /// The size this view has a claim on: what it declared, unless the user has resized the
+    /// window since — their own size replaces it from then on.
+    fn claimed(&self) -> Option<(f64, f64)> {
+        if self.user_resized {
+            return None;
+        }
+        self.window
+    }
+}
 impl Inner {
     fn hold_for_show(&mut self, label: &str, on_screen: bool, revision: u64) {
         if label != "preview" {
@@ -172,8 +192,16 @@ impl Inner {
             .as_ref()
             .filter(|(id, _)| !on_screen || self.displayed.as_ref() != Some(id))
             .and_then(|(id, _)| self.prepared.get(id))
-            .filter(|entry| !entry.user_resized)
-            .and_then(|entry| entry.window)
+            .and_then(|entry| entry.claimed())
+    }
+
+    /// The size the view showing the active file claims for the window, whatever the window is
+    /// doing at the moment. A claim outlives the window being hidden or put aside: the host
+    /// applies it again whenever it takes the window's size back into its own hands
+    /// (`restore_content_size`), so a picture that was framed is framed again.
+    fn claimed_for_active(&self) -> Option<(f64, f64)> {
+        let (id, _) = self.active.as_ref()?;
+        self.prepared.get(id)?.claimed()
     }
 
     fn restore_on_visible_switch(&self) -> bool {
@@ -454,20 +482,52 @@ fn apply_prepared(
     declared: (f64, f64),
     unplaced: bool,
 ) -> Option<()> {
-    let position = window.outer_position().ok()?;
-    let room = crate::framing::room(app, (position.x, position.y))?;
-    let (width, height, _) = crate::framing::clamp(declared, room, MIN_PREVIEW_SIZE);
-    app.state::<Desktop>().inner.lock().unwrap().imposing =
-        Some((width.round() as u32, height.round() as u32));
-    window
-        .set_size(tauri::LogicalSize::new(width, height))
-        .ok()?;
+    apply_size(app, window, declared)?;
     if unplaced {
         // Centering is the host placing a window the user has never placed; the plugin asked
         // for a size, not for a position.
         let _ = window.center();
     }
     Some(())
+}
+
+/// Put one size on the preview window, the way the host applies every size it computes: fitted
+/// to the room the window's position leaves on its monitor, and raised to the preview minimum
+/// when a short side is below it. The size is written down as the host's own before the window
+/// is asked for it, because the resize event it causes can run before this call returns, and it
+/// must never be read back as the user choosing that size.
+fn apply_size(app: &AppHandle, window: &tauri::WebviewWindow, size: (f64, f64)) -> Option<()> {
+    let position = window.outer_position().ok()?;
+    let room = crate::framing::room(app, (position.x, position.y))?;
+    let (width, height, _) = crate::framing::clamp(size, room, MIN_PREVIEW_SIZE);
+    app.state::<Desktop>().inner.lock().unwrap().imposing =
+        Some((width.round() as u32, height.round() as u32));
+    window.set_size(tauri::LogicalSize::new(width, height)).ok()
+}
+
+/// Size the window again for what it is showing: the active view's own claim if it still has
+/// one, and the user's remembered size otherwise. This is the host taking the window's size
+/// back after a state it could not size it in: the size of a maximized window is the screen's,
+/// a minimized one has no size of its own, and the geometry the OS hands back as the window
+/// leaves either state is the one from underneath it — a shape a plugin may have fitted to a
+/// file that is no longer open. Until this runs, that shape is what the next file opens in.
+fn restore_content_size(app: &AppHandle, window: &tauri::WebviewWindow) {
+    if window.is_maximized().unwrap_or(false) {
+        return;
+    }
+    let declared = app
+        .state::<Desktop>()
+        .inner
+        .lock()
+        .unwrap()
+        .claimed_for_active();
+    match declared {
+        // Only the size is put back; the position is the user's and does not move.
+        Some(declared) => {
+            let _ = apply_prepared(app, window, declared, false);
+        }
+        None => restore_user_size(app, window),
+    }
 }
 
 /// What a view declared in its preparation, from the window it belongs to.
@@ -631,12 +691,32 @@ fn return_to_screen(window: &tauri::WebviewWindow) {
     }
 }
 
-fn next_placement(
+/// What one report of a window's own geometry means for the placement the host remembers, and
+/// what the host owes the window itself afterwards.
+#[derive(Debug, PartialEq)]
+enum Settlement {
+    /// Nothing to write down: the user has not changed what the host remembers.
+    Unchanged,
+    /// The user's own geometry, remembered as it is reported.
+    Placed(WindowState),
+    /// The geometry a window reports as it comes back from a state the host could not size it in
+    /// — maximized or minimized — with the user's own size kept in the record. What the window
+    /// has now is whatever it had underneath that state, which can be a size only a plugin ever
+    /// asked for, so the host still has to put back the size this content is meant to have
+    /// (`restore_content_size`).
+    Restored(WindowState),
+}
+
+/// `handed_back` is true for a report of the geometry a window comes back at after it has been in
+/// a state the host could not size it in — what a minimized window reports as it is restored —
+/// which is the geometry from underneath that state rather than a size the user chose.
+fn settlement(
     previous: Option<&WindowState>,
     mut measured: WindowState,
     resized: bool,
     imposed: Option<(u32, u32)>,
-) -> Option<WindowState> {
+    handed_back: bool,
+) -> Settlement {
     if !resized {
         let baseline = previous
             .map(|state| (state.width, state.height))
@@ -644,25 +724,28 @@ fn next_placement(
         measured.width = baseline.0;
         measured.height = baseline.1;
     }
-    if previous == Some(&measured) {
-        return None;
+    // A geometry the OS handed back is answered even when the record needs no change: the window
+    // itself still has to be sized again, and the record staying as it is is the point.
+    if previous == Some(&measured) && !handed_back {
+        return Settlement::Unchanged;
     }
-    if let Some(previous) = previous.filter(|state| state.maximized) {
-        // The first event after restore reports whichever size the window had underneath the
-        // maximized state, including a temporary plugin size. Preserve the user's baseline.
-        let mut restored = previous.clone();
+    if handed_back || previous.is_some_and(|state| state.maximized) {
+        // The event a window reports as it is restored gives whichever size it had underneath
+        // the state it is coming back from, including a temporary plugin size. Keep the user's
+        // baseline in the record, and let the host put the window's own size back afterwards.
+        let mut restored = previous.cloned().unwrap_or_else(|| measured.clone());
         restored.x = measured.x;
         restored.y = measured.y;
         restored.maximized = false;
-        return Some(restored);
+        return Settlement::Restored(restored);
     }
     if resized
         && imposed
             .is_some_and(|(width, height)| width == measured.width && height == measured.height)
     {
-        return None;
+        return Settlement::Unchanged;
     }
-    Some(measured)
+    Settlement::Placed(measured)
 }
 
 /// Remember where the user leaves a window. Only the preview window is remembered: it is the
@@ -672,6 +755,11 @@ fn next_placement(
 /// rather than one per pixel. A minimized window has no placement of its own, and a maximized
 /// one only records the flag: its size is the screen's, and the size to restore is the one it
 /// had before it was maximized.
+///
+/// A window the OS gives back — un-maximized, or restored from the icon state — is sized again
+/// (`restore_content_size`), because the geometry it comes back with is the one from underneath
+/// the state it was in: a file whose content was fitted to the window before the user maximized or
+/// minimized it would otherwise leave that shape behind for whatever is previewed next.
 pub fn remember(window: &tauri::Window, resized: bool) {
     if window.label() != "preview" {
         return;
@@ -686,7 +774,14 @@ pub fn remember(window: &tauri::Window, resized: bool) {
     );
     // Creation, baseline restoration and plugin preparation all resize a hidden window. None
     // of those events is a user choosing a new size or position.
-    if !visible || minimized {
+    if !visible {
+        return;
+    }
+    let desktop = window.app_handle().state::<Desktop>();
+    if minimized {
+        // Nothing about a window in the icon state is written down: it has no size of its own,
+        // and the geometry it comes back at is the one already kept from before it went down.
+        desktop.inner.lock().unwrap().put_aside = true;
         return;
     }
     let placed = (!maximized)
@@ -703,34 +798,76 @@ pub fn remember(window: &tauri::Window, resized: bool) {
             })
         })
         .flatten();
-    let desktop = window.app_handle().state::<Desktop>();
-    let mut inner = desktop.inner.lock().unwrap();
-    if maximized {
-        match inner.window.as_mut() {
-            Some(state) => state.maximized = true,
-            None => return,
+    // Whether the host owes this window a size of its own once the record below is written: the
+    // geometry of a window that has just come back from the maximized state is not a size
+    // anything asked for, so it is replaced by the one this content is meant to have.
+    let mut refit = false;
+    let flush = {
+        let mut inner = desktop.inner.lock().unwrap();
+        if maximized {
+            // A maximized window reports the size of the screen, and what it comes back at is
+            // answered through the record's own flag: whatever it was down for is behind it.
+            inner.put_aside = false;
+            match inner.window.as_mut() {
+                Some(state) => state.maximized = true,
+                None => return,
+            }
+        } else {
+            let Some(measured) = placed else {
+                return;
+            };
+            // The report of a window that has been down is the OS handing back the geometry from
+            // underneath the icon state. A window cannot be resized while it is down, so that
+            // geometry is what identifies it: it is kept out of the record, and the host answers
+            // it by sizing the window again for the content that is showing now. Every other
+            // report is this window's own, and the one the next hand-back is recognized by.
+            let size = (measured.width, measured.height);
+            let handed_back = inner.put_aside && inner.underneath == Some(size);
+            if !handed_back {
+                inner.put_aside = false;
+                inner.underneath = Some(size);
+            }
+            // A size the host applied for a plugin's preparation is not a size the user chose:
+            // recording it would make the next picture's fit start from this one, and a plugin
+            // would be able to shrink the window the user set, one file at a time.
+            let next = match settlement(
+                inner.window.as_ref(),
+                measured,
+                resized,
+                inner.imposing,
+                handed_back,
+            ) {
+                Settlement::Unchanged => return,
+                Settlement::Placed(next) => next,
+                Settlement::Restored(next) => {
+                    refit = true;
+                    next
+                }
+            };
+            inner.window = Some(next);
+            // A window the OS gave back has not changed the user's size: their baseline is the
+            // same one it was, and the active view still claims the size it declared.
+            if resized && !refit {
+                inner.note_user_resize();
+            }
         }
-    } else {
-        let Some(measured) = placed else {
-            return;
-        };
-        // A size the host applied for a plugin's preparation is not a size the user chose:
-        // recording it would make the next picture's fit start from this one, and a plugin
-        // would be able to shrink the window the user set, one file at a time.
-        let Some(next) = next_placement(inner.window.as_ref(), measured, resized, inner.imposing)
-        else {
-            return;
-        };
-        inner.window = Some(next);
-        if resized {
-            inner.note_user_resize();
+        if inner.remembering {
+            false
+        } else {
+            inner.remembering = true;
+            true
+        }
+    };
+    if refit {
+        // Every window call is made out of the lock and from this main thread, which is the
+        // thread that answers window and monitor calls.
+        if let Some(preview) = window.app_handle().get_webview_window("preview") {
+            restore_content_size(window.app_handle(), &preview);
         }
     }
-    if inner.remembering {
+    if !flush {
         return;
     }
-    inner.remembering = true;
-    drop(inner);
     let app = window.app_handle().clone();
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(PLACEMENT_IDLE).await;
@@ -1169,7 +1306,7 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{next_placement, Inner};
+    use super::{settlement, Inner, Settlement};
     use ember_runtime::WindowState;
 
     fn state(x: i32, width: u32, height: u32) -> WindowState {
@@ -1242,29 +1379,101 @@ mod tests {
         let previous = state(20, 1060, 740);
         let temporary = state(20, 640, 740);
         assert_eq!(
-            next_placement(
+            settlement(
                 Some(&previous),
                 state(90, 640, 740),
                 false,
-                Some((640, 740))
+                Some((640, 740)),
+                false
             ),
-            Some(state(90, 1060, 740))
+            Settlement::Placed(state(90, 1060, 740))
         );
         assert_eq!(
-            next_placement(Some(&previous), temporary.clone(), true, Some((640, 740))),
-            None
+            settlement(
+                Some(&previous),
+                temporary.clone(),
+                true,
+                Some((640, 740)),
+                false
+            ),
+            Settlement::Unchanged
         );
         assert_eq!(
-            next_placement(Some(&previous), state(90, 900, 700), true, Some((640, 740))),
-            Some(state(90, 900, 700))
+            settlement(
+                Some(&previous),
+                state(90, 900, 700),
+                true,
+                Some((640, 740)),
+                false
+            ),
+            Settlement::Placed(state(90, 900, 700))
         );
+    }
+
+    #[test]
+    fn the_window_the_os_gives_back_is_sized_again() {
+        // The user maximized a window whose content had been fitted to it. What the window
+        // reports once it is restored is that fitted shape, so the host has to size it again —
+        // otherwise the shape of the last picture is what the next file opens in.
+        let previous = state(20, 1060, 740);
         let maximized = WindowState {
             maximized: true,
             ..previous
         };
         assert_eq!(
-            next_placement(Some(&maximized), temporary.clone(), true, Some((640, 740))),
-            Some(state(20, 1060, 740))
+            settlement(
+                Some(&maximized),
+                state(20, 640, 740),
+                true,
+                Some((640, 740)),
+                false
+            ),
+            Settlement::Restored(state(20, 1060, 740))
         );
+        // A minimized window is the same story from the other side: the host never sized it
+        // while it was down, so the shape it reports as it comes back is a faded one — and it
+        // must not be written down as the size the user chose.
+        assert_eq!(
+            settlement(
+                Some(&previous),
+                state(20, 640, 740),
+                true,
+                Some((640, 740)),
+                true
+            ),
+            Settlement::Restored(state(20, 1060, 740))
+        );
+        // The first report a window gives as it is restored is a move, and it carries the size
+        // the record already holds: the placement does not change, so this is the one report that
+        // would otherwise leave the window at the shape it came back at.
+        assert_eq!(
+            settlement(
+                Some(&previous),
+                previous.clone(),
+                false,
+                Some((640, 740)),
+                true
+            ),
+            Settlement::Restored(state(20, 1060, 740))
+        );
+    }
+
+    #[test]
+    fn the_view_showing_a_file_keeps_its_claim_on_the_window_size() {
+        let mut inner = Inner {
+            active: Some(("image".into(), true)),
+            ..Default::default()
+        };
+        // A view that has declared nothing hands the window's size back to the user.
+        assert_eq!(inner.claimed_for_active(), None);
+        inner.record_preparation("image", Some((195.0, 814.0)));
+        assert_eq!(inner.claimed_for_active(), Some((195.0, 814.0)));
+        // The claim belongs to the view that is showing, not to the last one that declared.
+        inner.record_preparation("stale", Some((800.0, 600.0)));
+        assert!(!inner.prepared.contains_key("stale"));
+        assert_eq!(inner.claimed_for_active(), Some((195.0, 814.0)));
+        // Sizing the window by hand replaces the claim with the user's own size.
+        inner.note_user_resize();
+        assert_eq!(inner.claimed_for_active(), None);
     }
 }
