@@ -109,3 +109,29 @@ test('a view prepares the window it is about to be shown in',async()=>{
   port1.close();port2.close();
  }
 });
+
+test('a link leaves the page as the document wrote it',async()=>{
+ const {sdk,browserListeners,parentWindow}=await sdkPage('open-external');
+ const {port1,port2}=new MessageChannel();
+ const requests=[];
+ port1.onmessage=event=>{
+  const message=event.data;
+  if(message.type==='connected'){
+   port1.postMessage({type:'init',session:'link',file:{name:'readme.md',size:10},theme:{},locale:'en',settings:{}});
+  }else if(message.type==='request'){
+   requests.push(message);
+   port1.postMessage({type:'reply',id:message.id,value:null});
+  }
+ };
+ port1.start();
+ try {
+  browserListeners.get('message')({source:parentWindow,data:{type:'ember:connect'},ports:[port2]});
+  await sdk.ready;
+  // The plugin does not decide what is openable, and does not rewrite the reference on the way:
+  // the host checks the address before the shell sees it.
+  await sdk.openExternal('https://example.test/a?b=1#c');
+  assert.deepEqual(requests.map(({method,params})=>[method,params]),[['openExternal',{url:'https://example.test/a?b=1#c'}]]);
+ } finally {
+  port1.close();port2.close();
+ }
+});

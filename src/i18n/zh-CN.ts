@@ -190,6 +190,7 @@ export const zhCN: Catalog = {
   "view.invalidSettingKey": "设置项名称无效",
   "view.invalidPluginMethod": "插件方法无效",
   "view.clipboardTooLarge": "剪贴板内容超出限制",
+  "view.invalidLink": "链接无效",
   "view.unsupportedCapability": "不支持的宿主能力",
 
   "protocol.tooManyControls": "插件最多可提供 16 个控件",

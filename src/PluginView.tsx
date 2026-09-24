@@ -344,6 +344,17 @@ export function PluginView({
               await call("authorize_clipboard", { id: session.id });
               await navigator.clipboard.writeText(params.text);
               value = null;
+            } else if (
+              message.method === "openExternal" &&
+              latest.current.interactive
+            ) {
+              // The host is the only one who can leave the preview — the plugin page is
+              // sandboxed — so a clicked link arrives here as text. What may actually be opened
+              // is decided on the native side, before the shell sees the string.
+              if (typeof params?.url !== "string" || params.url.length > 2048)
+                throw new Error(t("view.invalidLink"));
+              await call("open_link", { id: session.id, url: params.url });
+              value = null;
             } else if (message.method === "confirm" && latest.current.interactive) {
               value = await latest.current.confirm(validateDialog(params, t));
             } else throw new Error(t("view.unsupportedCapability"));

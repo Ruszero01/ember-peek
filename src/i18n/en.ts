@@ -215,6 +215,7 @@ export const en = {
   "view.invalidSettingKey": "Invalid setting key",
   "view.invalidPluginMethod": "Invalid plugin method",
   "view.clipboardTooLarge": "Clipboard content is over the limit",
+  "view.invalidLink": "Invalid link",
   "view.unsupportedCapability": "Unsupported host capability",
 
   "protocol.tooManyControls": "A plugin may declare at most 16 controls",

@@ -293,6 +293,7 @@ onLocale(() => publishControls());   // 语言变了：重新发布带文案的�
 ```text
 颜色  --bg --canvas --panel --card --raised --hover
       --border --text --muted --faint --accent --accent-bg
+      --info --success --warning --danger
       --color-scheme（dark / light）
 形状  --radius-control --radius-pill --radius-card
       --control-h --control-h-sm --space-1..4 --field-label-w
@@ -300,6 +301,8 @@ onLocale(() => publishControls());   // 语言变了：重新发布带文案的�
 ```
 
 `--color-scheme` 不是画什么颜色，而是告诉平台**它自己画的那部分**该用哪套：插件文档的滚动条、原生 `<select>` 弹出的列表、自动填充的底色。SDK 收到主题时会把它设到 `documentElement.style.colorScheme` 上，浅色窗口里的深色下拉列表就是这么来的。
+
+`--info`、`--success`、`--warning`、`--danger` 是**语义色**：文档自己的含义——提示块的类型、差异的行、一条状态——用它上色，不要为同一件事另造颜色。它们只表示含义，不是品牌色，也不替代 `--accent`；每种含义在浅色与深色下各有一份取值，所以插件不需要自己判断主题。
 
 浅色与深色下同一组变量取不同值，随主题切换实时更新。加上这些形状与字体变量之后，**换肤不再只是换配色**：圆角、控件高度、间距、字体全部跟着走，凡是用了共享组件的插件都不用改代码。
 
@@ -360,6 +363,8 @@ Markdown 的渲染视图不是 CodeMirror：它的滚动容器就是 `#rendered`
 文档里引用的关联资源使用独立的 `readResources` 权限。插件解析格式并把原始引用交给 `resourceUrl(reference)` 或 `resourceBlob(reference)`：相对路径以当前文档所在目录为基准，支持 `../`、绝对路径和 `file:` URL；公开的 HTTP(S) 地址由宿主中介下载，逐跳校验重定向并拒绝本机、内网、链路本地地址。`<img>` 可直接使用 `resourceUrl()`，媒体、字体、WASM 或需要字节输入的解析器使用 `resourceBlob()`，再按需创建 `blob:` URL。关联资源单项最多 64 MiB。宿主只负责通用寻址、权限、网络和字节传输，不识别 Markdown、网页归档或其它具体格式；引用发现、类型处理和最终呈现仍由插件完成。
 
 `clipboard(text)` 需要 `clipboard` 权限，且只有当前显示的视图能用。涉及原生解析结果的大数据应分页或分块，不要将大型模型塞进单个 JSON 响应。
+
+`openExternal(url)` 需要 `openLink` 权限，且只有当前显示的视图能用。插件页是 sandbox 框架，自己既不能导航也不能打开外部程序，所以「把用户点到的链接交给系统」是宿主提供的原语：宿主只接受 Web 与邮件地址（`http`、`https`、`mailto`），并在交给 shell 之前检查协议与长度 —— shell 会运行它拿到的东西，一个未经检查的字符串可能是程序而不是网页。宿主不找链接，也不判断哪一段文字可点，那是插件对自己格式的了解。
 
 ## 安装与验收
 

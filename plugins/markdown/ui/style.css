@@ -74,6 +74,103 @@
   margin: 14px auto;
   border-radius: 6px;
 }
+/* Callout quotes: a document writes `> [!info]`, the renderer marks the quote and the view
+   draws the title. One tinted box per kind, with the kind's colour carried by a local
+   `--callout` so the bar, the title and the background cannot drift apart. Those colours are
+   the host's semantic tokens, so both themes and any later skin move together; a host that has
+   no semantic colour yet falls back to the accent instead of to a colour of this plugin's. */
+#rendered blockquote.md-callout {
+  --callout: var(--info, var(--accent));
+  margin: 16px 0;
+  padding: 12px 14px;
+  border: 0;
+  border-left: 3px solid var(--callout);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--callout) 9%, transparent);
+  color: var(--text);
+}
+#rendered blockquote[data-ember-callout="tip"],
+#rendered blockquote[data-ember-callout="important"],
+#rendered blockquote[data-ember-callout="success"] {
+  --callout: var(--success, var(--accent));
+}
+#rendered blockquote[data-ember-callout="question"],
+#rendered blockquote[data-ember-callout="warning"],
+#rendered blockquote[data-ember-callout="caution"] {
+  --callout: var(--warning, var(--accent));
+}
+#rendered blockquote[data-ember-callout="failure"],
+#rendered blockquote[data-ember-callout="danger"],
+#rendered blockquote[data-ember-callout="bug"] {
+  --callout: var(--danger, var(--accent));
+}
+#rendered blockquote[data-ember-callout="quote"] {
+  --callout: var(--muted, var(--accent));
+}
+#rendered .md-callout-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--callout);
+  font-weight: 600;
+}
+#rendered blockquote.md-callout p {
+  margin: 0;
+}
+#rendered blockquote.md-callout > * + *,
+#rendered .md-callout-fold > * + * {
+  margin-top: 8px;
+}
+/* A folded callout is the body the document wrote inside a disclosure whose summary is that
+   title; the marker's own sign decides whether it starts open. */
+#rendered .md-callout-fold > summary {
+  list-style: none;
+  cursor: pointer;
+}
+#rendered .md-callout-fold > summary::-webkit-details-marker {
+  display: none;
+}
+#rendered .md-callout-fold > summary::after {
+  content: "";
+  width: 6px;
+  height: 6px;
+  margin-left: auto;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  rotate: 45deg;
+  translate: 0 -2px;
+  transition: rotate 0.15s;
+}
+#rendered .md-callout-fold[open] > summary::after {
+  rotate: -135deg;
+  translate: 0 2px;
+}
+/* The copy button belongs to the block it copies, so it is drawn on the block instead of being
+   sent to the host's toolbar, which copies the whole document. It stays quiet until the reader
+   is near it, and the block keeps room for it so the first line is never hidden underneath. */
+#rendered .md-code {
+  position: relative;
+}
+#rendered .md-code > pre {
+  margin: 0;
+  padding-right: 44px;
+}
+#rendered .md-code > .md-copy {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  opacity: 0.55;
+  transition: opacity 0.15s, color 0.15s;
+}
+#rendered .md-code > .md-copy:hover,
+#rendered .md-code > .md-copy:focus-visible,
+#rendered .md-code > .md-copy.on {
+  opacity: 1;
+}
+#rendered .md-code > .md-copy.on {
+  color: var(--success, var(--accent));
+}
+
 #outline {
   width: 210px;
   max-width: 28%;

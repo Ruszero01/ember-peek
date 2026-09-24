@@ -500,6 +500,14 @@ async fn plugin_mutate(
 async fn authorize_clipboard(host: Host<'_>, id: String) -> Result<(), String> {
     host.authorize(&id, Permission::Clipboard).await
 }
+/// Hand a link the user clicked to the system. The plugin page is sandboxed and cannot navigate
+/// or open anything itself, so a document's link arrives here as text, and what may be opened is
+/// decided on the native side before the shell sees it.
+#[tauri::command]
+async fn open_link(host: Host<'_>, id: String, url: String) -> Result<(), String> {
+    host.authorize(&id, Permission::OpenLink).await?;
+    desktop::open_external_url(&url)
+}
 #[tauri::command]
 async fn file_changed(
     app: tauri::AppHandle,
@@ -995,7 +1003,7 @@ fn main() {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![open_workshop, icon_data, tool_call, view_state, market_list, market_refresh, market_prepare, market_install, snapshot, refresh_plugins, open_file, desktop::select_preview, desktop::return_view, desktop::desktop_snapshot, desktop::show_settings, desktop::open_in_default_app, desktop::window_basis, prepare_view, session_data, source_data, source_call, set_pending, plugin_mutate, authorize_clipboard, file_changed, complete_view, complete_onboarding, plugin_call, read_file, set_enabled, set_activation, reorder_plugins, uninstall_plugin, plugin_settings, set_plugin_setting, pick_path, prepare_plugin, install_plugin, set_locale])
+        .invoke_handler(tauri::generate_handler![open_workshop, icon_data, tool_call, view_state, market_list, market_refresh, market_prepare, market_install, snapshot, refresh_plugins, open_file, desktop::select_preview, desktop::return_view, desktop::desktop_snapshot, desktop::show_settings, desktop::open_in_default_app, desktop::window_basis, prepare_view, session_data, source_data, source_call, set_pending, plugin_mutate, authorize_clipboard, open_link, file_changed, complete_view, complete_onboarding, plugin_call, read_file, set_enabled, set_activation, reorder_plugins, uninstall_plugin, plugin_settings, set_plugin_setting, pick_path, prepare_plugin, install_plugin, set_locale])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();

@@ -15,6 +15,13 @@
   --faint: #666975;
   --accent: #f4a477;
   --accent-bg: #352920;
+  /* Meaning rather than branding: what a callout, a diff or a status is saying. A plugin that
+     has to mark one of these reads the token instead of inventing a colour that only works in
+     one theme. */
+  --info: #5b9bf8;
+  --success: #4caf7d;
+  --warning: #e0a33a;
+  --danger: #e05f5f;
   --hover: #2c2d34;
   --canvas: #141519;
   --shadow: 0 14px 40px #0003;
@@ -55,6 +62,10 @@
   --faint: #969aa4;
   --accent: #ba6338;
   --accent-bg: #fbeee5;
+  --info: #2f6fed;
+  --success: #2f8a55;
+  --warning: #a06a10;
+  --danger: #c0392b;
   --hover: #e9eaef;
   --canvas: #f0f1f4;
   --shadow: 0 14px 40px #3030400d;

@@ -355,6 +355,16 @@ export function call(method, value = null) {
 export function clipboard(text) {
   return request("clipboard", { text });
 }
+/**
+ * Hand a link the user clicked to the system: the host opens it with whatever Windows uses for
+ * that address, never inside the preview. This is the only way out of the page — a sandboxed view
+ * cannot navigate or open anything itself — so send the reference the way the document wrote it
+ * and let the host decide what may be opened; a plugin never has to guess at the rules. Requires
+ * the `openLink` permission, and only the visible mount may call it.
+ */
+export function openExternal(url) {
+  return request("openExternal", { url });
+}
 /** Open host-owned modal chrome with plugin-owned wording and opaque action ids.
  * Resolves to the chosen action id, or null when the user cancels. */
 export function confirmDialog(options) {

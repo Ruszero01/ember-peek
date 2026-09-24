@@ -31,6 +31,7 @@ Every view imports `./sdk.js` and awaits `ready` before using session-bound APIs
 | Language/theme | `locale`, `onLocale`, `translate`, `onTheme` |
 | View/panel coordination | `postTo`, `onMessage`, `viewState` |
 | Diagnostics and clipboard | `diagnosticsOf`, `clipboard` |
+| Leaving the preview | `openExternal` (requires `openLink`) |
 
 View theme tokens include `--viewport-mode`: `window` when the view occupies the entire preview window (immersive mode), or `content` when it sits between the host bars. `--safe-top` and `--safe-bottom` remain available for scrollable content and controls that must avoid the floating bars.
 
@@ -38,6 +39,12 @@ View theme tokens include `--viewport-mode`: `window` when the view occupies the
 `streamUrl()` is the format-neutral large-file path: a browser-native consumer requests byte
 ranges and the host answers in bounded chunks, so playback or parsing can begin without first
 copying the whole file into WebView memory.
+`openExternal(url)` hands a link the user clicked to the system: the host opens it with whatever
+Windows uses for that address, never inside the preview, because a sandboxed view can neither
+navigate nor start anything. Send the reference exactly as the document wrote it — the host decides
+what may be opened, and accepts only `http`, `https` and `mailto`. Requires `openLink`, and only the
+visible mount may call it.
+
 `resourceUrl()` resolves paths relative to the current document (including `../`, absolute paths,
 and `file:` URLs) or proxies public HTTP(S) resources. Each linked resource is capped at 64 MiB;
 private, loopback, and link-local network targets are rejected. Use `resourceBlob()` when a parser

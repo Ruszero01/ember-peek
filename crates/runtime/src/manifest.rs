@@ -345,6 +345,7 @@ pub enum Permission {
     ReadResources,
     WriteFile,
     Clipboard,
+    OpenLink,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

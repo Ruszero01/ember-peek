@@ -916,14 +916,27 @@ mod shell {
 
     pub fn open(path: &Path) -> Result<(), String> {
         let file = wide(path);
-        // SAFETY: `file` outlives the call, and the other arguments are the "open" verb and
-        // nulls — what the shell wants for the default verb with no arguments and no
-        // working directory.
+        launch(&file)
+    }
+
+    /// Hand a web or mail address to whatever Windows opens it with. The same call serves a path
+    /// and an address; what differs is who was allowed to name it (see `openable_link`).
+    pub fn open_url(url: &str) -> Result<(), String> {
+        let target = wide_text(url);
+        launch(&target)
+    }
+
+    /// One `ShellExecuteW` for both, so the two cannot drift apart in how they report failure.
+    ///
+    /// SAFETY: the caller owns `target`, a NUL-terminated UTF-16 buffer, and keeps it alive for
+    /// the call; the other arguments are the "open" verb and nulls, which is what the shell wants
+    /// for the default verb with no arguments and no working directory.
+    fn launch(target: &[u16]) -> Result<(), String> {
         let status = unsafe {
             ShellExecuteW(
                 None,
                 w!("open"),
-                PCWSTR(file.as_ptr()),
+                PCWSTR(target.as_ptr()),
                 PCWSTR::null(),
                 PCWSTR::null(),
                 SW_SHOWNORMAL,
@@ -943,6 +956,13 @@ mod shell {
     fn wide(path: &Path) -> Vec<u16> {
         use std::os::windows::ffi::OsStrExt;
         path.as_os_str().encode_wide().chain(Some(0)).collect()
+    }
+
+    /// The address as the shell reads it. Nothing is escaped or trimmed here: the string was
+    /// checked before it got this far, and a NUL inside it would reach the shell as the prefix in
+    /// front of that NUL.
+    fn wide_text(text: &str) -> Vec<u16> {
+        text.encode_utf16().chain(Some(0)).collect()
     }
 
     #[cfg(test)]
@@ -970,6 +990,50 @@ use shell::open as open_external;
 #[cfg(not(windows))]
 fn open_external(_: &std::path::Path) -> Result<(), String> {
     Err("Opening a file with its default application is only implemented on Windows".into())
+}
+
+/// What a link may be, decided here rather than by the page that asked for it.
+///
+/// The shell is not a URL parser: it runs what it is handed, so an unexamined string out of a
+/// document could start a program instead of opening a page. Only a web or mail address passes;
+/// control characters are refused because the shell reads a NUL-terminated string, and the length
+/// is bounded so a document cannot hand the shell an essay.
+fn openable_link(url: &str) -> Result<&str, String> {
+    let link = url.trim();
+    if link.is_empty() || link.len() > 2048 {
+        return Err("A link has to be between 1 and 2048 bytes".into());
+    }
+    if link.chars().any(char::is_control) {
+        return Err("A link cannot contain control characters".into());
+    }
+    let (scheme, rest) = link
+        .split_once(':')
+        .ok_or_else(|| "A link needs a scheme".to_owned())?;
+    match scheme.to_ascii_lowercase().as_str() {
+        "http" | "https" if rest.starts_with("//") && rest.len() > 2 => Ok(link),
+        "mailto" if !rest.is_empty() => Ok(link),
+        _ => Err("Only http, https and mailto links can be opened".into()),
+    }
+}
+
+/// Hand a link to the system, the way `open_in_default_app` hands it a file. This is the host's
+/// other way out of a preview, and the only one a document's link has: a plugin page is sandboxed
+/// and cannot navigate or open anything itself, so a link arrives here as text and is checked
+/// before the shell ever sees it. Nothing about the preview changes, and the host cannot see what
+/// the browser or the mail client does next.
+pub fn open_external_url(url: &str) -> Result<(), String> {
+    let link = openable_link(url)?;
+    open_link(link)
+}
+
+#[cfg(windows)]
+fn open_link(link: &str) -> Result<(), String> {
+    shell::open_url(link)
+}
+
+#[cfg(not(windows))]
+fn open_link(_: &str) -> Result<(), String> {
+    Err("Opening a link is only implemented on Windows".into())
 }
 
 pub async fn refresh_file(app: &AppHandle, id: &str, return_to_source: bool) -> Result<(), String> {
@@ -1306,8 +1370,41 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{settlement, Inner, Settlement};
+    use super::{openable_link, settlement, Inner, Settlement};
     use ember_runtime::WindowState;
+
+    #[test]
+    fn only_a_web_or_mail_address_reaches_the_shell() {
+        // A page, and the two ordinary spellings of one: what a document may point at.
+        for link in [
+            "https://github.com/Ruszero01/ember-peek",
+            "http://example.test/a?b=1#c",
+            "HTTPS://EXAMPLE.TEST",
+            "mailto:someone@example.test",
+            "  https://example.test/a  ",
+        ] {
+            assert!(openable_link(link).is_ok(), "{link} should be openable");
+        }
+        // What may not: the shell runs what it is handed, so anything that names a local file, a
+        // program, another scheme or nothing at all is refused here rather than passed on.
+        for link in [
+            "file:///C:/readme.txt",
+            "C:\\notes\\todo.txt",
+            "notes.txt",
+            "ftp://example.test/a",
+            "data:text/html,hello",
+            "https:/example.test",
+            "https://",
+            "mailto:",
+            "https://example.test/a\u{0}b",
+            "https://example.test/a\nb",
+            "",
+            "   ",
+        ] {
+            assert!(openable_link(link).is_err(), "{link} should be refused");
+        }
+        assert!(openable_link(&format!("https://example.test/{}", "a".repeat(2048))).is_err());
+    }
 
     fn state(x: i32, width: u32, height: u32) -> WindowState {
         WindowState {
