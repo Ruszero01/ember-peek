@@ -3,6 +3,8 @@ let port;
 let sequence = 0;
 let settings = {};
 let sessionId = "";
+/** The window size the host recorded, handed over when the view connects. */
+let recordedWindow = { width: 0, height: 0 };
 let sourceFile = null;
 const awaiting = new Map();
 const actions = new Map();
@@ -186,6 +188,7 @@ window.addEventListener("message", (event) => {
     } else if (message.type === "init") {
       sessionId = message.session || "";
       sourceFile = message.file || null;
+      recordedWindow = message.window || recordedWindow;
       // Before anything else: the plugin's first render is already in the right language.
       applyLocale(message.locale);
       theme(message.theme);
@@ -314,6 +317,37 @@ export function presented(error = null) {
  */
 export function panel(open = true) {
   return request("panel", { open });
+}
+/**
+ * State what this view needs during its preparation — the phase between the host building the
+ * preview window and showing it. A hidden window is shaped before it appears. If the user
+ * switches views while the preview is visible, the new view's first statement reshapes the
+ * existing window immediately and keeps its position.
+ *
+ * `facts.window` is the size the window should have, in CSS pixels. The plugin states it
+ * because the plugin is the one that knows what it is showing; `hostWindow()` is the size the
+ * user's own window had, which is what it should start from. `hostWindow().currentWidth` and
+ * `.currentHeight` describe the window at connection time, so a view can measure host chrome
+ * around its own viewport even after a previous plugin temporarily shaped the window. The host only constrains it (the
+ * screen, and the smallest window it builds), never chooses it, never moves the window and never
+ * writes it down as the user's own size.
+ *
+ * Call it once per session, as soon as the content's facts are known; a plugin that has nothing
+ * to state reports `presented()` instead and the window opens without waiting. Only the primary
+ * view may call it, because the window belongs to the view.
+ */
+export function prepare(facts = {}) {
+  return request("prepare", facts);
+}
+
+/**
+ * The user's recorded preview size (`width`, `height`) in CSS pixels. This remains the baseline
+ * after another plugin temporarily changes the actual window. `currentWidth` and
+ * `currentHeight` are the actual window dimensions when this view connects; subtract this
+ * view's dimensions from them to find the host chrome around it.
+ */
+export function hostWindow() {
+  return recordedWindow;
 }
 export function call(method, value = null) {
   return request("call", { method, value });

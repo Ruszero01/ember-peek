@@ -8,7 +8,16 @@
   <body>
     <main id="viewer" hidden>
       <video playsinline preload="auto"></video>
-      <p id="message"></p>
+      <div id="overlay">
+        <p id="hud" hidden></p>
+        <p id="message"></p>
+        <div id="loading" hidden role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+          <svg viewBox="0 0 48 48" aria-hidden="true">
+            <circle class="ring-track" cx="24" cy="24" r="20"></circle>
+            <circle id="loading-arc" class="ring-arc" cx="24" cy="24" r="20" pathLength="1"></circle>
+          </svg>
+        </div>
+      </div>
     </main>
     <section id="transport" hidden aria-label="Video controls">
       <div class="ui-media-transport">

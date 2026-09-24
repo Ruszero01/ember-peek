@@ -96,6 +96,7 @@ impl Runtime {
                 .filter(|s| s.info.file_id == file_id)
             {
                 session.touched = Instant::now();
+                session.last_used = Instant::now();
             }
             if let Some(selected) = inner.sessions.values().find(|s| {
                 s.info.file_id == file_id
@@ -138,6 +139,9 @@ impl Runtime {
                 }
             }
         }
+        // Make room before admitting another file. Completed background previews are cheap to
+        // reopen; an unfinished parse is not, so only complete groups enter this sliding cache.
+        trim_completed_files(&mut inner, RECENT_FILES - 1);
         if inner
             .sessions
             .values()
@@ -191,6 +195,7 @@ impl Runtime {
                 entry: package.manifest.entry.clone(),
                 capabilities: package.manifest.capabilities.clone(),
                 overlay: package.manifest.overlay.clone(),
+                prepare: package.manifest.prepare,
                 available: true,
                 pending: false,
                 pending_reason: None,
@@ -217,6 +222,7 @@ impl Runtime {
                     package: package.clone(),
                     data: json!({"cacheKey":cache_key}),
                     touched: Instant::now(),
+                    last_used: Instant::now(),
                     calls: usize::from(error.is_none()),
                     source: source.clone(),
                 },
@@ -335,9 +341,13 @@ impl Runtime {
                 || Some(&session.info.file_id) == next_file.as_ref()
             {
                 session.touched = Instant::now();
+                if Some(&session.info.file_id) == next_file.as_ref() {
+                    session.last_used = Instant::now();
+                }
             }
         }
         inner.active = id;
+        trim_completed_files(&mut inner, RECENT_FILES);
         Ok(())
     }
 

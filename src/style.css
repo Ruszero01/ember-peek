@@ -585,6 +585,14 @@ h2 {
   padding-left: 13px;
   padding-right: 49px;
 }
+/* A folder setting is a path plus the host dialog that chooses one; the field stays
+   editable so a path can be pasted, and the button commits what the dialog returned. */
+.setting-folder {
+  gap: 6px;
+}
+.setting-control .setting-folder input {
+  width: 224px;
+}
 .setting-input-suffix {
   position: absolute;
   top: 50%;

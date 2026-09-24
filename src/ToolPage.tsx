@@ -84,6 +84,8 @@ export function ToolPage({ plugin, theme, locale, settings = false, onOpenSettin
   }
   return <section className="tool-page" data-tool-drop={settings ? "disabled" : "enabled"}>
     {error && <p className="warning" role="alert">{error}</p>}
-    <iframe title={plugin.name} ref={frame} sandbox="allow-scripts" src={`${viewUrl(`@tool-${plugin.id}`, plugin.entry)}${settings ? '?page=settings' : ''}`} onError={() => setError("Unable to load tool / 工具页面加载失败")} />
+    {/* A tool page is a plugin document as well, so it gets the same single permission the
+        preview frames do: starting its own media (see PluginView.tsx). */}
+    <iframe title={plugin.name} ref={frame} sandbox="allow-scripts" allow="autoplay" src={`${viewUrl(`@tool-${plugin.id}`, plugin.entry)}${settings ? '?page=settings' : ''}`} onError={() => setError("Unable to load tool / 工具页面加载失败")} />
   </section>;
 }

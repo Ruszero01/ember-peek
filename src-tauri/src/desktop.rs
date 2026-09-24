@@ -1,5 +1,5 @@
 use ember_runtime::i18n::{fill, text, Refusal};
-use ember_runtime::{PendingChange, Runtime, Snapshot};
+use ember_runtime::{PendingChange, Runtime, Snapshot, WindowState};
 use serde::Serialize;
 use std::{
     collections::HashMap,
@@ -16,6 +16,19 @@ use tauri::{
 const IDLE: Duration = Duration::from_secs(120);
 /// The window labels the host creates on demand.
 const WINDOWS: [&str; 2] = ["preview", "settings"];
+/// Keep enough width for the preview chrome even when a very tall image asks for less.
+/// The host grows the declared height proportionally, subject to the monitor work area.
+pub(crate) const MIN_PREVIEW_SIZE: (f64, f64) = (320.0, 240.0);
+const MIN_SETTINGS_SIZE: (f64, f64) = (640.0, 440.0);
+/// The size a preview window opens with when the user has never resized one.
+const DEFAULT_INNER_SIZE: (f64, f64) = (1060.0, 740.0);
+/// How long the host waits after the window stops moving before it writes the placement down.
+/// Dragging an edge produces a resize event per pixel, and only the last one is worth keeping.
+const PLACEMENT_IDLE: Duration = Duration::from_millis(600);
+/// How long the host holds a preview window back for a plugin's preparation before showing it
+/// anyway. A plugin that prepares is reporting something it already knows (a picture's size is
+/// in its header), so this is the answer for one that hangs, not a budget to plan against.
+const PREPARE_TIMEOUT: Duration = Duration::from_millis(700);
 /// Title of a window as it appears in the taskbar and the window menu. The settings
 /// window says what it is; the preview window is the application, so it is the brand.
 fn window_title(label: &str) -> &'static str {
@@ -70,12 +83,143 @@ pub struct Status {
     pub settings_page: String,
     pub settings_revision: u64,
 }
+/// Every piece of the desktop the host keeps: which file is being shown, which window is
+/// waiting for its view, and where the user last left the preview window.
+///
+/// **Never call a window or monitor API while holding this lock.** Those calls are answered by
+/// the main thread, and the main thread takes this same lock in its window event handler, so a
+/// worker thread holding it and waiting for an answer stops the thread that has to give one:
+/// the preview then hangs before it is ever shown, and every later command queues behind it.
 #[derive(Default)]
 struct Inner {
     last_path: Option<PathBuf>,
     status: Status,
     generation: u64,
     hidden: HashMap<String, Instant>,
+    /// The placement the next preview window opens with — the user's own size, remembered
+    /// from the last time they resized it — and whether a write of it is already on its way.
+    window: Option<WindowState>,
+    remembering: bool,
+    /// What each session's view asked for during its preparation, in CSS pixels, and the
+    /// geometry the host applied from it. A view prepares once per session, so a window shown
+    /// again for the same session is shaped from it without the view having to say it twice.
+    /// A user resize marks its session, so reopening that session does not apply its old claim.
+    prepared: HashMap<String, Prepared>,
+    /// The most recent size imposed by the host. Set before `set_size`, because its resize
+    /// event can run before that call returns; it must never become the user's baseline.
+    imposing: Option<(u32, u32)>,
+    /// The session whose window is being held back, with the revision it was opened for. The
+    /// preview window exists but has not been shown yet, because this session's view has not
+    /// prepared — showing it first would make the content jump into place after the user is
+    /// already looking at it.
+    holding: Option<(String, u64)>,
+    /// The view the preview window is showing: its session, and whether that plugin prepares
+    /// before the window is shown. Set when a file is opened and when the user switches views.
+    active: Option<(String, bool)>,
+    /// Last session sent to the visible preview. A switch to another view can reshape the
+    /// already visible window, while another update to the same view leaves user sizing alone.
+    displayed: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WindowBasis {
+    width: f64,
+    height: f64,
+}
+
+/// The user's baseline is independent of the temporary size a plugin last applied.
+#[tauri::command]
+pub fn window_basis(app: AppHandle) -> WindowBasis {
+    let saved = app.state::<Desktop>().inner.lock().unwrap().window.clone();
+    match saved {
+        Some(state) => WindowBasis {
+            width: state.width as f64,
+            height: state.height as f64,
+        },
+        None => WindowBasis {
+            width: DEFAULT_INNER_SIZE.0,
+            height: DEFAULT_INNER_SIZE.1,
+        },
+    }
+}
+
+/// What a session's view declared in its preparation.
+#[derive(Clone)]
+struct Prepared {
+    /// The size the view asked the window to have, in CSS pixels.
+    window: Option<(f64, f64)>,
+    user_resized: bool,
+}
+impl Inner {
+    fn hold_for_show(&mut self, label: &str, on_screen: bool, revision: u64) {
+        if label != "preview" {
+            return;
+        }
+        self.holding = match &self.active {
+            Some((session, true)) if !on_screen && !self.prepared.contains_key(session) => {
+                Some((session.clone(), revision))
+            }
+            _ => None,
+        };
+    }
+
+    fn size_for_show(&self, label: &str, on_screen: bool) -> Option<(f64, f64)> {
+        if label != "preview" {
+            return None;
+        }
+        self.active
+            .as_ref()
+            .filter(|(id, _)| !on_screen || self.displayed.as_ref() != Some(id))
+            .and_then(|(id, _)| self.prepared.get(id))
+            .filter(|entry| !entry.user_resized)
+            .and_then(|entry| entry.window)
+    }
+
+    fn restore_on_visible_switch(&self) -> bool {
+        match &self.active {
+            Some((id, prepares)) => !prepares && self.displayed.as_ref() != Some(id),
+            None => self.displayed.is_some(),
+        }
+    }
+
+    fn record_preparation(&mut self, session: &str, declared: Option<(f64, f64)>) -> bool {
+        if !self
+            .active
+            .as_ref()
+            .is_some_and(|(active, prepares)| active == session && *prepares)
+        {
+            return false;
+        }
+        if self.prepared.contains_key(session) {
+            return false;
+        }
+        if self.prepared.len() >= 64 {
+            self.prepared.clear();
+        }
+        self.prepared.insert(
+            session.to_string(),
+            Prepared {
+                window: declared,
+                user_resized: false,
+            },
+        );
+        self.holding
+            .as_ref()
+            .is_some_and(|(held, _)| held == session)
+    }
+
+    fn note_user_resize(&mut self) {
+        let current = self.active.as_ref().map(|(id, _)| id.clone());
+        // Cached sizes for other files were calculated from the previous user baseline. Their
+        // views will calculate again when selected, using the newly remembered dimensions.
+        self.prepared.retain(|id, _| current.as_ref() == Some(id));
+        if let Some(current) = current {
+            if let Some(prepared) = self.prepared.get_mut(&current) {
+                prepared.user_resized = true;
+            }
+        }
+    }
 }
 #[derive(Default)]
 pub struct Desktop {
@@ -134,9 +278,25 @@ fn browser_args() -> Option<String> {
         .filter(|args| !args.trim().is_empty())
 }
 
+fn restore_user_size(app: &AppHandle, window: &tauri::WebviewWindow) {
+    if window.is_maximized().unwrap_or(false) {
+        return;
+    }
+    let basis = window_basis(app.clone());
+    app.state::<Desktop>().inner.lock().unwrap().imposing =
+        Some((basis.width.round() as u32, basis.height.round() as u32));
+    let _ = window.set_size(tauri::LogicalSize::new(basis.width, basis.height));
+}
+
 // WebviewWindowBuilder must run outside synchronous event callbacks on Windows.
 // Only the final visibility transition is dispatched to the main event loop.
 fn queue_show(app: &AppHandle, label: &'static str, revision: u64) {
+    // Ask the window what it is before taking the lock: window calls are answered by the main
+    // thread, which takes this same lock in its own window event handler. Holding it across a
+    // window call deadlocks the two against each other.
+    let on_screen = app
+        .get_webview_window(label)
+        .is_some_and(|window| window.is_visible().unwrap_or(false));
     {
         let desktop = app.state::<Desktop>();
         let mut inner = desktop.inner.lock().unwrap();
@@ -149,6 +309,11 @@ fn queue_show(app: &AppHandle, label: &'static str, revision: u64) {
             return;
         }
         inner.hidden.remove(label);
+        // A plugin that prepares before the window is shown decides how big that window opens,
+        // so the window is not shown until this session's view has said what it needs — or
+        // reported that it needs nothing. The host has already built the window at the size the
+        // user's own last one had, which is what the view measures against.
+        inner.hold_for_show(label, on_screen, revision);
     }
     let handle = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
@@ -157,20 +322,41 @@ fn queue_show(app: &AppHandle, label: &'static str, revision: u64) {
         if !requested(&handle, label, revision) {
             return;
         }
-        if handle.get_webview_window(label).is_none() {
+        let existing = handle.get_webview_window(label);
+        if existing.is_none() {
+            let saved = desktop.inner.lock().unwrap().window.clone();
             let builder = WebviewWindowBuilder::new(
                 &handle,
                 label,
                 WebviewUrl::App(format!("index.html?window={label}").into()),
             )
             .title(window_title(label))
-            .inner_size(1060.0, 740.0)
-            .min_inner_size(640.0, 440.0)
-            // 创建时居中于主显示器的工作区（避开任务栏）。只在创建时定位，
-            // 已存在的窗口隐藏后复用不会被重新居中，为后续记住窗口位置留出空间。
-            .center()
+            .min_inner_size(
+                if label == "preview" {
+                    MIN_PREVIEW_SIZE.0
+                } else {
+                    MIN_SETTINGS_SIZE.0
+                },
+                if label == "preview" {
+                    MIN_PREVIEW_SIZE.1
+                } else {
+                    MIN_SETTINGS_SIZE.1
+                },
+            )
             .decorations(false)
             .visible(false);
+            // The preview window is the user's own: it opens where they last left it, at the
+            // size they gave it. Every other window is opened from a menu or a tool and is
+            // centered instead — nobody resizes the settings window and expects it back.
+            let builder = match saved {
+                Some(state) if label == "preview" => builder
+                    .position(state.x as f64, state.y as f64)
+                    .inner_size(state.width as f64, state.height as f64)
+                    .maximized(state.maximized),
+                _ => builder
+                    .inner_size(DEFAULT_INNER_SIZE.0, DEFAULT_INNER_SIZE.1)
+                    .center(),
+            };
             let builder = match browser_args() {
                 Some(args) => builder.additional_browser_args(&args),
                 None => builder,
@@ -183,6 +369,11 @@ fn queue_show(app: &AppHandle, label: &'static str, revision: u64) {
                 eprintln!("Create {label}: {error}");
                 return;
             }
+            if label == "preview" {
+                if let Some(window) = handle.get_webview_window(label) {
+                    return_to_screen(&window);
+                }
+            }
             // Even a creation invalidated while WebView2 starts must eventually be recycled.
             desktop
                 .inner
@@ -192,30 +383,194 @@ fn queue_show(app: &AppHandle, label: &'static str, revision: u64) {
                 .entry(label.into())
                 .or_insert_with(Instant::now);
         }
-        let app = handle.clone();
-        let _ = handle.run_on_main_thread(move || {
-            if !requested(&app, label, revision) {
+        if label == "preview" {
+            if let Some(window) = handle.get_webview_window(label) {
+                // A hidden controller may still have the last plugin's temporary size. Start
+                // every opening from the user's baseline before the next view measures it.
+                let restore = (!on_screen && existing.is_some())
+                    || (on_screen && desktop.inner.lock().unwrap().restore_on_visible_switch());
+                if restore {
+                    restore_user_size(&handle, &window);
+                }
+                if !on_screen {
+                    let _ = window.emit("desktop-changed", ());
+                }
+            }
+        }
+        // A session whose view prepared before is shaped from what it said then: a view prepares
+        // once per session, and every window that session opens is built to the size it asked
+        // for. The view itself is long gone in that case, so nothing would ask it again.
+        let prepared = desktop
+            .inner
+            .lock()
+            .unwrap()
+            .size_for_show(label, on_screen);
+        if let Some(declared) = prepared {
+            let unplaced = !on_screen && desktop.inner.lock().unwrap().window.is_none();
+            if let Some(window) = handle.get_webview_window(label) {
+                apply_prepared(&handle, &window, declared, unplaced);
+            }
+        }
+        let holding = if label == "preview" {
+            desktop.inner.lock().unwrap().holding.clone()
+        } else {
+            None
+        };
+        if let Some((session, _)) = holding {
+            if desktop
+                .inner
+                .lock()
+                .unwrap()
+                .prepared
+                .contains_key(&session)
+            {
+                reveal(&handle, &session);
                 return;
             }
-            let Some(window) = app.get_webview_window(label) else {
-                return;
-            };
-            let result = (|| -> tauri::Result<()> {
-                let _ = window.emit("desktop-changed", ());
-                window.unminimize()?;
-                window.show()?;
-                app.state::<Desktop>()
-                    .inner
-                    .lock()
-                    .unwrap()
-                    .hidden
-                    .remove(label);
-                window.set_focus()
-            })();
-            if let Err(error) = result {
-                eprintln!("Show {label}: {error}");
+            // Held back: the view has a preparation to make (or a readiness to report), and the
+            // timer is what a plugin that does neither gets.
+            let timer = handle.clone();
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(PREPARE_TIMEOUT).await;
+                reveal(&timer, &session);
+            });
+            return;
+        }
+        show_window(&handle, label, revision);
+    });
+}
+
+/// The size a plugin asked for during its preparation, applied to a window that is not on
+/// screen yet (or is about to be shown again). The size is what changes; the position is the
+/// user's and stays where it is, and the room the window has is measured from that position.
+/// A window the user has never placed is centered on its monitor instead, so the first picture
+/// does not open against the corner of a monitor the user has not chosen.
+///
+/// Takes no lock across a window call: every call in here is answered by the main thread, which
+/// takes that lock from its own window event handler.
+fn apply_prepared(
+    app: &AppHandle,
+    window: &tauri::WebviewWindow,
+    declared: (f64, f64),
+    unplaced: bool,
+) -> Option<()> {
+    let position = window.outer_position().ok()?;
+    let room = crate::framing::room(app, (position.x, position.y))?;
+    let (width, height, _) = crate::framing::clamp(declared, room, MIN_PREVIEW_SIZE);
+    app.state::<Desktop>().inner.lock().unwrap().imposing =
+        Some((width.round() as u32, height.round() as u32));
+    window
+        .set_size(tauri::LogicalSize::new(width, height))
+        .ok()?;
+    if unplaced {
+        // Centering is the host placing a window the user has never placed; the plugin asked
+        // for a size, not for a position.
+        let _ = window.center();
+    }
+    Some(())
+}
+
+/// What a view declared in its preparation, from the window it belongs to.
+///
+/// A preparation with no window in it is still a preparation: the view has said what it needs,
+/// which is nothing, so a window the host is holding back for it opens now. When the user switches
+/// files while the preview is visible, the new view's first declaration reshapes that window at
+/// once, without moving it or replacing the user's baseline.
+pub fn prepared(app: &AppHandle, session: &str, declared: Option<(f64, f64)>) {
+    let desktop = app.state::<Desktop>();
+    // A stale iframe can finish after another file has become active. Its declaration must
+    // never shape the new file's window or release that file's hold.
+    let eligible = {
+        let inner = desktop.inner.lock().unwrap();
+        inner
+            .active
+            .as_ref()
+            .is_some_and(|(active, prepares)| active == session && *prepares)
+            && !inner.prepared.contains_key(session)
+    };
+    if !eligible {
+        return;
+    }
+    let declared = declared.filter(|(width, height)| crate::framing::valid(*width, *height));
+    // Everything the window is asked about is asked before the lock is taken, and the size is
+    // applied before it too: a window call made while holding that lock waits on the main
+    // thread, which is waiting for the same lock in its window event handler.
+    let window = app.get_webview_window("preview");
+    let visible = window
+        .as_ref()
+        .is_some_and(|window| window.is_visible().unwrap_or(false));
+    let unplaced = !visible && desktop.inner.lock().unwrap().window.is_none();
+    match (declared, window.as_ref()) {
+        (Some(declared), Some(window)) => {
+            let _ = apply_prepared(app, window, declared, unplaced);
+        }
+        (None, Some(window)) if visible => {
+            restore_user_size(app, window);
+        }
+        _ => {}
+    };
+    let held = desktop
+        .inner
+        .lock()
+        .unwrap()
+        .record_preparation(session, declared);
+    if held && window.is_some() {
+        // `reveal` owns the transition out of holding. Clearing it here would make both this
+        // call and the timeout see nothing to reveal, leaving the preview hidden forever.
+        reveal(app, session);
+    }
+}
+
+/// Show the preview window a preparation was holding back, if that is still the window being
+/// waited for. Called when the view prepares, when it reports ready, and by the fallback timer;
+/// each of those is only a reason to stop waiting, so it is safe for them to race.
+pub fn reveal(app: &AppHandle, session: &str) {
+    let desktop = app.state::<Desktop>();
+    let revision = {
+        let mut inner = desktop.inner.lock().unwrap();
+        match inner.holding.as_ref() {
+            Some((held, revision)) if held == session => {
+                let revision = *revision;
+                inner.holding = None;
+                revision
             }
-        });
+            _ => return,
+        }
+    };
+    if !requested(app, "preview", revision) {
+        return;
+    }
+    show_window(app, "preview", revision);
+}
+
+/// Put a window on screen. Everything that can end an opening ends here, so the transition
+/// itself happens once: the frontend is told, then the window is restored, shown and focused.
+fn show_window(app: &AppHandle, label: &'static str, revision: u64) {
+    let app = app.clone();
+    let _ = app.clone().run_on_main_thread(move || {
+        if !requested(&app, label, revision) {
+            return;
+        }
+        let Some(window) = app.get_webview_window(label) else {
+            return;
+        };
+        let result = (|| -> tauri::Result<()> {
+            let _ = window.emit("desktop-changed", ());
+            window.unminimize()?;
+            window.show()?;
+            {
+                let desktop = app.state::<Desktop>();
+                let mut inner = desktop.inner.lock().unwrap();
+                inner.hidden.remove(label);
+                if label == "preview" {
+                    inner.displayed = inner.active.as_ref().map(|(id, _)| id.clone());
+                }
+            }
+            window.set_focus()
+        })();
+        if let Err(error) = result {
+            eprintln!("Show {label}: {error}");
+        }
     });
 }
 fn present(app: &AppHandle, revision: u64) {
@@ -231,6 +586,12 @@ pub async fn open(app: &AppHandle, path: PathBuf) -> Result<(), String> {
     // Runtime owns loading tasks: moving to another file never cancels the plugin.
     let result = runtime.inner().open(path).await;
     if desktop.current(revision) {
+        // Which view the window is about to show, and whether that plugin prepares before it
+        // is shown. Recorded here because the window is built from it right after.
+        desktop.inner.lock().unwrap().active = result
+            .as_ref()
+            .ok()
+            .map(|session| (session.id.clone(), session.prepare));
         match &result {
             Ok(session) => {
                 runtime.activate(Some(session.id.clone())).await?;
@@ -244,6 +605,147 @@ pub async fn open(app: &AppHandle, path: PathBuf) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// A window restored from a saved placement can land outside every monitor: the display it was
+/// closed on may be gone, or now arranged differently. Windows does not move it back, and a
+/// window nobody can see is worse than one that opens in the middle, so the host checks the
+/// screen the window actually landed on.
+fn return_to_screen(window: &tauri::WebviewWindow) {
+    let Ok(Some(monitor)) = window.current_monitor() else {
+        return;
+    };
+    let (Ok(position), Ok(size)) = (window.outer_position(), window.outer_size()) else {
+        return;
+    };
+    // Enough of it has to be on screen for the user to see it and grab it; a sliver in the
+    // corner is not a window anyone can use.
+    let visible = |start: i32, length: u32, area: i32, extent: u32| -> i32 {
+        (start + length as i32).min(area + extent as i32) - start.max(area)
+    };
+    let area = monitor.work_area();
+    if visible(position.x, size.width, area.position.x, area.size.width) < 120
+        || visible(position.y, size.height, area.position.y, area.size.height) < 80
+    {
+        let _ = window.center();
+    }
+}
+
+fn next_placement(
+    previous: Option<&WindowState>,
+    mut measured: WindowState,
+    resized: bool,
+    imposed: Option<(u32, u32)>,
+) -> Option<WindowState> {
+    if !resized {
+        let baseline = previous
+            .map(|state| (state.width, state.height))
+            .unwrap_or((DEFAULT_INNER_SIZE.0 as u32, DEFAULT_INNER_SIZE.1 as u32));
+        measured.width = baseline.0;
+        measured.height = baseline.1;
+    }
+    if previous == Some(&measured) {
+        return None;
+    }
+    if let Some(previous) = previous.filter(|state| state.maximized) {
+        // The first event after restore reports whichever size the window had underneath the
+        // maximized state, including a temporary plugin size. Preserve the user's baseline.
+        let mut restored = previous.clone();
+        restored.x = measured.x;
+        restored.y = measured.y;
+        restored.maximized = false;
+        return Some(restored);
+    }
+    if resized
+        && imposed
+            .is_some_and(|(width, height)| width == measured.width && height == measured.height)
+    {
+        return None;
+    }
+    Some(measured)
+}
+
+/// Remember where the user leaves a window. Only the preview window is remembered: it is the
+/// one they size and come back to, and the one whose placement the next run opens with.
+///
+/// The write is delayed until the window stops moving, so dragging an edge costs one write
+/// rather than one per pixel. A minimized window has no placement of its own, and a maximized
+/// one only records the flag: its size is the screen's, and the size to restore is the one it
+/// had before it was maximized.
+pub fn remember(window: &tauri::Window, resized: bool) {
+    if window.label() != "preview" {
+        return;
+    }
+    // Ask the window everything before taking the lock, never while holding it: a window call
+    // is answered by the main thread, and this same call arrives from the main thread's window
+    // event handler — which is where the lock is taken below.
+    let (visible, minimized, maximized) = (
+        window.is_visible().unwrap_or(false),
+        window.is_minimized().unwrap_or(false),
+        window.is_maximized().unwrap_or(false),
+    );
+    // Creation, baseline restoration and plugin preparation all resize a hidden window. None
+    // of those events is a user choosing a new size or position.
+    if !visible || minimized {
+        return;
+    }
+    let placed = (!maximized)
+        .then(|| {
+            let scale = window.scale_factor().ok()?;
+            let position = window.outer_position().ok()?.to_logical::<f64>(scale);
+            let size = window.inner_size().ok()?.to_logical::<f64>(scale);
+            Some(WindowState {
+                x: position.x.round() as i32,
+                y: position.y.round() as i32,
+                width: size.width.round().max(1.0) as u32,
+                height: size.height.round().max(1.0) as u32,
+                maximized: false,
+            })
+        })
+        .flatten();
+    let desktop = window.app_handle().state::<Desktop>();
+    let mut inner = desktop.inner.lock().unwrap();
+    if maximized {
+        match inner.window.as_mut() {
+            Some(state) => state.maximized = true,
+            None => return,
+        }
+    } else {
+        let Some(measured) = placed else {
+            return;
+        };
+        // A size the host applied for a plugin's preparation is not a size the user chose:
+        // recording it would make the next picture's fit start from this one, and a plugin
+        // would be able to shrink the window the user set, one file at a time.
+        let Some(next) = next_placement(inner.window.as_ref(), measured, resized, inner.imposing)
+        else {
+            return;
+        };
+        inner.window = Some(next);
+        if resized {
+            inner.note_user_resize();
+        }
+    }
+    if inner.remembering {
+        return;
+    }
+    inner.remembering = true;
+    drop(inner);
+    let app = window.app_handle().clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(PLACEMENT_IDLE).await;
+        let state = {
+            let desktop = app.state::<Desktop>();
+            let mut inner = desktop.inner.lock().unwrap();
+            inner.remembering = false;
+            inner.window.clone()
+        };
+        if let Err(error) = app.state::<Arc<Runtime>>().set_window_state(state).await {
+            // Nothing here is worth interrupting the user for: the window is where they put it
+            // for this run either way, and the next run falls back to the default size.
+            eprintln!("Window placement: {error}");
+        }
+    });
 }
 
 pub fn last_path(app: &AppHandle) -> Option<PathBuf> {
@@ -384,7 +886,15 @@ pub async fn refresh_file(app: &AppHandle, id: &str, return_to_source: bool) -> 
         selected
     };
     if desktop.current(revision) {
-        runtime.activate(Some(target)).await?;
+        runtime.activate(Some(target.clone())).await?;
+        let active = runtime
+            .snapshot()
+            .await
+            .sessions
+            .iter()
+            .find(|session| session.id == target)
+            .map(|session| (session.id.clone(), session.prepare));
+        desktop.inner.lock().unwrap().active = active;
         if desktop.commit(revision, None) {
             present(app, revision);
         }
@@ -414,7 +924,13 @@ pub async fn return_view(app: AppHandle, id: String) -> Result<(), String> {
     }
     let target = runtime.return_target(&id).await?;
     if desktop.current(revision) {
-        runtime.activate(Some(target)).await?;
+        runtime.activate(Some(target.clone())).await?;
+        let active = snapshot
+            .sessions
+            .iter()
+            .find(|session| session.id == target)
+            .map(|session| (session.id.clone(), session.prepare));
+        desktop.inner.lock().unwrap().active = active;
         if desktop.commit(revision, None) {
             present(&app, revision);
         }
@@ -428,7 +944,21 @@ pub async fn select_preview(app: AppHandle, id: Option<String>) -> Result<(), St
     let revision = desktop.begin();
     let _selection = desktop.selection.lock().await;
     if desktop.current(revision) {
-        app.state::<Arc<Runtime>>().activate(id).await?;
+        let runtime = app.state::<Arc<Runtime>>();
+        runtime.activate(id.clone()).await?;
+        // The view on screen changed, so whether a window's opening waits for a preparation
+        // changed with it. The window itself is already up, so nothing waits here.
+        let active = match &id {
+            Some(id) => runtime
+                .snapshot()
+                .await
+                .sessions
+                .iter()
+                .find(|session| &session.id == id)
+                .map(|session| (id.clone(), session.prepare)),
+            None => None,
+        };
+        desktop.inner.lock().unwrap().active = active;
         if desktop.commit(revision, None) {
             present(&app, revision);
         }
@@ -489,6 +1019,10 @@ pub fn hide(app: &AppHandle, label: &str) {
             .insert(label.to_owned(), Instant::now());
         if label == "settings" {
             desktop.inner.lock().unwrap().status.settings_revision += 1;
+        } else {
+            // The user put the window away while its opening was still waiting for the plugin:
+            // that waiting is over, and the window must not appear on its own afterwards.
+            desktop.inner.lock().unwrap().holding = None;
         }
         if label == "preview" {
             let revision = desktop.begin();
@@ -542,7 +1076,16 @@ pub fn reap(app: &AppHandle, pending: bool) {
     });
 }
 pub fn setup(app: &AppHandle) -> tauri::Result<()> {
-    app.manage(Desktop::default());
+    // Read before any window exists, for the same reason the stored language is: the window is
+    // created from it.
+    let window = tauri::async_runtime::block_on(app.state::<Arc<Runtime>>().window_state());
+    app.manage(Desktop {
+        inner: Mutex::new(Inner {
+            window,
+            ..Default::default()
+        }),
+        ..Default::default()
+    });
     let menu = tray_menu(app)?;
     let mut tray = TrayIconBuilder::with_id("ember-peek")
         .tooltip("Ember Peek")
@@ -571,6 +1114,9 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
                         .await;
                         return;
                     }
+                    // The window opens with the remembered placement, so a reset has to forget
+                    // that too — not only in the file, but in the copy this process still holds.
+                    app.state::<Desktop>().inner.lock().unwrap().window = None;
                     // The chooser is what a first launch shows, so show it now rather than
                     // making the developer find the market themselves.
                     if let Err(error) = show_settings(app.clone(), Some("welcome".into())) {
@@ -619,4 +1165,106 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
     }
     tray.build(app)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{next_placement, Inner};
+    use ember_runtime::WindowState;
+
+    fn state(x: i32, width: u32, height: u32) -> WindowState {
+        WindowState {
+            x,
+            y: 40,
+            width,
+            height,
+            maximized: false,
+        }
+    }
+
+    #[test]
+    fn preparation_keeps_the_hold_until_reveal_claims_it() {
+        let mut inner = Inner {
+            active: Some(("current".into(), true)),
+            holding: Some(("current".into(), 7)),
+            ..Default::default()
+        };
+        assert!(!inner.record_preparation("old", Some((800.0, 600.0))));
+        assert!(!inner.prepared.contains_key("old"));
+        assert!(inner.record_preparation("current", Some((800.0, 600.0))));
+        assert_eq!(inner.holding, Some(("current".into(), 7)));
+        assert!(inner.prepared.contains_key("current"));
+        inner.hold_for_show("settings", false, 9);
+        assert_eq!(inner.holding, Some(("current".into(), 7)));
+        assert_eq!(inner.size_for_show("settings", false), None);
+        assert_eq!(inner.size_for_show("preview", false), Some((800.0, 600.0)));
+    }
+
+    #[test]
+    fn a_ready_preparation_without_a_size_is_still_recorded() {
+        let mut inner = Inner {
+            active: Some(("current".into(), true)),
+            holding: Some(("current".into(), 7)),
+            ..Default::default()
+        };
+        assert!(inner.record_preparation("current", None));
+        assert!(inner
+            .prepared
+            .get("current")
+            .is_some_and(|entry| entry.window.is_none()));
+    }
+
+    #[test]
+    fn switching_a_visible_preview_uses_its_new_shape_once() {
+        let mut inner = Inner {
+            active: Some(("new".into(), true)),
+            displayed: Some("old".into()),
+            ..Default::default()
+        };
+        inner.prepared.insert(
+            "old".into(),
+            super::Prepared {
+                window: Some((640.0, 440.0)),
+                user_resized: false,
+            },
+        );
+        inner.record_preparation("new", Some((195.0, 814.0)));
+        assert_eq!(inner.size_for_show("preview", true), Some((195.0, 814.0)));
+        inner.displayed = Some("new".into());
+        assert_eq!(inner.size_for_show("preview", true), None);
+        inner.note_user_resize();
+        assert!(!inner.prepared.contains_key("old"));
+        assert_eq!(inner.size_for_show("preview", false), None);
+    }
+
+    #[test]
+    fn moving_a_framed_window_does_not_replace_the_users_size() {
+        let previous = state(20, 1060, 740);
+        let temporary = state(20, 640, 740);
+        assert_eq!(
+            next_placement(
+                Some(&previous),
+                state(90, 640, 740),
+                false,
+                Some((640, 740))
+            ),
+            Some(state(90, 1060, 740))
+        );
+        assert_eq!(
+            next_placement(Some(&previous), temporary.clone(), true, Some((640, 740))),
+            None
+        );
+        assert_eq!(
+            next_placement(Some(&previous), state(90, 900, 700), true, Some((640, 740))),
+            Some(state(90, 900, 700))
+        );
+        let maximized = WindowState {
+            maximized: true,
+            ..previous
+        };
+        assert_eq!(
+            next_placement(Some(&maximized), temporary.clone(), true, Some((640, 740))),
+            Some(state(20, 1060, 740))
+        );
+    }
 }

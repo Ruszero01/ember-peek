@@ -123,11 +123,15 @@ function SettingField({
   value,
   busy,
   onChange,
+  onPickFolder,
 }: {
   setting: PluginSetting;
   value: unknown;
   busy: boolean;
   onChange: (value: unknown) => void;
+  /** Choose a folder for a `folder` setting. The host owns the dialog; the plugin only
+   * ever sees the resulting path. */
+  onPickFolder?: () => void;
 }) {
   const t = useT();
   const current = value === undefined ? setting.default : value;
@@ -177,6 +181,39 @@ function SettingField({
             busy={busy}
             onChange={onChange}
           />
+        </div>
+      </div>
+    );
+  // A path is committed on blur, unlike free text: a half-typed path is not a value the
+  // plugin could use, and the host refuses anything that is neither empty nor absolute.
+  if (setting.type === "folder")
+    return (
+      <div className="setting-row">
+        <SettingLabel setting={setting} />
+        <div className="setting-control">
+          <span className="setting-input setting-folder">
+            <input
+              aria-label={setting.label}
+              disabled={busy}
+              spellCheck={false}
+              type="text"
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              onBlur={commit}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") event.currentTarget.blur();
+                else if (event.key === "Escape") setDraft(displayed);
+              }}
+            />
+            <button
+              type="button"
+              className="secondary-button"
+              disabled={busy}
+              onClick={() => onPickFolder?.()}
+            >
+              {t("settings.browse")}
+            </button>
+          </span>
         </div>
       </div>
     );
@@ -425,6 +462,13 @@ function PluginSettingsPane({ plugin }: { plugin: Plugin | undefined }) {
                 }
                 busy={busy || !plugin.enabled}
                 onChange={(value) => void change(setting.key, value)}
+                onPickFolder={() =>
+                  void call<string | null>("pick_path", { folder: true })
+                    .then((path) => {
+                      if (path) return change(setting.key, path);
+                    })
+                    .catch((problem) => setError(String(problem)))
+                }
               />
             ))}
           </div>
@@ -613,8 +657,9 @@ function App() {
       ...theme,
       "safe-top": `${safeInsets.top}px`,
       "safe-bottom": `${safeInsets.bottom}px`,
+      "viewport-mode": windowViewport ? "window" : "content",
     }),
-    [theme, safeInsets],
+    [theme, safeInsets, windowViewport],
   );
   const chromeShown = scrubbingControl || !settings.immersive || hot !== "" || !current;
   /**

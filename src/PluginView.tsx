@@ -152,9 +152,10 @@ export function PluginView({
       try {
         if (message?.type === "connected") {
           clearTimeout(handshake.current);
-          const [data, source] = await Promise.all([
+          const [data, source, basis] = await Promise.all([
             call("session_data", { id: session.id }),
             call("source_data", { id: session.id }),
+            call<{ width: number; height: number }>("window_basis"),
           ]);
           if (ticket === generation.current)
             connection.port1.postMessage({
@@ -163,6 +164,14 @@ export function PluginView({
               source,
               session: session.id,
               file: { name: session.name, size: session.size },
+              // The user's recorded size is independent of a previous plugin's temporary
+              // size. The current dimensions also let the view measure host chrome around its
+              // own viewport without mistaking a previous image's size for the baseline.
+              window: {
+                ...basis,
+                currentWidth: window.innerWidth,
+                currentHeight: window.innerHeight,
+              },
               theme: latest.current.theme,
               locale: latest.current.locale,
               visible: latest.current.visible,
@@ -271,6 +280,23 @@ export function PluginView({
                 offset: params.offset,
                 length: params.length,
               });
+            } else if (message.method === "prepare" && latest.current.interactive) {
+              // The window is a viewport matter, so only the mount that owns the viewport may
+              // prepare it. What the plugin states is passed through as declared: the host
+              // constrains it (the screen, the smallest window it builds) but does not read
+              // anything into it, and a panel has no window of its own to prepare.
+              if (secondary) throw new Error(t("view.onlyPrimaryPrepares"));
+              const window = params?.window;
+              if (
+                window !== undefined &&
+                (typeof window?.width !== "number" ||
+                  typeof window?.height !== "number")
+              )
+                throw new Error(t("view.invalidPrepare"));
+              value = await call("prepare_view", {
+                id: session.id,
+                window: window ?? null,
+              });
             } else if (message.method === "peer") {
               // A dumb pipe between this plugin's own mounts. The host forwards the payload
               // without looking inside, so a plugin can build its own features (search,
@@ -357,6 +383,12 @@ export function PluginView({
       title={`${session.pluginId} · ${session.name}`}
       className={`plugin-view${visible && (session.capabilities.includes("view") || session.capabilities.includes("overlay")) ? " selected" : ""}`}
       sandbox="allow-scripts"
+      // The frame is a document of its own, so it gets the one browser permission a media
+      // viewer cannot work around: starting its own playback. A cross-origin frame has no
+      // autoplay at all, which would leave a plugin that opens a video waiting for a gesture
+      // that the page never provides. Nothing else is delegated; the view still has no host
+      // API of its own.
+      allow="autoplay"
       src={viewUrl(session.id, session.entry)}
       onLoad={connect}
       aria-hidden={!visible}

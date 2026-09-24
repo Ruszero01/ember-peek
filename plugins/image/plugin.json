@@ -9,6 +9,10 @@
         "fitWindow": {
           "label": "Fit the window by default",
           "help": "On, the image is scaled to the viewport; off, it is shown at 100%."
+        },
+        "frameWindow": {
+          "label": "Match the window to the image",
+          "help": "On, opening an image puts the window in the picture's shape, which the picture then fills edge to edge. Off, the window keeps the size it has."
         }
       }
     }
@@ -32,8 +36,16 @@
       "label": "默认适应窗口",
       "help": "开启后自动缩放到视口内；关闭后按 100% 原始尺寸显示。",
       "default": true
+    },
+    {
+      "key": "frameWindow",
+      "type": "bool",
+      "label": "窗口对齐图片",
+      "help": "开启后打开图片时把窗口调成图片的形状，画面从边到边铺满、没有留白；关闭后窗口保持它自己的大小。",
+      "default": true
     }
   ],
+  "prepare": true,
   "executable": "bin/ember-image-plugin.exe",
   "entry": "ui/index.html",
   "capabilities": [

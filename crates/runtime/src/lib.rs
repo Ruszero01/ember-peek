@@ -25,6 +25,9 @@ use tokio::sync::Mutex;
 
 pub const IDLE_TTL: Duration = Duration::from_secs(120);
 const MAX_SESSIONS: usize = 16;
+/// Keep a small working set of completed files. In-flight loads and unsaved work are protected
+/// separately and may temporarily take the runtime above this cache size.
+const RECENT_FILES: usize = 4;
 /// Name prefix for the installed directory a replacement moved aside. Everything else that
 /// is not a plugin lives under a dot name, and `scan` skips those.
 const REPLACED_PREFIX: &str = ".replaced-";
@@ -40,6 +43,9 @@ pub struct SessionInfo {
     pub label: String,
     pub capabilities: Vec<Capability>,
     pub overlay: Option<manifest::OverlaySize>,
+    /// The plugin prepares before the preview window is shown, so the host holds that window
+    /// back until this session's view reports ready.
+    pub prepare: bool,
     pub available: bool,
     /// The plugin has changes it has not committed. Only the plugin can clear this, and the
     /// host treats it as a reason not to destroy the session: what it protects is the user's
@@ -61,8 +67,23 @@ struct Session {
     package: Package,
     data: Value,
     touched: Instant,
+    /// Last open or selection, independent of when an asynchronous parse happened to finish.
+    last_used: Instant,
     calls: usize,
     source: Option<String>,
+}
+
+/// Where the user left the preview window, in CSS pixels: the window is theirs to size, so the
+/// next run opens it the way they left it instead of at the size this host was born with.
+/// `maximized` is remembered apart from the size, because restoring a maximized window at the
+/// maximized size would leave it oversized the moment it is restored.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct WindowState {
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+    pub maximized: bool,
 }
 
 /// What a replacement cut: the files whose previews were dropped, and whether the session
@@ -121,6 +142,52 @@ fn blocking_change(inner: &Inner, plugin_id: Option<&str>) -> Option<PendingChan
         .map(pending_change)
 }
 
+/// Retire the oldest complete file groups while preserving the active file, unfinished calls,
+/// and plugin-declared edits. Source and consumer sessions always leave together. A worker is
+/// shared by all sessions of its plugin version, so release individual sessions here; the idle
+/// pass stops the process once its last session is gone.
+fn trim_completed_files(inner: &mut Inner, target: usize) {
+    let active_file = inner
+        .active
+        .as_ref()
+        .and_then(|id| inner.sessions.get(id))
+        .map(|session| session.info.file_id.clone());
+    let mut files: HashMap<String, (Instant, bool)> = HashMap::new();
+    for session in inner.sessions.values() {
+        let entry = files
+            .entry(session.info.file_id.clone())
+            .or_insert((session.last_used, true));
+        entry.0 = entry.0.max(session.last_used);
+        entry.1 &= session.calls == 0 && !session.info.pending && session.info.status != "loading";
+    }
+    while files.len() > target {
+        let Some(oldest) = files
+            .iter()
+            .filter(|(file, (_, complete))| *complete && active_file.as_ref() != Some(*file))
+            .min_by_key(|(file, (used, _))| (*used, *file))
+            .map(|(file, _)| file.clone())
+        else {
+            break;
+        };
+        let ids: Vec<_> = inner
+            .sessions
+            .values()
+            .filter(|session| session.info.file_id == oldest)
+            .map(|session| session.info.id.clone())
+            .collect();
+        for id in ids {
+            if let Some(session) = inner.sessions.remove(&id) {
+                if let Some(worker) = inner.workers.get(&session.package.key()).cloned() {
+                    tokio::spawn(async move {
+                        let _ = worker.release(json!({"session": id})).await;
+                    });
+                }
+            }
+        }
+        files.remove(&oldest);
+    }
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PluginInfo {
@@ -174,6 +241,9 @@ struct Inner {
     /// The interface language the host last spoke. Persisted because the tray menu is
     /// built before any window exists, from the language the previous session ended in.
     locale: Locale,
+    /// Where the user left the preview window. Persisted for the same reason `onboarded` is:
+    /// the window is created from it, and the window is created before anything could ask.
+    window: Option<WindowState>,
 }
 
 pub struct Runtime {
@@ -197,6 +267,8 @@ struct StoredState {
     onboarded: bool,
     /// The language tag the host last spoke, absent before anything has chosen one.
     locale: Option<String>,
+    /// The preview window's placement, absent before the user has sized one.
+    window: Option<WindowState>,
 }
 
 fn read_state(root: &Path) -> Result<StoredState, String> {
@@ -250,6 +322,7 @@ impl Runtime {
             activation: state.activation,
             onboarded: state.onboarded,
             locale,
+            window: state.window,
             ..Default::default()
         };
         Ok(Arc::new(Self {
@@ -272,6 +345,7 @@ impl Runtime {
             "activation": inner.activation,
             "onboarded": inner.onboarded,
             "locale": inner.locale.tag(),
+            "window": inner.window,
         }))
         .map_err(|e| e.to_string())?;
         let path = self.root.join("host-state.json");
@@ -316,6 +390,23 @@ impl Runtime {
     /// The interface language the host is speaking.
     pub async fn locale(&self) -> Locale {
         self.inner.lock().await.locale
+    }
+
+    /// Where the user left the preview window, or `None` while nothing has been remembered and
+    /// the window opens at the host's own default.
+    pub async fn window_state(&self) -> Option<WindowState> {
+        self.inner.lock().await.window.clone()
+    }
+
+    /// Remember the preview window's placement for the next run. The host calls this after the
+    /// window stops moving, so a drag is one write rather than one per pixel.
+    pub async fn set_window_state(&self, state: Option<WindowState>) -> Result<(), String> {
+        let mut inner = self.inner.lock().await;
+        if inner.window == state {
+            return Ok(());
+        }
+        inner.window = state;
+        self.persist(&inner)
     }
 
     /// Opaque, bounded navigation state shared only by the same file and data contract.
@@ -539,6 +630,7 @@ impl Runtime {
         inner.warnings.clear();
         inner.removed.clear();
         inner.onboarded = false;
+        inner.window = None;
         // A fresh installation has no package directories either. Anything still locked by
         // a process that has not exited yet stays retired instead, and the collector
         // removes it once that process is gone.
@@ -1133,9 +1225,13 @@ impl Runtime {
     ///
     /// An update does not stack a new revision beside the old one: the installed directory is
     /// swapped for the verified new one, so a machine keeps exactly one copy per plugin. The
-    /// swap is two renames, which is why an update stops the plugin first — Windows will not
-    /// rename a directory with a running executable inside it — and why a crash between the
-    /// two leaves the previous revision recoverable instead of a half-written install.
+    /// swap is two renames, which is why an update stops the plugin first: every plugin is
+    /// started in its own package directory, and Windows will not rename a directory that a
+    /// process has as its working directory. A program the plugin started that outlives the
+    /// plugin -- stopping it does not reach its children -- holds the same directory and blocks
+    /// the swap just as firmly, so a plugin keeps its own helpers elsewhere (see
+    /// `docs/plugins.md`). A crash between the two renames leaves the previous revision
+    /// recoverable instead of a half-written install.
     ///
     /// Whatever was previewing the plugin is cut and put back on the new build. Uncommitted
     /// work is never in scope: an update is refused while the plugin reports any, so nothing a
@@ -1446,6 +1542,8 @@ impl Runtime {
 
     pub async fn reap(&self) {
         let mut inner = self.inner.lock().await;
+        // A parse that finished after the user switched files no longer needs a full idle TTL.
+        trim_completed_files(&mut inner, RECENT_FILES);
         let active_file = inner
             .active
             .as_ref()
@@ -1609,8 +1707,8 @@ pub(crate) fn publish_directory(from: &Path, to: &Path) -> Result<(), String> {
 /// directory aside first means the worst case is a complete previous revision sitting under
 /// `REPLACED_PREFIX`, which `scan` puts back (see `recover_replaced`).
 ///
-/// A caller must stop the plugin first: Windows refuses both renames while its executable
-/// is running.
+/// A caller must stop the plugin first: Windows refuses both renames while a process has the
+/// directory as its working directory, and a plugin is started inside the one it ships in.
 fn swap_directory(from: &Path, to: &Path) -> Result<(), String> {
     let name = to
         .file_name()

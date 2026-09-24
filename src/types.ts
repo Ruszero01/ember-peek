@@ -64,6 +64,15 @@ export type PluginSetting =
       help?: string;
       hidden?: boolean;
       default: string;
+    }
+  | {
+      key: string;
+      /** A path the host picks for the plugin: empty, or an absolute folder. */
+      type: "folder";
+      label: string;
+      help?: string;
+      hidden?: boolean;
+      default: string;
     };
 export type Plugin = {
   tool?: { api: number; service: string } | null;

@@ -74,6 +74,7 @@ export const en = {
 
   "settings.increase": "Increase {label}",
   "settings.decrease": "Decrease {label}",
+  "settings.browse": "Browse…",
 
   "appearance.title": "Appearance",
   "appearance.subtitle": "Interface theme",
@@ -202,6 +203,8 @@ export const en = {
   "view.panelNoSession":
     "A panel cannot change session state or the document; leave that to the plugin view",
   "view.onlyPrimaryNavigates": "Only the primary view owns navigation state",
+  "view.onlyPrimaryPrepares": "Only the primary view can state a window size",
+  "view.invalidPrepare": "Invalid window size declaration",
   "view.invalidPending": "Invalid pending flag",
   "view.invalidMethod": "Invalid method",
   "view.invalidReadRange": "Invalid file read range",

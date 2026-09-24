@@ -66,6 +66,7 @@ export const zhCN: Catalog = {
 
   "settings.increase": "增大{label}",
   "settings.decrease": "减小{label}",
+  "settings.browse": "浏览…",
 
   "appearance.title": "外观",
   "appearance.subtitle": "界面主题",
@@ -178,6 +179,8 @@ export const zhCN: Catalog = {
   "view.tooManyRequests": "插件请求过多或请求 ID 无效",
   "view.panelNoSession": "浮层不能改动会话状态或文档，请交给插件视图",
   "view.onlyPrimaryNavigates": "只有主视图拥有导航状态",
+  "view.onlyPrimaryPrepares": "只有主视图能声明窗口尺寸",
+  "view.invalidPrepare": "窗口尺寸声明无效",
   "view.invalidPending": "未提交变更标志无效",
   "view.invalidMethod": "方法无效",
   "view.invalidReadRange": "文件读取范围无效",

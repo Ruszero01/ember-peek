@@ -9,7 +9,10 @@ import {
   onTheme,
   translate,
   onLocale,
+  prepare,
+  hostWindow,
 } from "./sdk.js";
+import { fitGeometry, sameShape } from "./framing.js";
 
 const { data } = await ready;
 const image = document.querySelector("img");
@@ -40,9 +43,23 @@ let zoom = 1,
   y = 0,
   fitting = true,
   drag;
-// Whether the user has zoomed or panned this session. Kept apart from `fitting`
+// Whether the user has zoomed, panned or resized this session. Kept apart from `fitting`
 // because clicking "fit the window" is an interaction that still wants resize to re-fit.
 let touched = false;
+/** The picture's own size in pixels, from the header the native half read while opening the
+ *  file. Absent for a drawing with no intrinsic size, which is a picture this plugin shows in
+ *  the window it was given. */
+const pixels = data?.dimensions;
+/** Whether the window is meant to be the picture. The preference is the plugin's whole
+ *  interaction — no control on the toolbar, because opening the image is when it applies. */
+let framing = configuration().frameWindow !== false;
+/** What the host draws inside the preview window that is not this view: the two chrome bars in
+ *  the normal viewport, nothing at all in immersive mode. Measured rather than assumed: the
+ *  view knows its own rectangle, and the host told it the window it sits in. */
+const chrome = {
+  width: Math.max(0, hostWindow().currentWidth - innerWidth),
+  height: Math.max(0, hostWindow().currentHeight - innerHeight),
+};
 let publishedZoom;
 const EDGE_PEEK = 56;
 const RUBBER_BAND = 0.22;
@@ -110,7 +127,7 @@ function publishControls() {
       id: "fit",
       kind: "button",
       label: say("fit"),
-      icon: "fit",
+      icon: "maximize-2",
       run() {
         touched = true;
         fit();
@@ -120,7 +137,7 @@ function publishControls() {
       id: "actual",
       kind: "button",
       label: say("actual"),
-      icon: "actual",
+      icon: "scan",
       run() {
         touched = true;
         fitting = false;
@@ -131,6 +148,20 @@ function publishControls() {
     },
   ]);
 }
+/** Whether the rectangle this view was given is the picture's own shape, which is the one case
+ *  where the picture reaches every edge. Measured from the viewport rather than remembered from
+ *  the preparation: a window is the user's to resize, and the moment it is not the picture's
+ *  shape any more the picture is fitted inside it instead of being stretched across it. */
+function framed() {
+  if (!framing || !image.naturalWidth || !image.naturalHeight) return false;
+  // Compare the dimension rounded by the preparation. On a tall image, a half-pixel rounding
+  // of its narrow width can mean several pixels along its height; testing the height instead
+  // incorrectly turns an exactly framed portrait back into a padded "fit" view.
+  return sameShape(
+    { width: innerWidth, height: innerHeight },
+    { width: image.naturalWidth, height: image.naturalHeight },
+  );
+}
 function paint() {
   publishControls();
   image.style.transform = `translate(${x}px,${y}px) scale(${zoom})`;
@@ -138,17 +169,61 @@ function paint() {
     `${image.naturalWidth} × ${image.naturalHeight} · ${Math.round(zoom * 100)}%`,
   );
 }
+/** Fill the rectangle the host gave this view: the picture is scaled to it, so it reaches every
+ * edge and the window ends up being the picture. The larger of the two ratios wins because the
+ * host's size is whole pixels — covering the fraction it can be off by is what makes the edge
+ * disappear, and the sliver cropped by it is not visible. */
+function fill(width = innerWidth, height = innerHeight) {
+  fitting = false;
+  zoom = Math.max(width / image.naturalWidth, height / image.naturalHeight);
+  x = 0;
+  y = 0;
+  paint();
+}
+/** What this plugin states during its preparation: the window size that shows the picture at
+ *  the size the user's own window has. The picture's longest edge is matched to the room there
+ *  is and the other edge follows, so a tall picture is not turned into a window taller than the
+ *  screen and a picture is never asked for at its own pixel size. The chrome the host draws in
+ *  the window is added back, because what was fitted is this view's rectangle, not the window.
+ *
+ *  The host applies it while the window is still hidden and then shows it, so the picture is
+ *  already filling the window the first time the user sees it. */
+function preparedWindow() {
+  const room = {
+    width: Math.max(1, hostWindow().width - chrome.width),
+    height: Math.max(1, hostWindow().height - chrome.height),
+  };
+  const viewport =
+    pixels.width >= pixels.height
+      ? {
+          width: room.width,
+          height: (room.width * pixels.height) / pixels.width,
+        }
+      : {
+          width: (room.height * pixels.width) / pixels.height,
+          height: room.height,
+        };
+  return {
+    width: Math.round(viewport.width + chrome.width),
+    height: Math.round(viewport.height + chrome.height),
+  };
+}
 function fit() {
   const css = getComputedStyle(document.documentElement);
   const top = parseFloat(css.getPropertyValue("--safe-top")) || 0;
   const bottom = parseFloat(css.getPropertyValue("--safe-bottom")) || 0;
-  zoom = Math.min(
-    1,
-    Math.max(1, innerWidth - 32) / image.naturalWidth,
-    Math.max(1, innerHeight - top - bottom) / image.naturalHeight,
+  const mode = css.getPropertyValue("--viewport-mode").trim();
+  const windowViewport = mode === "window" ||
+    (mode === "" && chrome.width === 0 && chrome.height === 0);
+  const fitted = fitGeometry(
+    { width: innerWidth, height: innerHeight },
+    { width: image.naturalWidth, height: image.naturalHeight },
+    { top, bottom },
+    windowViewport,
   );
+  zoom = fitted.zoom;
   x = 0;
-  y = (top - bottom) / 2;
+  y = fitted.y;
   fitting = true;
   paint();
 }
@@ -171,15 +246,41 @@ function scale(factor) {
   paint();
 }
 try {
+  // The host is holding the window back until this view prepares or reports ready, so the size
+  // is stated before anything is decoded: the header the native half read is enough to know it,
+  // and the picture itself is loaded afterwards without the user watching a window change size.
+  // The preference is a setting rather than a control of the plugin's own: opening an image is
+  // the whole interaction, and turning it off happens in the settings page.
+  if (framing && pixels) {
+    try {
+      await prepare({ window: preparedWindow() });
+    } catch (error) {
+      // A host that does not understand a preparation is a host that shows the window itself,
+      // and the picture is then fitted inside the window it was given.
+      status(String(error?.message ?? error));
+    }
+  } else {
+    // The setting is off, or this drawing has no intrinsic dimensions. Release the host's
+    // preparation hold immediately instead of making it wait for the full image decode.
+    await prepare();
+  }
   image.src = fileUrl();
   await image.decode();
   message.remove();
   applyDefaultView();
+  if (framed()) fill();
   onTheme(() => {
     if (fitting) fit();
   });
   onSettings(() => {
-    if (!touched) applyDefaultView();
+    // A setting reaches the window in use only as far as the view's own rendering goes: the
+    // host sizes a window when it opens it, and this one is already open, so turning the
+    // preference on here re-renders the picture rather than resizing what the user is looking
+    // at. The next image opens to the new preference.
+    framing = configuration().frameWindow !== false;
+    if (touched) return;
+    if (framing && framed()) return fill();
+    applyDefaultView();
   });
   onLocale(() => {
     // The toolbar labels are this plugin's own text: republish them even when the zoom
@@ -188,6 +289,13 @@ try {
     publishControls();
   });
   addEventListener("resize", () => {
+    // The host applies the prepared size before it shows the window, so a resize the view sees
+    // is either the user's own or that one being applied. Both are answered the same way: the
+    // picture fills the rectangle if it is the picture's shape, and is fitted into it if not.
+    if (!touched && framed()) {
+      fill();
+      return;
+    }
     if (fitting) fit();
     else settlePan();
   });

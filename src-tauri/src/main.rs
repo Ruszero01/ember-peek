@@ -5,6 +5,7 @@ mod credentials;
 mod desktop;
 #[cfg(windows)]
 mod explorer;
+mod framing;
 mod icons;
 mod libraries;
 mod local_packages;
@@ -512,8 +513,37 @@ async fn file_changed(
 }
 
 #[tauri::command]
-async fn complete_view(host: Host<'_>, id: String, error: Option<String>) -> Result<(), String> {
-    host.complete_view(&id, error).await
+async fn complete_view(
+    app: tauri::AppHandle,
+    host: Host<'_>,
+    id: String,
+    error: Option<String>,
+) -> Result<(), String> {
+    let result = host.complete_view(&id, error).await;
+    // A view that reports ready without preparing is a window that has nothing to wait for: a
+    // plugin with no sizes to state, or one whose content has none.
+    desktop::reveal(&app, &id);
+    result
+}
+
+/// What a plugin's view states during its preparation, before the host shows the preview
+/// window. The window is built but not yet on screen, so what arrives here is in place the
+/// first time the user sees it — and nothing here is a fact about the window afterwards: a
+/// declared size is never written down as the user's own.
+#[tauri::command]
+async fn prepare_view(
+    app: tauri::AppHandle,
+    id: String,
+    window: Option<Value>,
+) -> Result<(), String> {
+    let declared = window.as_ref().and_then(|window| {
+        Some((
+            window.get("width")?.as_f64()?,
+            window.get("height")?.as_f64()?,
+        ))
+    });
+    desktop::prepared(&app, &id, declared);
+    Ok(())
 }
 
 #[tauri::command]
@@ -961,11 +991,19 @@ fn main() {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![open_workshop, icon_data, tool_call, view_state, market_list, market_refresh, market_prepare, market_install, snapshot, refresh_plugins, open_file, desktop::select_preview, desktop::return_view, desktop::desktop_snapshot, desktop::show_settings, desktop::open_in_default_app, session_data, source_data, source_call, set_pending, plugin_mutate, authorize_clipboard, file_changed, complete_view, complete_onboarding, plugin_call, read_file, set_enabled, set_activation, reorder_plugins, uninstall_plugin, plugin_settings, set_plugin_setting, pick_path, prepare_plugin, install_plugin, set_locale])
+        .invoke_handler(tauri::generate_handler![open_workshop, icon_data, tool_call, view_state, market_list, market_refresh, market_prepare, market_install, snapshot, refresh_plugins, open_file, desktop::select_preview, desktop::return_view, desktop::desktop_snapshot, desktop::show_settings, desktop::open_in_default_app, desktop::window_basis, prepare_view, session_data, source_data, source_call, set_pending, plugin_mutate, authorize_clipboard, file_changed, complete_view, complete_onboarding, plugin_call, read_file, set_enabled, set_activation, reorder_plugins, uninstall_plugin, plugin_settings, set_plugin_setting, pick_path, prepare_plugin, install_plugin, set_locale])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
                 desktop::hide(window.app_handle(), window.label());
+            }
+            // Where the user puts a window is remembered from the events that move it, not
+            // from a shutdown path: the host closes by hiding windows and may be killed
+            // outright, so a window that is never "closed" still has a placement to restore.
+            match event {
+                tauri::WindowEvent::Resized(_) => desktop::remember(window, true),
+                tauri::WindowEvent::Moved(_) => desktop::remember(window, false),
+                _ => {}
             }
         })
         .build(tauri::generate_context!())

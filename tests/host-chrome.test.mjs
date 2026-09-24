@@ -119,3 +119,19 @@ test("every plugin that renders a video opts out of the system compositing plane
   }
   assert.deepEqual(offenders, [], `these plugins render a video without opting out of the system plane: ${offenders.join(", ")}`);
 });
+
+test("a frame that renders a plugin document hands it the autoplay permission", async () => {
+  // A cross-origin frame has no `autoplay` of its own, so a plugin whose view opens a video is
+  // left waiting for a gesture the page never provides (docs/plugins.md, the view is one web
+  // page at a time). The host grants that one permission and nothing else.
+  const offenders = [];
+  for (const name of await readdir(join(root, "src"))) {
+    if (!name.endsWith(".tsx")) continue;
+    const source = await readFile(join(root, "src", name), "utf8");
+    for (const frame of source.match(/<iframe[\s\S]*?\/>/g) || []) {
+      if (!/sandbox="allow-scripts"/.test(frame)) continue;
+      if (!/allow="autoplay"/.test(frame)) offenders.push(name);
+    }
+  }
+  assert.deepEqual(offenders, [], `these frames render a plugin document without autoplay: ${offenders.join(", ")}`);
+});

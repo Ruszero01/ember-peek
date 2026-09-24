@@ -51,6 +51,7 @@ pub enum SettingKind {
     Number,
     Select,
     Text,
+    Folder,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -189,6 +190,7 @@ impl Setting {
                 .map(|option| Value::String(option.value.clone()))
                 .unwrap_or(Value::Null),
             SettingKind::Text => Value::String(String::new()),
+            SettingKind::Folder => Value::String(String::new()),
         }
     }
 
@@ -237,6 +239,22 @@ impl Setting {
                     return Err(msg!(text().coerce_text_too_long, key = self.key));
                 }
                 Ok(Value::String(content.to_owned()))
+            }
+            // A folder is a path a native process has to be able to use as it stands, so only
+            // an empty string (keep whatever the plugin defaults to) or an absolute path are
+            // accepted. A relative one would silently resolve against whatever directory the
+            // plugin process happened to start in.
+            SettingKind::Folder => {
+                let path = value
+                    .as_str()
+                    .ok_or_else(|| msg!(text().coerce_folder, key = self.key))?;
+                if path.chars().count() > 4096 {
+                    return Err(msg!(text().coerce_text_too_long, key = self.key));
+                }
+                if !path.is_empty() && !Path::new(path).is_absolute() {
+                    return Err(msg!(text().coerce_folder_absolute, key = self.key));
+                }
+                Ok(Value::String(path.to_owned()))
             }
         }
     }
@@ -387,6 +405,13 @@ pub struct Manifest {
     pub capabilities: Vec<Capability>,
     #[serde(default)]
     pub overlay: Option<OverlaySize>,
+    /// The plugin takes part in the preparation phase: the host builds the preview window but
+    /// does not show it until this plugin's view has reported ready, which is also when the
+    /// view may state what it needs the window to be. So the window is never shown at one size
+    /// and changed under the user's eyes. Its position is not the plugin's to state: that stays
+    /// the host's, and so does the size the user chose for themselves.
+    #[serde(default)]
+    pub prepare: bool,
     #[serde(default)]
     pub activation: Activation,
     #[serde(default)]
@@ -644,6 +669,9 @@ impl Package {
         if manifest.has(Capability::Overlay) != manifest.overlay.is_some() {
             return Err("Overlay capability requires an overlay size declaration".into());
         }
+        if manifest.prepare && !manifest.has(Capability::View) {
+            return Err("A plugin that prepares before the window is shown must own a view".into());
+        }
         if let Some(size) = &manifest.overlay {
             if !(120..=1600).contains(&size.width) || !(24..=1200).contains(&size.height) {
                 return Err("Overlay content size must be 120..1600 by 24..1200 CSS pixels".into());
@@ -864,6 +892,8 @@ mod tests {
             json!([{"key": "s", "type": "select", "label": "S", "options": [
                 {"value": "a", "label": "A"}, {"value": "a", "label": "B"}
             ]}]),
+            // A folder that would resolve against the plugin process at run time.
+            json!([{"key": "d", "type": "folder", "label": "D", "default": "frames"}]),
         ];
         for case in cases {
             let manifest = manifest_with(case.clone());
@@ -876,6 +906,27 @@ mod tests {
             {"key": "good_key-1", "type": "bool", "label": "Good"}
         ]));
         assert!(validate_settings(&ok.settings).is_ok());
+    }
+
+    /// A folder setting is the one path the host hands to a native process, so it accepts
+    /// the two shapes a declaration can promise and refuses the rest.
+    #[test]
+    fn a_folder_setting_is_empty_or_absolute() {
+        let manifest = manifest_with(json!([
+            {"key": "d", "type": "folder", "label": "D"}
+        ]));
+        assert!(validate_settings(&manifest.settings).is_ok());
+        let folder = &manifest.settings[0];
+        assert_eq!(folder.default_value(), json!(""));
+        assert_eq!(folder.coerce(&json!("")).unwrap(), json!(""));
+        let absolute = if cfg!(windows) {
+            r"C:\Frames"
+        } else {
+            "/frames"
+        };
+        assert_eq!(folder.coerce(&json!(absolute)).unwrap(), json!(absolute));
+        assert!(folder.coerce(&json!("frames")).is_err());
+        assert!(folder.coerce(&json!(7)).is_err());
     }
 
     /// A manifest with the given settings and language table, loaded the way a package is.
@@ -1167,5 +1218,36 @@ mod tests {
         .is_err());
         assert!(load_with_capabilities(json!(["view"]), None).is_ok());
         assert!(load_with_capabilities(json!(["controls"]), None).is_ok());
+    }
+
+    #[test]
+    fn preparing_before_the_window_is_shown_needs_a_view_to_show() {
+        // The preparation exists to size the window a view is about to appear in, so a plugin
+        // with no view has nothing to prepare. Anything else is accepted, and a package that
+        // never mentions it prepares nothing.
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::write(directory.path().join("worker.exe"), "").unwrap();
+        std::fs::create_dir_all(directory.path().join("ui")).unwrap();
+        std::fs::write(directory.path().join("ui/index.html"), "").unwrap();
+        let write = |prepare: bool, capabilities: Value| {
+            let mut value = json!({
+                "api": 1,
+                "id": "test.plugin",
+                "name": "test",
+                "version": "1.0.0",
+                "extensions": ["png"],
+                "executable": "worker.exe",
+                "entry": "ui/index.html",
+                "capabilities": capabilities,
+            });
+            if prepare {
+                value["prepare"] = json!(true);
+            }
+            std::fs::write(directory.path().join("plugin.json"), value.to_string()).unwrap();
+            Package::load(directory.path()).map(|package| package.manifest)
+        };
+        assert!(write(true, json!(["view"])).unwrap().prepare);
+        assert!(!write(false, json!(["view"])).unwrap().prepare);
+        assert!(write(true, json!(["controls"])).is_err());
     }
 }

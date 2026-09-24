@@ -32,6 +32,7 @@ test('file and related-resource helpers use the initialized session safely',asyn
  };
  port1.start();
  browserListeners.get('message')({source:parentWindow,data:{type:'ember:connect'},ports:[port2]});
+ try {
  await sdk.ready;
  const blob=await sdk.fileBlob();
  assert.equal(blob.size,bytes.length);
@@ -51,7 +52,9 @@ test('file and related-resource helpers use the initialized session safely',asyn
  assert.equal(resource.type,'image/png');
  assert.deepEqual(Buffer.from(await resource.arrayBuffer()),Buffer.from([1,2,3]));
  globalThis.fetch=originalFetch;
- port1.close();port2.close();
+ } finally {
+  port1.close();port2.close();
+ }
 });
 
 test('replacing a view channel rejects work left on the old port',async()=>{
@@ -63,12 +66,46 @@ test('replacing a view channel rejects work left on the old port',async()=>{
  };
  first.port1.start();
  browserListeners.get('message')({source:parentWindow,data:{type:'ember:connect'},ports:[first.port2]});
- await sdk.ready;
- const stranded=sdk.call('never-answers');
  const second=new MessageChannel();
- second.port1.onmessage=()=>{};
- second.port1.start();
- browserListeners.get('message')({source:parentWindow,data:{type:'ember:connect'},ports:[second.port2]});
- await assert.rejects(stranded,/connection was replaced/i);
- first.port1.close();first.port2.close();second.port1.close();second.port2.close();
+ try {
+  await sdk.ready;
+  const stranded=sdk.call('never-answers');
+  second.port1.onmessage=()=>{};
+  second.port1.start();
+  browserListeners.get('message')({source:parentWindow,data:{type:'ember:connect'},ports:[second.port2]});
+  await assert.rejects(stranded,/connection was replaced/i);
+ } finally {
+  first.port1.close();first.port2.close();second.port1.close();second.port2.close();
+ }
+});
+
+test('a view prepares the window it is about to be shown in',async()=>{
+ const {sdk,browserListeners,parentWindow}=await sdkPage('prepare');
+ const {port1,port2}=new MessageChannel();
+ const requests=[];
+ port1.onmessage=event=>{
+  const message=event.data;
+  if(message.type==='connected'){
+   // A previous picture may have left the actual window narrow. The user baseline is separate.
+   port1.postMessage({type:'init',session:'prepare',file:{name:'a.png',size:10},theme:{},locale:'en',settings:{},window:{width:1060,height:740,currentWidth:640,currentHeight:740}});
+  }else if(message.type==='request'){
+   requests.push(message);
+   // Nothing comes back from a preparation: it is a statement about the window, and whether the
+   // host could apply all of it is visible in the viewport itself.
+   port1.postMessage({type:'reply',id:message.id,value:null});
+  }
+ };
+ port1.start();
+ try {
+  browserListeners.get('message')({source:parentWindow,data:{type:'ember:connect'},ports:[port2]});
+  await sdk.ready;
+  // A preparation is answered before the view is on screen, so it is awaited rather than fired.
+  assert.deepEqual(sdk.hostWindow(),{width:1060,height:740,currentWidth:640,currentHeight:740});
+  await sdk.prepare({window:{width:1060,height:795}});
+  assert.deepEqual(requests.map(({method,params})=>[method,params]),[['prepare',{window:{width:1060,height:795}}]]);
+ } finally {
+  // A channel left open would keep the whole test run alive, which is exactly how a failing
+  // assertion in here once looked like a hung suite.
+  port1.close();port2.close();
+ }
 });

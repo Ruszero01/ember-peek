@@ -1,8 +1,8 @@
 {
-  "summary": "支持缩放、适应窗口和拖动。",
+  "summary": "支持缩放、适应窗口、拖动，以及把窗口对齐成图片的形状。",
   "i18n": {
     "en": {
-      "summary": "Zoom, fit-to-window and panning."
+      "summary": "Zoom, fit-to-window, panning, and a window shaped like the image."
     }
   },
   "publisher": "Ember Peek",

@@ -1,5 +1,5 @@
 #![cfg(feature = "test-worker")]
-use ember_runtime::Runtime;
+use ember_runtime::{Runtime, WindowState};
 use serde_json::json;
 use std::{
     path::Path,
@@ -136,6 +136,160 @@ async fn switching_types_does_not_cancel_loading_and_idle_workers_are_collected(
     let snapshot = runtime.snapshot().await;
     assert!(snapshot.sessions.is_empty());
     assert!(snapshot.plugins.iter().all(|p| p.process_ids.is_empty()));
+    runtime.shutdown().await;
+}
+
+#[tokio::test]
+async fn completed_files_form_a_recent_four_file_window_instead_of_exhausting_slots() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("installed");
+    package(&root.join("one"), "test.one", "one");
+    let runtime = Runtime::new(root).unwrap();
+    runtime.scan().await.unwrap();
+    let mut opened = Vec::new();
+    for index in 0..20 {
+        let path = temp.path().join(format!("file-{index}.one"));
+        std::fs::write(&path, format!("file {index}")).unwrap();
+        let session = runtime.open(path.clone()).await.unwrap();
+        runtime.activate(Some(session.id.clone())).await.unwrap();
+        ready(&runtime, &session.id).await;
+        let snapshot = runtime.snapshot().await;
+        assert!(snapshot.sessions.len() <= 4, "completed files accumulated");
+        opened.push((path, session.id));
+    }
+    let recent = runtime.open(opened[17].0.clone()).await.unwrap();
+    assert_eq!(recent.id, opened[17].1, "a recent parse should be reused");
+    let old = runtime.open(opened[0].0.clone()).await.unwrap();
+    assert_ne!(old.id, opened[0].1, "the oldest parse should be replaced");
+    runtime.activate(Some(old.id.clone())).await.unwrap();
+    ready(&runtime, &old.id).await;
+    assert!(runtime.snapshot().await.sessions.len() <= 4);
+    runtime.shutdown().await;
+}
+
+#[tokio::test]
+async fn sliding_window_retires_every_contribution_of_a_file_together() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("installed");
+    package(&root.join("alpha"), "test.alpha", "one");
+    package(&root.join("beta"), "test.beta", "one");
+    let runtime = Runtime::new(root).unwrap();
+    runtime.scan().await.unwrap();
+    let mut first_file = String::new();
+    for index in 0..5 {
+        let path = temp.path().join(format!("file-{index}.one"));
+        std::fs::write(&path, "content").unwrap();
+        let selected = runtime.open(path).await.unwrap();
+        if index == 0 {
+            first_file = selected.file_id.clone();
+        }
+        runtime.activate(Some(selected.id.clone())).await.unwrap();
+        let group: Vec<_> = runtime
+            .snapshot()
+            .await
+            .sessions
+            .into_iter()
+            .filter(|session| session.file_id == selected.file_id)
+            .collect();
+        assert_eq!(group.len(), 2);
+        for session in group {
+            ready(&runtime, &session.id).await;
+        }
+    }
+    let sessions = runtime.snapshot().await.sessions;
+    assert_eq!(sessions.len(), 8);
+    assert!(sessions.iter().all(|session| session.file_id != first_file));
+    runtime.shutdown().await;
+}
+
+#[tokio::test]
+async fn unsaved_file_group_survives_the_sliding_window_until_its_edit_is_cleared() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("installed");
+    package(&root.join("one"), "test.one", "one");
+    let runtime = Runtime::new(root).unwrap();
+    runtime.scan().await.unwrap();
+    let draft_path = temp.path().join("draft.one");
+    std::fs::write(&draft_path, "draft").unwrap();
+    let draft = runtime.open(draft_path).await.unwrap();
+    runtime.activate(Some(draft.id.clone())).await.unwrap();
+    ready(&runtime, &draft.id).await;
+    runtime
+        .set_pending(&draft.id, true, Some("unsaved edit".into()))
+        .await
+        .unwrap();
+    for index in 0..6 {
+        let path = temp.path().join(format!("other-{index}.one"));
+        std::fs::write(&path, "other").unwrap();
+        let session = runtime.open(path).await.unwrap();
+        runtime.activate(Some(session.id.clone())).await.unwrap();
+        ready(&runtime, &session.id).await;
+    }
+    assert!(runtime
+        .snapshot()
+        .await
+        .sessions
+        .iter()
+        .any(|s| s.id == draft.id));
+    runtime.set_pending(&draft.id, false, None).await.unwrap();
+    let replacement = temp.path().join("replacement.one");
+    std::fs::write(&replacement, "replacement").unwrap();
+    let replacement = runtime.open(replacement).await.unwrap();
+    runtime
+        .activate(Some(replacement.id.clone()))
+        .await
+        .unwrap();
+    ready(&runtime, &replacement.id).await;
+    assert!(runtime
+        .snapshot()
+        .await
+        .sessions
+        .iter()
+        .all(|s| s.id != draft.id));
+    runtime.shutdown().await;
+}
+
+#[tokio::test]
+async fn an_unfinished_background_parse_is_reused_then_replaced_after_completion() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("installed");
+    package(&root.join("one"), "test.one", "one");
+    let runtime = Runtime::new(root).unwrap();
+    runtime.scan().await.unwrap();
+    let held_path = temp.path().join("held.one");
+    std::fs::write(&held_path, "held").unwrap();
+    let held = runtime.open(held_path.clone()).await.unwrap();
+    runtime.activate(Some(held.id.clone())).await.unwrap();
+    assert_eq!(runtime.open(held_path.clone()).await.unwrap().id, held.id);
+    for index in 0..6 {
+        let path = temp.path().join(format!("quick-{index}.one"));
+        std::fs::write(&path, "quick").unwrap();
+        let session = runtime.open(path).await.unwrap();
+        runtime.activate(Some(session.id.clone())).await.unwrap();
+        ready(&runtime, &session.id).await;
+    }
+    assert!(runtime
+        .snapshot()
+        .await
+        .sessions
+        .iter()
+        .any(|s| s.id == held.id));
+    std::fs::write(held_path.with_extension("go"), "release").unwrap();
+    ready(&runtime, &held.id).await;
+    let replacement = temp.path().join("after.one");
+    std::fs::write(&replacement, "after").unwrap();
+    let replacement = runtime.open(replacement).await.unwrap();
+    runtime
+        .activate(Some(replacement.id.clone()))
+        .await
+        .unwrap();
+    ready(&runtime, &replacement.id).await;
+    assert!(runtime
+        .snapshot()
+        .await
+        .sessions
+        .iter()
+        .all(|s| s.id != held.id));
     runtime.shutdown().await;
 }
 
@@ -1082,4 +1236,43 @@ async fn a_superseded_revision_is_retired_on_the_next_scan() {
     runtime.reap().await;
     assert_eq!(installed_dirs(&root), vec![newer]);
     runtime.shutdown().await;
+}
+
+#[tokio::test]
+async fn the_window_placement_is_remembered_across_runs() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("installed");
+    let runtime = Runtime::new(root.clone()).unwrap();
+    // Nothing remembered yet is the answer the host uses to open its default, centered window.
+    assert_eq!(runtime.window_state().await, None);
+
+    // A negative x and a size below the default are what a window on a second monitor to the
+    // left looks like: the placement is the user's, not a value this host would have chosen.
+    let placement = WindowState {
+        x: -1200,
+        y: 40,
+        width: 820,
+        height: 1040,
+        maximized: false,
+    };
+    runtime
+        .set_window_state(Some(placement.clone()))
+        .await
+        .unwrap();
+    let state: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(root.join("host-state.json")).unwrap()).unwrap();
+    assert_eq!(
+        state["window"],
+        json!({"x": -1200, "y": 40, "width": 820, "height": 1040, "maximized": false})
+    );
+    runtime.shutdown().await;
+
+    // The next run opens where the user left it.
+    let restarted = Runtime::new(root.clone()).unwrap();
+    assert_eq!(restarted.window_state().await, Some(placement));
+
+    // A reset to first launch forgets it, the same as it forgets the plugins and the language.
+    restarted.reset_to_first_launch().await.unwrap();
+    assert_eq!(restarted.window_state().await, None);
+    restarted.shutdown().await;
 }

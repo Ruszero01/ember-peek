@@ -30,6 +30,7 @@ Windows 11 的插件式文件预览器。宿主（Rust + React）刻意与文件
 | [docs/specs/plugin-capabilities.md](docs/specs/plugin-capabilities.md) | `api:1` 基线协议：`capabilities` + `entry`、共享源、槽位、界面归属（视口只放渲染内容） | 改协议或插件与宿主的分工时 |
 | [docs/specs/text-plugins.md](docs/specs/text-plugins.md) | 文本插件族（预览 / 代码 / Markdown / 编辑器）与共享文本组件 | 动这类插件或共享视图时 |
 | [docs/specs/plugin-workshop-v1.md](docs/specs/plugin-workshop-v1.md) | AI 插件工坊第一版方案与界面修订 | 改工坊时 |
+| [docs/specs/window-preparation.md](docs/specs/window-preparation.md) | 预览窗口的准备阶段与尺寸：显示前定尺寸、位置归用户、临时尺寸不持久化 | 碰预览窗口尺寸或插件声明窗口时 |
 | [docs/testing.md](docs/testing.md) | 自动化分层 + 需要手动跑的 Windows 验收矩阵 | 判断某处能否自动验证时 |
 | [docs/windows-desktop.md](docs/windows-desktop.md) | 托盘、窗口、Explorer 集成，发布工作流与安装包 | 改原生层或发布流程时 |
 | [docs/oss-distribution.md](docs/oss-distribution.md) | 官方插件发布：GitHub 源码 + OSS 分发，凭据放哪 | 碰发布脚本或插件源时 |
@@ -53,7 +54,7 @@ npm run plugins:build     # 只重建插件包（--watch 持续重建）
 ```
 
 - Rust 门禁是 `npm run format:check`（rustfmt）与 `npm run lint`（全 workspace、全 target/feature 的 Clippy，warning 即失败）。
-- 版本用 `npm run version:set -- <版本>` 同步、`npm run version:check` 校验；插件版本独立，改动过的包要自己升 SemVer。
+- 版本用 `npm run version:set -- <版本>` 同步、`npm run version:check` 校验；插件版本独立，但在首次正式发布之前一律停在 `0.1.0` 基线，不随每次改动自增，发布时才升（见 [CONTRIBUTING.md](CONTRIBUTING.md) 的版本规则）。
 - `dist/`、`.marketplace/`、`.plugins/`、`target/`、`.env` 一律不提交。
 
 ## 边界与硬规则
