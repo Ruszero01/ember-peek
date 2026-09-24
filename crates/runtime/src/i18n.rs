@@ -145,7 +145,8 @@ text! {
     dialog_reset_failed: "无法重置为首次启动", "Could not reset to first launch";
     dialog_pending_title: "有未保存的编辑", "Unsaved edits";
     dialog_pending_note: "退出将丢弃所有未保存的编辑，是否继续？", "Quitting discards every unsaved edit. Continue?";
-    dialog_pick_plugin_folder: "选择可信的插件包目录", "Choose a plugin package folder you trust";
+    dialog_pick_folder: "选择目录", "Choose a folder";
+    dialog_pick_package: "选择插件包", "Choose a plugin package";
     dialog_pick_file: "打开文件", "Open file";
     dev_source_name: "开发镜像", "Development mirror";
 

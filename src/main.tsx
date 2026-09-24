@@ -463,7 +463,7 @@ function PluginSettingsPane({ plugin }: { plugin: Plugin | undefined }) {
                 busy={busy || !plugin.enabled}
                 onChange={(value) => void change(setting.key, value)}
                 onPickFolder={() =>
-                  void call<string | null>("pick_path", { folder: true })
+                  void call<string | null>("pick_path", { kind: "folder" })
                     .then((path) => {
                       if (path) return change(setting.key, path);
                     })
@@ -567,6 +567,9 @@ function App() {
   const [busy, setBusy] = useState(false);
   const [filter, setFilter] = useState("");
   const [pluginTab, setPluginTab] = useState<string>("market");
+  // A package on its way in from outside the window. The list says where it would land,
+  // so the drop is not a guess about what the release would do.
+  const [packageDrag, setPackageDrag] = useState(false);
   const [toolPageRevision, setToolPageRevision] = useState(0);
   const [hot, setHot] = useState("");
   const [scrubbingControl, setScrubbingControl] = useState(false);
@@ -974,7 +977,7 @@ function App() {
   }
   async function pick() {
     await guard(async () => {
-      const path = await call<string | null>("pick_path", { folder: false });
+      const path = await call<string | null>("pick_path", { kind: "file" });
       if (path) await open(path);
     });
   }
@@ -998,6 +1001,17 @@ function App() {
     }
   };
   const shortcut = useCallback((key: string) => shortcutRef.current(key), []);
+  // A dropped package takes the path a picked one does, and the plugin list is the one
+  // page that takes it. The drag listener below is bound once while both of those move,
+  // so it reads them from refs — the shape the shortcuts above already use.
+  const acceptsPackage = useRef(false);
+  acceptsPackage.current =
+    page === "plugins" && (pluginTab === "market" || pluginTab === "installed");
+  const dropPackage = useRef<(path: string) => void>(() => {});
+  dropPackage.current = (path) =>
+    void manage(async () => {
+      await prepare(path);
+    });
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key === "o") {
@@ -1028,20 +1042,35 @@ function App() {
     let disposed = false;
     // A file dropped on a tool page belongs to that page as a path; dropping one anywhere
     // else in the preview window opens it. The settings window has no other drop target,
-    // so a file dropped on its own chrome is ignored instead of previewed.
+    // so a file dropped on its own chrome is ignored instead of previewed — except on the
+    // plugin list, where a package installs the way a picked one does.
     if (desktop)
       void getCurrentWindow()
         .onDragDropEvent((event) => {
+          const payload = event.payload;
           const accepts = document.querySelector('.tool-page[data-tool-drop="enabled"]');
-          if (!accepts) {
-            if (!settingsWindow && event.payload.type === "drop" && event.payload.paths[0])
-              void open(event.payload.paths[0]);
+          if (accepts) {
+            if (payload.type === "drop")
+              window.dispatchEvent(new CustomEvent("ember-tool-drop", { detail: payload.paths }));
+            else if (payload.type === "enter" || payload.type === "leave")
+              window.dispatchEvent(new CustomEvent("ember-tool-drag", { detail: payload.type }));
             return;
           }
-          if (event.payload.type === "drop")
-            window.dispatchEvent(new CustomEvent("ember-tool-drop", { detail: event.payload.paths }));
-          else if (event.payload.type === "enter" || event.payload.type === "leave")
-            window.dispatchEvent(new CustomEvent("ember-tool-drag", { detail: event.payload.type }));
+          // Only an archive is a package, wherever it lands. Everything else keeps its
+          // old answer: the preview window opens the file, the settings window says
+          // nothing at all.
+          const dropped =
+            payload.type === "enter" || payload.type === "drop"
+              ? payload.paths.find((path) => path.toLowerCase().endsWith(".zip"))
+              : undefined;
+          if (payload.type === "enter")
+            setPackageDrag(!!dropped && acceptsPackage.current);
+          else if (payload.type === "leave") setPackageDrag(false);
+          else if (payload.type === "drop") {
+            setPackageDrag(false);
+            if (dropped && acceptsPackage.current) dropPackage.current(dropped);
+            else if (!settingsWindow && payload.paths[0]) void open(payload.paths[0]);
+          }
         })
         .then((un) => {
           if (disposed) un();
@@ -1062,15 +1091,20 @@ function App() {
     setBusy(false);
   }
   const [pluginAction, setPluginAction] = useState<PluginAction | null>(null);
-  async function install(folder = true) {
+  /** Every way a package arrives — picked from the dialog or dropped on the list — lands
+   *  here: the preparer copies it into a snapshot of its own, and the confirm dialog
+   *  describes what it read from that copy, not from the file where it sits. */
+  async function prepare(path: string) {
+    const prepared = await call<{token: string; id: string; name: string; version: string; permissions: string[]}>("prepare_plugin", {path});
+    setPluginAction({ name: prepared.name, detail: `${prepared.id} · v${prepared.version} · ${prepared.permissions.join(", ") || "—"}\n${path}`, kind: "install", run: async progress => {
+      progress(t("progress.installLocal")); await call("install_plugin", { token: prepared.token }); progress(t("progress.refreshPlugins")); await refresh();
+    } });
+  }
+  /** The picker offers nothing but a `.zip`, so what reaches the preparer is an archive. */
+  async function install() {
     await manage(async () => {
-      const path = await call<string | null>("pick_path", { folder });
-      if (path) {
-        const prepared = await call<{token: string; id: string; name: string; version: string; permissions: string[]}>("prepare_plugin", {path});
-        setPluginAction({ name: prepared.name, detail: `${prepared.id} · v${prepared.version} · ${prepared.permissions.join(", ") || "—"}\n${path}`, kind: "install", run: async progress => {
-          progress(t("progress.installLocal")); await call("install_plugin", { token: prepared.token }); progress(t("progress.refreshPlugins")); await refresh();
-        } });
-      }
+      const path = await call<string | null>("pick_path", { kind: "package" });
+      if (path) await prepare(path);
     });
   }
   const title = (
@@ -1715,6 +1749,17 @@ function App() {
               )}
               {page === "plugins" && (
                 <>
+                  {/* A hint, not a target: it covers the page while a package is over the
+                      window and lets the drag through to whatever is underneath. */}
+                  {packageDrag && (
+                    <div className="package-drop">
+                      <div>
+                        <Package size={26} />
+                        <strong>{t("plugins.dropPackage.title")}</strong>
+                        <span>{t("plugins.dropPackage.note")}</span>
+                      </div>
+                    </div>
+                  )}
                   <div className="plugin-tabs-row">
                     <div className="plugin-tabs">
                       <button
@@ -1764,10 +1809,7 @@ function App() {
                         onClick={() => void install()}
                       >
                         <Download size={14} />
-                        {t("plugins.installFromFolder")}
-                      </button>
-                      <button className="secondary-button" disabled={busy} onClick={() => void install(false)}>
-                        <Download size={14} />{t("plugins.installFromFile")}
+                        {t("plugins.installFromFile")}
                       </button>
                     </div>
                   </div>

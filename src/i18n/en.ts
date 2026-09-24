@@ -8,6 +8,9 @@ export const en = {
   "plugins.createWithAI": "Create with AI",
   "plugins.noViewer": "No enabled viewer matches this file. Find a plugin or create one in Workshop.",
   "plugins.installFromFile": "Install package",
+  "plugins.dropPackage.title": "Drop to install the plugin package",
+  "plugins.dropPackage.note":
+    "Only a .zip package; its manifest and permissions are shown before anything is installed.",
   "plugins.origin.local": "Local imports",
   "plugins.origin.official": "Official plugins",
   "plugins.origin.custom": "Custom plugins",
@@ -103,7 +106,6 @@ export const en = {
     other: "{count} installed plugins",
   },
   "plugins.refresh": "Refresh",
-  "plugins.installFromFolder": "Install from folder",
   "plugins.searchPlaceholder": "Search plugins or extensions",
   "plugins.uninstall": "Uninstall",
   "plugins.uninstallLabel": "Uninstall {name}",

@@ -93,6 +93,16 @@ test("the reveal targets are the chrome's own boxes, with no zone drawn beside t
   assert.doesNotMatch(clean, /\.corner\s*\{/, "style.css still carries corner-zone geometry");
 });
 
+test("the package drop hint never takes the drag it describes", () => {
+  // It covers the whole window while a file is over the plugin list, so owning the pointer
+  // would make it the thing the drop lands on and swallow what it is there to explain.
+  assert.match(
+    ruleBodyOf(".package-drop") || "",
+    /pointer-events:\s*none/,
+    "the package drop hint must let the drag through to the list",
+  );
+});
+
 test("every plugin that renders a video opts out of the system compositing plane", async () => {
   // A playing <video> is what WebView2 promotes; the plugin has to keep that quad out of the
   // promotion, or the host's chrome disappears over it (docs/plugins.md, 浮层置顶).

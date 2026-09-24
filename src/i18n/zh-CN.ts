@@ -5,7 +5,9 @@ import type { Catalog } from "./en";
 export const zhCN: Catalog = {
   "plugins.createWithAI": "用 AI 创建预览插件",
   "plugins.noViewer": "没有已启用的查看器匹配此文件，可以查找插件或在工坊中创建。",
-  "plugins.installFromFile": "从插件包安装",
+  "plugins.installFromFile": "安装插件包",
+  "plugins.dropPackage.title": "松开即可安装插件包",
+  "plugins.dropPackage.note": "只接受 .zip 插件包，安装前会显示清单与权限。",
   "plugins.origin.local": "本地导入",
   "plugins.origin.official": "官方插件",
   "plugins.origin.custom": "自定义插件",
@@ -92,7 +94,6 @@ export const zhCN: Catalog = {
   "plugins.manage": "插件管理",
   "plugins.installedCount": "{count} 个已安装插件",
   "plugins.refresh": "刷新",
-  "plugins.installFromFolder": "从目录安装",
   "plugins.searchPlaceholder": "搜索插件或扩展名",
   "plugins.uninstall": "卸载",
   "plugins.uninstallLabel": "卸载{name}",

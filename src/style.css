@@ -421,6 +421,40 @@ h2 {
   display: flex;
   gap: 8px;
 }
+/* The hint over the plugin list while a package is on its way in. It is a label and not a
+   target: the platform owns the drag, so an element that took the pointer here would
+   swallow the drop it is explaining. */
+.package-drop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--bg) 76%, transparent);
+  backdrop-filter: blur(3px);
+}
+.package-drop > div {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 32px 44px;
+  border: 1px dashed var(--accent);
+  border-radius: var(--radius-card);
+  background: var(--card);
+  box-shadow: var(--shadow);
+  text-align: center;
+}
+.package-drop strong {
+  font-size: 14px;
+}
+.package-drop span {
+  font-size: 12px;
+  color: var(--muted);
+}
 .text-button {
   color: var(--muted);
   font-size: 11px;

@@ -618,16 +618,20 @@ async fn uninstall_plugin(
     market.prune_cache(host.inner()).await.map(|_| ())
 }
 
+/// One dialog per shape the window asks for: a folder for a plugin setting, a plugin
+/// package, or any file to open. The package filter only says what belongs here — the
+/// preparer still refuses anything that is not an archive.
 #[tauri::command]
-async fn pick_path(window: tauri::Window, folder: bool) -> Result<Option<String>, String> {
+async fn pick_path(window: tauri::Window, kind: String) -> Result<Option<String>, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let dialog = rfd::FileDialog::new().set_parent(&window);
-        let result = if folder {
-            dialog
-                .set_title(text().dialog_pick_plugin_folder)
-                .pick_folder()
-        } else {
-            dialog.set_title(text().dialog_pick_file).pick_file()
+        let result = match kind.as_str() {
+            "folder" => dialog.set_title(text().dialog_pick_folder).pick_folder(),
+            "package" => dialog
+                .set_title(text().dialog_pick_package)
+                .add_filter("Plugin package", &["zip"])
+                .pick_file(),
+            _ => dialog.set_title(text().dialog_pick_file).pick_file(),
         };
         result.map(|p| p.to_string_lossy().into_owned())
     })
