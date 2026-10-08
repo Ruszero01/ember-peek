@@ -8,10 +8,12 @@ const html=readFileSync(new URL('../plugins/workshop/ui/index.html',import.meta.
 function fixture(page='',options={}){
   class Element{
     constructor(){this.hidden=false;this.disabled=false;this.value='';this.children=[];this.classList={toggle(){},add(){},remove(){}};}
-    replaceChildren(...children){this.children=children;} append(...children){this.children.push(...children);} setAttribute(){}
+    replaceChildren(...children){this.children=children;} append(...children){this.appendCount=(this.appendCount||0)+1;for(const child of children){if(child.parentElement)child.parentElement.children=child.parentElement.children.filter(item=>item!==child);child.parentElement=this;this.children.push(child);}} setAttribute(){}
   }
   const elements=Object.fromEntries([...html.matchAll(/id="([^"]+)"/g)].map(m=>[m[1],new Element()]));
-  const document={body:new Element(),documentElement:{dataset:{}},hidden:false,addEventListener(){},getElementById:id=>elements[id],createElement:()=>new Element(),
+  const listeners={};
+  Object.assign(elements,{requirement:elements.message,'create-text':elements.generate,'creator-attach':elements['message-attach'],'chat-model':elements['project-chat-model'],'provider-hint':elements['project-provider-hint']});
+  const document={body:new Element(),documentElement:{dataset:{}},hidden:false,addEventListener(name,fn){listeners[name]=fn;},getElementById:id=>elements[id],createElement:()=>new Element(),
     querySelector:()=>new Element(),querySelectorAll:()=>[]};
   let onContext;let onDrop;let onDrag;let hostContext={};let connect;const ready=new Promise(resolve=>{connect=resolve;});const calls=[];
   const state={projects:[],providers:[],keys:{},config:{endpoint:'',model:''},warnings:[],sdkFingerprint:'sdk'};
@@ -19,9 +21,10 @@ function fixture(page='',options={}){
     if(options.call)return options.call(method,params,{state,calls});
     if(method==='state')return state;if(method==='searchSettings')return options.searchSettings||{provider:'',endpoint:'',hasKey:false};if(method==='modelsDraft')return options.models||[];if(method==='create')return {id:'p1'};if(method==='createPath')return {id:'p1'};if(method==='catalog')return options.catalog||null;if(method==='artifacts')return [];return null;}};
   // CJS conversion deliberately rejects top-level await: mounting must not wait for the parent's load callback.
+  const timers=new Map();let timerId=0;let poll;
   const code=transformSync(source,{format:'cjs',target:'es2022'}).code;
-  runInNewContext(code,{require:()=>sdk,document,location:{href:`http://plugin.localhost/@tool-test/ui/index.html${page}`},URL,Option:class extends Element{constructor(text,value){super();this.text=text;this.value=value;}},setInterval(){},setTimeout,clearTimeout,crypto:{randomUUID:()=> 'test'},console});
-  return {elements,calls,state,connect,drop(paths){onDrop(paths);},drag(state){onDrag(state);},setPage(page){hostContext={page};onContext(hostContext);},async settle(){await new Promise(resolve=>setImmediate(resolve));}};
+  runInNewContext(code,{require:()=>sdk,document,location:{href:`http://plugin.localhost/@tool-test/ui/index.html${page}`},URL,Option:class extends Element{constructor(text,value){super();this.text=text;this.value=value;}},setInterval(fn){poll=fn;},setTimeout(fn){const id=++timerId;timers.set(id,fn);return id;},clearTimeout(id){timers.delete(id);},crypto:{randomUUID:()=> 'test'},console});
+  return {elements,calls,state,connect,listeners,async poll(){await poll();},async saveProvider(){elements['provider-name'].oninput();const callbacks=[...timers.values()];timers.clear();for(const fn of callbacks)await fn();},async saveSearch(){elements['search-key'].oninput();const callbacks=[...timers.values()];timers.clear();for(const fn of callbacks)await fn();},drop(paths){onDrop(paths);},drag(state){onDrag(state);},setPage(page){hostContext={page};onContext(hostContext);},async settle(){await new Promise(resolve=>setImmediate(resolve));}};
 }
 function project(overrides={}){
   return {id:'p1',name:'三维预览插件',status:'draft',messages:[],sample:null,sampleSize:0,attachments:[],extension:'',version:0,tested:false,installedVersion:null,builds:[],logs:[],shots:[],transcript:[],...overrides};
@@ -56,7 +59,7 @@ test('a task starts from the user requirement alone, with no built-in direction'
  const request=f.calls.find(c=>c.method==='create');
  assert.equal(request.params.requirement,'把 .xyz 文件渲染成三维预览');
  assert.equal(request.params.withSample,false);
- assert.equal(f.calls.some(c=>c.method==='start'),false);
+ assert.equal(f.calls.find(c=>c.method==='start')?.params.id,'p1');
 });
 test('an empty requirement without a sample is refused before any request',async()=>{
  const f=fixture();f.connect();await f.settle();
@@ -340,14 +343,14 @@ test('an installed plugin is marked in the task list and clears when it is remov
  f.state.projects=[project({installedVersion:2,version:2,tested:true,status:'installed'})];
  f.connect();await f.settle();
  assert.equal(f.elements['project-flag'].hidden,false);
- assert.equal(f.elements.status.textContent,'已安装');
+ assert.equal(f.elements['self-check'].textContent,'试预览通过');
  // The list row marks it with a dot rather than a chip, which would push the name wide.
  assert.equal(f.elements.projects.children[0].children[0].className,'project-item installed');
  // The host answers the next poll with the plugin gone, which is what uninstalling does.
  f.state.projects[0]={...f.state.projects[0],installedVersion:null,status:'ready'};
  await f.elements.cancel.onclick();
  assert.equal(f.elements['project-flag'].hidden,true);
- assert.equal(f.elements.status.textContent,'试预览完成，可以安装');
+ assert.equal(f.elements['self-check'].textContent,'试预览通过');
  assert.equal(f.elements.projects.children[0].children[0].className,'project-item');
 });
 test('provider form exists only on the plugin settings surface',async()=>{
@@ -361,7 +364,7 @@ test('saved providers keep connection parameters collapsed until requested',asyn
  f.connect();await f.settle();
  assert.equal(f.elements['connection-details'].open,false);
  assert.equal(f.elements['connection-summary'].textContent,'已配置');
- assert.equal(f.elements['provider-state'].textContent,'使用中');
+ assert.equal(f.elements['provider-state'].textContent,'已配置');
  f.elements['new-provider'].onclick();
  assert.equal(f.elements['connection-details'].open,true);
  assert.equal(f.elements['provider-state'].textContent,'未保存');
@@ -383,11 +386,11 @@ test('provider type changes synchronise its dependent fields and create a visibl
  assert.equal(f.elements['provider-state'].textContent,'未保存更改');
  f.elements['new-provider'].onclick();
  assert.equal(f.elements.providers.children.length,2);
- assert.equal(f.elements.providers.children[0].children[1].textContent,'未选择模型 · 未保存');
+ assert.equal(f.elements.providers.children[0].children.length,1);
  f.elements.preset.value='deepseek';f.elements.preset.onchange();
  assert.equal(f.elements.providers.children[0].children[0].textContent,'DeepSeek');
- assert.equal(f.calls.some(c=>c.method==='configure'),false);
- assert.match(f.elements['model-status'].textContent,/API Key/);
+ assert.equal(f.calls.some(c=>c.method==='saveProvider'),false);
+ assert.equal(f.calls.some(c=>c.method==='modelsDraft'),false);
 });
 test('a stored API key is represented as configured until the user resets it',async()=>{
  const f=fixture('?page=settings');
@@ -399,23 +402,20 @@ test('a stored API key is represented as configured until the user resets it',as
  assert.equal(f.elements['key-configured'].hidden,true);assert.equal(f.elements['key-editor'].hidden,false);
  assert.equal(f.elements['key-status'].textContent,'请输入新的密钥');
 });
-test('model discovery fills the direct selector without saving the provider first',async()=>{
+test('models are fetched only on request and saved without selecting a provider',async()=>{
  const f=fixture('?page=settings',{models:['model-a','model-b']});f.connect();await f.settle();
+ assert.equal(f.calls.some(c=>c.method==='modelsDraft'),false);
  f.elements.endpoint.value='https://example.test/v1';f.elements.key.value='dummy-test-key';
- f.elements.key.onchange();await f.settle();
- const discovery=f.calls.find(c=>c.method==='modelsDraft');assert.equal(discovery.params.config.endpoint,'https://example.test/v1');assert.equal(discovery.params.key,'dummy-test-key');
- assert.equal(f.calls.some(c=>c.method==='configure'),false);
- assert.equal(f.elements.model.children.length,3);
- f.elements.model.value='model-b';f.elements.model.onchange();await f.elements['save-config'].onclick();
- const saved=f.calls.find(c=>c.method==='configure');assert.equal(saved.params.config.model,'model-b');
- assert.equal(saved.params.config.maxTokens,null);
- assert.equal(f.elements.key.value,'');
+ await f.elements['fetch-models'].onclick();await f.saveProvider();
+ assert.equal(f.calls.filter(c=>c.method==='modelsDraft').length,1);
+ const saved=f.calls.find(c=>c.method==='saveProvider');assert.equal(saved.params.config.models.length,2);
+ assert.equal(f.calls.some(c=>c.method==='selectModel'),false);
 });
 test('an empty output limit is sent as null instead of a guessed default',async()=>{
  const f=fixture('?page=settings');f.connect();await f.settle();
  f.elements.endpoint.value='https://example.test/v1';f.elements.model.value='deepseek-chat';
- await f.elements['save-config'].onclick();
- const saved=f.calls.find(c=>c.method==='configure');
+ await f.saveProvider();
+ const saved=f.calls.find(c=>c.method==='saveProvider');
  assert.equal(saved.params.config.maxTokens,null);
  assert.equal(saved.params.config.contextWindow,null);
  assert.equal(saved.params.config.temperature,null);
@@ -424,9 +424,9 @@ test('legacy user budgets do not block provider configuration',async()=>{
  const f=fixture('?page=settings');f.connect();await f.settle();
  f.elements.endpoint.value='https://example.test/v1';f.elements.model.value='m';
  assert.equal(f.elements['context-window'],undefined);assert.equal(f.elements['max-tokens'],undefined);
- await f.elements['save-config'].onclick();
- assert.equal(f.calls.some(c=>c.method==='configure'),true);
- assert.equal(f.calls.find(c=>c.method==='configure').params.config.maxTokens,null);
+ await f.saveProvider();
+ assert.equal(f.calls.some(c=>c.method==='saveProvider'),true);
+ assert.equal(f.calls.find(c=>c.method==='saveProvider').params.config.maxTokens,null);
 });
 test('host settings context overrides missing or stale iframe URL parameters',async()=>{
  const f=fixture();f.setPage('settings');f.connect();await f.settle();
@@ -444,15 +444,16 @@ test('the search engine is configurable, and its key is never kept in the page',
  f.elements['search-provider'].value='tavily';
  f.elements['search-endpoint'].value='';
  f.elements['search-key'].value='tvly-secret';
- await f.elements['search-save'].onclick();
+ await f.saveSearch();
  const saved=f.calls.filter(c=>c.method==='configureSearch').pop();
  assert.equal(saved.params.config.provider,'tavily');
  assert.equal(saved.params.config.key,'tvly-secret');
  assert.equal(f.elements['search-key'].value,'');
  // Reset asks the host to drop the stored key rather than sending an empty one.
  f.elements['search-reset-key'].onclick();
- await f.elements['search-save'].onclick();
- assert.equal(f.calls.filter(c=>c.method==='configureSearch').pop().params.clearKey,true);
+ await f.saveSearch();
+ assert.equal(f.calls.filter(c=>c.method==='configureSearch').length,1);
+ assert.equal(f.elements['search-state'].textContent,'待填写密钥');
 });
 
 test('the search engine shows only the settings its source needs',async()=>{
@@ -461,7 +462,7 @@ test('the search engine shows only the settings its source needs',async()=>{
  // Nothing chosen: the source is all there is to see, so no field looks like it wants filling.
  assert.equal(f.elements['search-endpoint-row'].hidden,true);
  assert.equal(f.elements['search-key-row'].hidden,true);
- assert.equal(f.elements['search-state'].textContent,'未配置');
+ assert.equal(f.elements['search-state'].textContent,'使用内置来源');
  // SearXNG is an address, and a token only if the instance asks for one.
  f.elements['search-provider'].value='searxng';
  f.elements['search-provider'].onchange();
@@ -504,4 +505,139 @@ test('the page markup is balanced, so no section swallows the rest of the docume
   // And the two views really are siblings, which is what makes hiding one show the other.
   const ids = [...html.matchAll(/id="([^"]+)"/g)].map((match) => match[1]);
   assert.ok(ids.includes("settings") && ids.includes("generation-area"));
+});
+
+test('workshop reserves a bottom pixel for fractional WebView iframe viewport rounding',()=>{
+ const css=readFileSync(new URL('../plugins/workshop/ui/style.css',import.meta.url),'utf8');
+ const body=css.match(/(?:^|})body\{([^}]+)\}/m)?.[1];
+ assert.match(body,/padding:0 0 1px(?:;|$)/);
+});
+test('the empty conversation switches to a task and both attachment entries use sample creation',async()=>{
+ const f=fixture('',{call:async(method,params,{state})=>{
+   if(method==='create'){const p=project();state.projects=[p];return p;}
+   if(method==='state')return state;
+   if(method==='searchSettings')return {provider:'',endpoint:'',hasKey:false};
+   if(method==='artifacts')return [];
+   return null;
+ }});f.connect();await f.settle();
+ assert.equal(f.elements.creator.hidden,false);
+ assert.equal(f.elements.project.hidden,true);
+ f.elements.requirement.value='预览自定义数据';
+ await f.elements['creator-attach'].onclick();
+ assert.deepEqual(JSON.parse(JSON.stringify(f.calls.find(c=>c.method==='create').params)),{requirement:'预览自定义数据',withSample:true});
+ assert.equal(f.elements.creator.hidden,true);
+ assert.equal(f.elements.project.hidden,false);
+});
+test('both workshop window entry points share the desktop WebView environment arguments',()=>{
+ const native=readFileSync(new URL('../src-tauri/src/main.rs',import.meta.url),'utf8');
+ const builders=[...native.matchAll(/let builder = tauri::WebviewWindowBuilder::new\([\s\S]*?builder\s*\.build\(\)/g)];
+ assert.equal(builders.length,2);
+ for(const [builder] of builders){
+   assert.match(builder,/desktop::browser_args\(\)/);
+   assert.match(builder,/Some\(args\) => builder.additional_browser_args\(&args\)/);
+ }
+});
+test('both conversation composers select configured models with display names',async()=>{
+ const f=fixture();f.state.providers=[{id:'p',name:'Service',model:'m',models:[{id:'m',name:'Friendly'}]}];f.state.config={id:'p',model:'m'};f.connect();await f.settle();
+ for(const id of ['chat-model','project-chat-model']){
+   assert.equal(f.elements[id].children[1].text,'Service · Friendly');
+   f.elements[id].value=JSON.stringify(['p','m']);await f.elements[id].onchange();
+ }
+ assert.equal(f.calls.filter(c=>c.method==='selectModel').length,2);
+});
+test('task deletion reserves its own column and pressed feedback never displaces the button',()=>{
+ const css=readFileSync(new URL('../plugins/workshop/ui/style.css',import.meta.url),'utf8');
+ const remove=css.match(/\.project-remove\{([^}]+)\}/)?.[1];
+ assert.match(remove,/position:static/);
+ assert.match(remove,/flex:0 0 24px/);
+ assert.doesNotMatch(remove,/translate|position:absolute/);
+ assert.match(css,/\.project-remove:active:not\(:disabled\)\{transform:none\}/);
+});
+test('search source changes cannot silently reuse another providers credential',async()=>{
+ const f=fixture('?page=settings',{searchSettings:{provider:'searxng',endpoint:'https://search.example',hasKey:true}});
+ f.connect();await f.settle();
+ f.elements['search-provider'].value='tavily';f.elements['search-provider'].onchange();
+ assert.equal(f.elements['search-key-configured'].hidden,true);
+ await f.saveSearch();
+ assert.equal(f.calls.some(c=>c.method==='configureSearch'),false);
+ f.elements['search-key'].value='new-tavily-key';await f.saveSearch();
+ assert.equal(f.calls.find(c=>c.method==='configureSearch').params.clearKey,true);
+});
+
+test('a saved SearXNG instance without authentication is configured',async()=>{
+ const f=fixture('?page=settings',{searchSettings:{provider:'searxng',endpoint:'https://search.example',hasKey:false}});
+ f.connect();await f.settle();
+ assert.equal(f.elements['search-state'].textContent,'已配置');
+});
+test('autosave keeps the current configuration until required fields are complete',async()=>{
+ const f=fixture('?page=settings');f.connect();await f.settle();
+ assert.equal(f.elements['save-config'],undefined);assert.equal(f.elements['search-save'],undefined);
+ f.elements.endpoint.value='';f.elements.model.value='';await f.saveProvider();
+ assert.equal(f.calls.some(c=>c.method==='saveProvider'),false);
+ assert.equal(f.elements['provider-state'].textContent,'待填写完整');
+ f.elements.endpoint.value='https://example.test/v1';f.elements.model.value='test-model';await f.saveProvider();
+ assert.equal(f.calls.filter(c=>c.method==='saveProvider').length,1);
+ assert.equal(f.elements['provider-state'].textContent,'已自动保存');
+});
+test('network search reports autosave in its heading without a footer row',async()=>{
+ const f=fixture('?page=settings');f.connect();await f.settle();
+ assert.equal(f.elements['search-result'],undefined);
+ await f.saveSearch();
+ assert.equal(f.elements['search-state'].textContent,'已自动保存');
+});
+test('browsing provider settings does not fetch select or save, and manual names persist',async()=>{
+ const f=fixture('?page=settings');const provider={id:'p',name:'Service',endpoint:'https://example.test/v1',model:'legacy'};
+ f.state.providers=[provider];f.state.config=provider;f.connect();await f.settle();
+ f.elements.providers.children[0].onclick();await f.saveProvider();
+ assert.equal(f.calls.some(c=>['modelsDraft','saveProvider','selectModel'].includes(c.method)),false);
+ f.elements.model.value='custom-id';f.elements['model-name'].value='My model';f.elements['add-model'].onclick();await f.saveProvider();
+ const saved=f.calls.find(c=>c.method==='saveProvider');assert.equal(saved.params.config.models[1].id,'custom-id');assert.equal(saved.params.config.models[1].name,'My model');
+});
+test('task actions omit standalone requirement analysis and keep direct generation',async()=>{
+ const f=fixture();f.state.projects=[project()];f.connect();await f.settle();
+ assert.equal(f.elements.analyze,undefined);
+ f.elements.message.value='Add zoom controls';await f.elements.generate.onclick();
+ assert.equal(f.calls.some(c=>c.method==='analyze'),false);
+ assert.equal(f.calls.find(c=>c.method==='start')?.params.message,'Add zoom controls');
+});
+
+test('task menu dismisses outside, on Escape, and after choosing an action',()=>{
+ const f=fixture(),menu=f.elements['more-actions'],inside={};
+ menu.contains=target=>target===inside;menu.open=true;
+ f.listeners.pointerdown({target:inside});assert.equal(menu.open,true);
+ f.listeners.pointerdown({target:{}});assert.equal(menu.open,false);
+ menu.open=true;f.listeners.keydown({key:'Escape'});assert.equal(menu.open,false);
+ menu.open=true;menu.onclick({target:{closest:()=>({})}});assert.equal(menu.open,false);
+});
+
+test('new and existing tasks reuse the same composer and submission controls',async()=>{
+ const f=fixture();f.connect();await f.settle();
+ const composer=f.elements['chat-composer'];
+ assert.ok(f.elements.creator.children.includes(composer));
+ assert.equal((html.match(/class="chat-composer"/g)||[]).length,1);
+ f.state.projects=[project()];f.elements.message.value='Create a preview';await f.elements['generate'].onclick();
+ assert.ok(f.elements['project-column'].children.includes(composer));
+ await f.elements['new-project'].onclick();
+ assert.ok(f.elements.creator.children.includes(composer));
+ assert.equal(f.elements.generate.textContent,'开始对话 ↑');
+ assert.equal(f.elements.cancel.hidden,true);
+});
+
+
+test('background polling does not detach the shared composer while typing',async()=>{
+ const f=fixture();f.connect();await f.settle();
+ const composer=f.elements['chat-composer'],parent=composer.parentElement;
+ const moves=parent.appendCount;
+ f.elements.message.value='Still typing';
+ await f.poll();await f.poll();
+ assert.equal(composer.parentElement,parent);
+ assert.equal(parent.appendCount,moves);
+ assert.equal(f.elements.message.value,'Still typing');
+});
+
+
+test('background polling preserves model options when the provider list is unchanged',async()=>{
+ const f=fixture();f.state.providers=[{id:'one',name:'Service',models:[{id:'m',name:'Model'}]}];f.connect();await f.settle();
+ const options=f.elements['project-chat-model'].children;
+ await f.poll();assert.equal(f.elements['project-chat-model'].children,options);
 });

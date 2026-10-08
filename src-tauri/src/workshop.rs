@@ -73,6 +73,11 @@ pub struct BuildRecord {
     pub summary: String,
 }
 #[derive(Clone, Serialize, Deserialize)]
+pub struct ModelOption {
+    pub id: String,
+    pub name: String,
+}
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Config {
     #[serde(default = "default_provider")]
@@ -81,6 +86,8 @@ pub struct Config {
     pub name: String,
     pub endpoint: String,
     pub model: String,
+    #[serde(default)]
+    pub models: Vec<ModelOption>,
     /// Which catalog preset the settings page filled the endpoint from.
     #[serde(default)]
     pub preset: String,
@@ -105,6 +112,7 @@ impl Default for Config {
             name: String::new(),
             endpoint: String::new(),
             model: String::new(),
+            models: Vec::new(),
             preset: String::new(),
             max_tokens: None,
             context_window: None,
@@ -574,7 +582,23 @@ impl Workshop {
         json!({"config":config,"providers":providers,"keys":keys,"hasKey":has_key,"projects":projects,"warnings":self.warnings,"sdkFingerprint":sdk_fingerprint()})
     }
     pub async fn configure(&self, config: Config, key: Option<String>) -> Result<(), String> {
+        self.save_provider(config, key, true).await
+    }
+    pub async fn save_provider(
+        &self,
+        config: Config,
+        key: Option<String>,
+        activate: bool,
+    ) -> Result<(), String> {
         let _operation = self.operations.lock().await;
+        if config.models.len() > 512
+            || config
+                .models
+                .iter()
+                .any(|m| m.id.trim().is_empty() || m.id.len() > 256 || m.name.len() > 256)
+        {
+            return Err("模型列表或名称超出限制".into());
+        }
         let endpoint = endpoint(&config)?;
         let mut current = self.config.lock().await;
         if let Some(key) = key.filter(|k| !k.is_empty()) {
@@ -592,8 +616,21 @@ impl Workshop {
         }
         write_json(&self.root.join("providers.json"), &next)?;
         *providers = next;
-        write_json(&self.root.join("config.json"), &config)?;
-        *current = config;
+        if activate {
+            write_json(&self.root.join("config.json"), &config)?;
+            *current = config;
+        } else if current.id == config.id {
+            let mut updated = config;
+            updated.model = if updated.models.iter().any(|m| m.id == current.model)
+                || updated.model == current.model
+            {
+                current.model.clone()
+            } else {
+                String::new()
+            };
+            write_json(&self.root.join("config.json"), &updated)?;
+            *current = updated;
+        }
         Ok(())
     }
     /// The general web engine this machine has configured, with its key read from the system
@@ -648,6 +685,27 @@ impl Workshop {
             return Some(engine);
         }
         self.network.environment_engine()
+    }
+    pub async fn select_model(&self, id: &str, model: &str) -> Result<(), String> {
+        let mut config = self
+            .providers
+            .lock()
+            .await
+            .iter()
+            .find(|p| p.id == id)
+            .cloned()
+            .ok_or("供应商不存在")?;
+        if model != config.model && !config.models.iter().any(|m| m.id == model) {
+            return Err("模型不存在".into());
+        }
+        if model.trim().is_empty() {
+            return Err("请选择模型".into());
+        }
+        config.model = model.to_owned();
+        let _operation = self.operations.lock().await;
+        write_json(&self.root.join("config.json"), &config)?;
+        *self.config.lock().await = config;
+        Ok(())
     }
     pub async fn select_provider(&self, id: &str) -> Result<(), String> {
         let config = self
@@ -1075,6 +1133,23 @@ impl Workshop {
         let config = self.config.lock().await.clone();
         let key = service_key(&config)?;
         request_service(&config, &key, messages).await
+    }
+    pub async fn test_provider(&self, config: Config, key: Option<String>) -> Result<(), String> {
+        let url = endpoint(&config)?;
+        let key = key.filter(|k| !k.is_empty()).unwrap_or_else(|| {
+            crate::credentials::read(&credential_scope(&config, &url)).unwrap_or_default()
+        });
+        let reply = request_service(
+            &config,
+            &key,
+            json!([{"role":"user","content":"Reply with OK."}]),
+        )
+        .await?;
+        reply["choices"][0]["message"]["content"]
+            .as_str()
+            .filter(|s| !s.is_empty())
+            .ok_or("Service does not support chat completions")?;
+        Ok(())
     }
     pub async fn test_connection(&self) -> Result<(), String> {
         let reply = self
@@ -4140,5 +4215,38 @@ mod tests {
         std::fs::write(temp.path().join("p1/project.json"), b"broken").unwrap();
         let workshop = service(temp.path().to_owned());
         assert_eq!(workshop.warnings.len(), 1);
+    }
+    #[tokio::test]
+    async fn saving_provider_models_does_not_activate_them_and_selection_persists() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("workshop");
+        let workshop = service(root.clone());
+        let first = Config {
+            id: "first".into(),
+            endpoint: "http://127.0.0.1:1234/v1".into(),
+            model: "old".into(),
+            ..Config::default()
+        };
+        workshop.configure(first, None).await.unwrap();
+        let second = Config {
+            id: "second".into(),
+            endpoint: "http://127.0.0.1:1234/v1".into(),
+            model: "new".into(),
+            models: vec![ModelOption {
+                id: "new".into(),
+                name: "Friendly model".into(),
+            }],
+            ..Config::default()
+        };
+        workshop.save_provider(second, None, false).await.unwrap();
+        assert_eq!(workshop.state().await["config"]["id"], "first");
+        assert!(workshop.select_model("second", "missing").await.is_err());
+        workshop.select_model("second", "new").await.unwrap();
+        let restored = service(root);
+        assert_eq!(restored.state().await["config"]["id"], "second");
+        assert_eq!(
+            restored.state().await["providers"][1]["models"][0]["name"],
+            "Friendly model"
+        );
     }
 }

@@ -13,7 +13,7 @@ function applyPage(page){
 }
 let state, selected, polling=false, busy=false, creatingProject=false;
 let editingProvider='', draftingProvider=false, credentialConfigured=false, keyReset=false, lastPresetName='', catalog={presets:[],models:[]};
-let modelLoadSequence=0;
+let modelLoadSequence=0, draftModels=[], lastSavedProvider='';
 applyPage();
 $('reveal-key').onclick=()=>{const hidden=$('key').type==='password';$('key').type=hidden?'text':'password';$('reveal-key').textContent=hidden?'隐藏':'显示';$('reveal-key').setAttribute('aria-label',hidden?'隐藏密钥':'显示密钥');};
 $('reset-key').onclick=()=>{keyReset=true;credentialConfigured=false;showKeyState();markProviderDirty();$('key').focus?.();};
@@ -64,27 +64,23 @@ function syncProviderDraft(){
   }else if(editingProvider&&$('provider-name').value.trim())$('provider-title').textContent=$('provider-name').value.trim();
   populateProviders();
 }
-function markProviderDirty(){$('provider-state').textContent='未保存更改';$('provider-state').classList.remove('active');syncProviderDraft();}
+function markProviderDirty(){$('provider-state').textContent='未保存更改';$('provider-state').classList.remove('active');syncProviderDraft();scheduleProviderSave();}
 function providerConfig(){
   const optional=id=>{const value=$(id).value.trim();return value===''?null:Number(value);};
-  return {id:editingProvider,preset:$('preset').value,name:$('provider-name').value.trim(),endpoint:$('endpoint').value.trim(),model:$('model').value,maxTokens:null,contextWindow:null,temperature:optional('temperature'),timeoutSeconds:optional('timeout')};
+  return {id:editingProvider,preset:$('preset').value,name:$('provider-name').value.trim(),endpoint:$('endpoint').value.trim(),model:draftModels[0]?.id||'',models:draftModels.map(m=>({...m})),maxTokens:null,contextWindow:null,temperature:optional('temperature'),timeoutSeconds:optional('timeout')};
 }
-function renderModelOptions(models,current=''){
-  const values=[...new Set([current,...models].filter(Boolean))];
-  $('model').replaceChildren(new Option(values.length?'选择模型':'暂无可用模型',''),...values.map(id=>new Option(id,id)));
-  $('model').value=current&&values.includes(current)?current:'';
-}
-async function loadModelsForDraft(current=$('model').value){
+async function loadModelsForDraft(){
   const endpoint=$('endpoint').value.trim();const preset=selectedPreset();const key=$('key').value.trim();
   const local=!!preset?.local||/^http:\/\/(localhost|127\.0\.0\.1|\[::1\])(?::|\/)/i.test(endpoint);
-  if(!endpoint){renderModelOptions([],current);$('model-status').textContent='配置接口后自动获取可用模型';return;}
-  if(!local&&!credentialConfigured&&!key){renderModelOptions([],current);$('model-status').textContent='配置 API Key 后自动获取可用模型';return;}
+  if(!endpoint){$('model-status').textContent='请先配置接口地址';return;}
+  if(!local&&!credentialConfigured&&!key){$('model-status').textContent='请先配置 API Key';return;}
   const sequence=++modelLoadSequence;$('model').disabled=true;$('model-status').textContent='正在获取可用模型…';
   try{
     const models=await call('modelsDraft',{config:providerConfig(),key});
     if(sequence!==modelLoadSequence)return;
-    renderModelOptions(models,current);$('model-status').textContent=models.length?`${models.length} 个可用模型`:'服务商没有返回模型';
-  }catch(e){if(sequence===modelLoadSequence){renderModelOptions([],current);$('model-status').textContent=`模型列表获取失败：${String(e)}`;}}
+    for(const id of models)if(!draftModels.some(m=>m.id===id))draftModels.push({id,name:id});
+    renderConfiguredModels();$('model-status').textContent=models.length?`已获取 ${models.length} 个模型`:'服务商没有返回模型';scheduleProviderSave();
+  }catch(e){if(sequence===modelLoadSequence){$('model-status').textContent=`模型列表获取失败：${String(e)}`;}}
   finally{if(sequence===modelLoadSequence)$('model').disabled=false;}
 }
 function populateProviders(){
@@ -94,8 +90,7 @@ function populateProviders(){
   if(draftingProvider){
     const draft=document.createElement('button');draft.type='button';draft.className='provider-item selected draft';
     const name=document.createElement('strong');name.textContent=$('provider-name').value.trim()||selectedPreset()?.name||'新供应商';
-    const meta=document.createElement('span');meta.textContent=[$('model').value.trim()||'未选择模型','未保存'].join(' · ');
-    draft.append(name,meta);list.append(draft);
+    draft.append(name);list.append(draft);
   }
   for(const provider of providers){
     const button=document.createElement('button');
@@ -103,14 +98,13 @@ function populateProviders(){
     button.className=provider.id===editingProvider?'provider-item selected':'provider-item';
     button.disabled=busy;
     const name=document.createElement('strong');name.textContent=providerLabel(provider);
-    const meta=document.createElement('span');
-    meta.textContent=[provider.model,provider.id===state.config?.id?'使用中':null,state.keys?.[provider.id]?'已存密钥':'无密钥'].filter(Boolean).join(' · ');
-    button.append(name,meta);
+    button.append(name);
     button.onclick=()=>editProvider(provider);
     list.append(button);
   }
 }
 function editProvider(config){
+  clearTimeout(providerSaveTimer);providerRevision++;
   draftingProvider=!config;
   editingProvider=config?.id||`provider-${crypto.randomUUID()}`;
   $('provider-title').textContent=config?providerLabel(config):'添加供应商';
@@ -118,20 +112,21 @@ function editProvider(config){
   lastPresetName=selectedPreset()?.name||'';
   $('provider-name').value=config?.name||'';
   $('endpoint').value=config?.endpoint||'';
-  renderModelOptions([],config?.model||'');
+  draftModels=(config?.models?.length?config.models:config?.model?[{id:config.model,name:config.model}]:[]).map(m=>({...m}));
+  $('model').value='';$('model-name').value='';renderConfiguredModels();
   $('temperature').value=config?.temperature??'';
   $('timeout').value=config?.timeoutSeconds??'';
   $('key').value='';$('key').type='password';$('reveal-key').textContent='显示';$('test-result').textContent='';
   $('remove-provider').disabled=busy||draftingProvider;
   credentialConfigured=!!editingProvider&&!!state.keys?.[editingProvider];keyReset=false;showKeyState();
-  const active=!!config&&config.id===state.config?.id;
-  $('provider-state').textContent=active?'使用中':config?'已保存':'未保存';
-  $('provider-state').classList.toggle('active',active);
+
+  $('provider-state').textContent=config?'已配置':'未保存';
+  $('provider-state').classList.toggle('active',!!config);
   $('connection-details').open=!config||!config.endpoint;
   $('advanced').open=false;
-  updateConnectionSummary(config);
+  updateConnectionSummary(config);lastSavedProvider=JSON.stringify(providerConfig());
   populateProviders();
-  if(settingsPage)void loadModelsForDraft(config?.model||'');
+
 }
 $('new-provider').onclick=()=>{editProvider(null);$('notice').textContent='';};
 $('preset').onchange=()=>{
@@ -141,18 +136,17 @@ $('preset').onchange=()=>{
   $('endpoint').value=preset.endpoint||'';
   if(draftingProvider||!name||name===lastPresetName)$('provider-name').value=preset.name;
   lastPresetName=preset.name;
-  renderModelOptions([],'');$('model-status').textContent='正在更新可用模型…';
+  draftModels=[];$('model').value='';$('model-name').value='';renderConfiguredModels();
   credentialConfigured=false;keyReset=false;$('key').value='';showKeyState();
   $('connection-details').open=true;
   markProviderDirty();
-  void loadModelsForDraft();
-  $('notice').textContent=preset.endpoint?`已填入 ${preset.name} 的接口地址，保存后可获取模型列表`:'请填写接口地址';
+
+  $('notice').textContent=preset.endpoint?`已填入 ${preset.name} 的接口地址，请点击获取模型列表`:'请填写接口地址';
 };
-$('model').onchange=()=>{$('test-result').textContent='模型已更改，尚未测试';markProviderDirty();};
 $('endpoint').oninput=()=>{credentialConfigured=false;keyReset=false;showKeyState();markProviderDirty();};
-$('endpoint').onchange=()=>void loadModelsForDraft();
+
 $('key').oninput=()=>{updateConnectionSummary();markProviderDirty();};
-$('key').onchange=()=>void loadModelsForDraft();
+
 $('provider-name').oninput=markProviderDirty;
 $('temperature').oninput=markProviderDirty;$('timeout').oninput=markProviderDirty;
 let activePane='progress';
@@ -339,18 +333,27 @@ function renderProjectList(){
   }
 }
 function render(){
-  $('provider-hint').textContent=state.config?.model?`${providerLabel(state.config)} · ${state.config.model}`:'开始前，请通过右上角入口配置供应商和模型。';
+  renderModelPickers();
   renderProjectList();
   populateProviders();
   // Only controls that start another host operation are locked. Blanket-disabling every
   // button made the creator and settings stay grey when a bootstrap request was interrupted.
-  for(const id of ['new-project','create-text','create-sample','new-provider','save-config','test-config','search-save'])$(id).disabled=busy;
+  for(const id of ['new-project','generate','create-sample','message-attach','new-provider','test-config'])$(id).disabled=busy;
   $('remove-provider').disabled=busy||draftingProvider;
-  const p=current();$('creator').hidden=!!p;$('project').hidden=!p;if(!p)return;
+  const p=current();$('creator').hidden=!!p;$('project').hidden=!p;
+  const composer=$('chat-composer'),composerParent=p?$('project-column'):$('creator');
+  // Re-appending a focused subtree detaches it and blurs the input in WebView2.
+  if(composer.parentElement!==composerParent)composerParent.append(composer);
+  $('message').placeholder=p?'描述要调整的地方，或补充需求…':'描述插件需求，例如支持的格式、预览效果与交互…';
+  if(!p){
+    $('generate').textContent='开始对话 ↑';$('generate').classList.add('primary');
+    $('cancel').hidden=true;$('preview').hidden=true;$('install').hidden=true;
+    return;
+  }
   $('project-name').replaceChildren(nameNode(p.name));$('project-flag').hidden=!p.installedVersion;
   // The agent runs the plugin itself now, so say whose eyes approved this build.
-  $('self-check').hidden=!p.selfChecked;$('self-check').textContent='模型自检通过';
-  $('status').textContent=p.status==='failed'&&/429|502|503|504/.test(p.error||'')?'服务暂不可用':labels[p.status]||p.status;
+  $('self-check').hidden=false;$('self-check').textContent=p.tested?(p.selfChecked?'模型自检通过':'试预览通过'):labels[p.status]||p.status;
+  $('status').textContent='';
   $('generate').textContent=['failed','cancelled','interrupted'].includes(p.status)?'继续生成':p.status==='previewFailed'?'修复预览问题':p.version?'重新生成':'生成插件';
   const hasSample=!!p.sample;
   $('sample').hidden=hasSample;
@@ -359,7 +362,6 @@ function render(){
   // The gates below care about the same fact the diagnostics report: a build made against
   // an older SDK cannot be installed or shared.
   const sdkChanged=!!(build(p)&&build(p).sdkFingerprint!==state.sdkFingerprint);
-  $('analyze').disabled=busy||running(p);
   $('select-sample').disabled=busy||running(p);$('add-files').disabled=busy||running(p);$('message-attach').disabled=busy||running(p);$('inspect-artifacts').disabled=busy;
   $('restore').disabled=busy||running(p)||!p.builds?.some(b=>b.verified&&b.version<p.version);
   $('cancel').hidden=!running(p);$('preview').hidden=!p.version;$('install').hidden=!p.tested;
@@ -405,7 +407,7 @@ async function removeProject(id){
   $('notice').textContent='任务已删除';
 }
 /* ---------- the general web engine the agent's lookups may use ---------- */
-let searchKeyConfigured=false, searchKeyReset=false;
+let searchKeyConfigured=false, searchKeyReset=false, savedSearchProvider='', savedSearchHasKey=false;
 function showSearchKeyState(){
   $('search-key-configured').hidden=!searchKeyConfigured;
   $('search-key-editor').hidden=searchKeyConfigured;
@@ -421,52 +423,40 @@ function syncSearchFields(){
   $('search-key-row').hidden=!provider;
   $('search-key-status').textContent=searchKeyConfigured
     ? '安全保存在本机凭据管理器'
-    : searchKeyReset
-      ? '请输入新的密钥'
+    : searchKeyReset&&provider==='tavily'
+      ? '请输入新的密钥（必填）'
       : provider==='tavily'
         ? '在 Tavily 控制台创建，必填'
         : '实例需要鉴权时填，一般留空';
-  $('search-state').textContent=!provider?'未配置':(searchKeyConfigured||$('search-key').value)?'已配置':'待保存';
+  $('search-state').textContent=!provider?'使用内置来源':provider!==savedSearchProvider?'未保存更改':provider==='searxng'&&$('search-endpoint').value.trim()||searchKeyConfigured?'已配置':'需要配置';
 }
-$('search-provider').onchange=syncSearchFields;
+$('search-provider').onchange=()=>{
+  searchKeyConfigured=$('search-provider').value===savedSearchProvider&&savedSearchHasKey;
+  searchKeyReset=$('search-provider').value!==savedSearchProvider;
+  $('search-key').value='';showSearchKeyState();syncSearchFields();scheduleSearchSave();
+};
 $('search-reveal-key').onclick=()=>{const hidden=$('search-key').type==='password';$('search-key').type=hidden?'text':'password';$('search-reveal-key').textContent=hidden?'隐藏':'显示';$('search-reveal-key').setAttribute('aria-label',hidden?'隐藏密钥':'显示密钥');};
 $('search-reset-key').onclick=()=>{searchKeyReset=true;searchKeyConfigured=false;showSearchKeyState();$('search-key').focus?.();};
 async function loadSearchSettings(){
   const settings=await call('searchSettings');
   $('search-provider').value=settings.provider||'';
   $('search-endpoint').value=settings.endpoint||'';
-  searchKeyConfigured=settings.hasKey===true;
+  savedSearchProvider=settings.provider||'';savedSearchHasKey=settings.hasKey===true;
+  searchKeyConfigured=savedSearchHasKey;
   showSearchKeyState();
   syncSearchFields();
 }
-$('search-save').onclick=()=>action(async()=>{
-  const provider=$('search-provider').value;
-  await call('configureSearch',{config:{provider,endpoint:$('search-endpoint').value.trim(),key:$('search-key').value},clearKey:searchKeyReset});
-  $('search-key').value='';searchKeyReset=false;
-  await loadSearchSettings();
-  $('search-result').textContent=provider?'已保存':'已改用内置来源';
-});
-async function saveConfig(){
-  const config=providerConfig();
-  if(!config.endpoint)throw new Error('请填写 API 地址');
-  if(!config.model)throw new Error('请选择模型');
-  const preset=selectedPreset();
-  const needsKey=keyReset||!!preset&&preset.id!=='custom'&&!preset.local&&!credentialConfigured;
-  if(needsKey&&!$('key').value.trim()){$('connection-details').open=true;showKeyState();throw new Error('请先配置 API Key');}
-  await call('configure',{config,key:$('key').value});editingProvider=config.id;$('key').value='';
-  await refresh();editProvider(state.providers?.find(provider=>provider.id===config.id)||config);
-}
-$('save-config').onclick=()=>action(async()=>{await saveConfig();$('notice').textContent='配置已保存并使用';});
 $('remove-provider').onclick=()=>action(async()=>{
+  clearTimeout(providerSaveTimer);providerRevision++;
   if(!editingProvider)return;
   await call('removeProvider',{providerId:editingProvider});await refresh();
   editProvider(state.config.endpoint?state.config:null);
   $('notice').textContent='供应商配置和对应密钥已移除，已有插件不受影响';
 });
 $('test-config').onclick=()=>action(async()=>{
-  if(!$('model').value.trim())throw new Error('请先选择或输入模型');
-  await saveConfig();
-  const started=Date.now();$('test-result').textContent='正在测试连接…';try{await call('testConnection');}catch(e){$('test-result').textContent='连接失败';throw e;}
+
+  const config=providerConfig();if(!config.model)throw new Error('请先添加模型');
+  const started=Date.now();$('test-result').textContent='正在测试连接…';try{await call('testProvider',{config,key:$('key').value});}catch(e){$('test-result').textContent='连接失败';throw e;}
   $('test-result').textContent=`连接正常 · ${Date.now()-started} ms`;
   $('provider-state').textContent='连接正常';$('provider-state').classList.add('active');
   $('notice').textContent='连接成功';
@@ -474,17 +464,19 @@ $('test-config').onclick=()=>action(async()=>{
 $('new-project').onclick=()=>{resetProjectView();creatingProject=true;selected=null;render();};
 function opened(project){
   if(!project)return;
-  resetProjectView();creatingProject=false;selected=project.id;$('requirement').value='';
+  resetProjectView();creatingProject=false;selected=project.id;$('message').value='';
 }
 async function create(withSample){
-  const requirement=$('requirement').value.trim();
+  const requirement=$('message').value.trim();
   if(!withSample&&!requirement)throw new Error('请先描述需要的插件，或附加一个样例文件');
-  opened(await call('create',{requirement,withSample}));
+  const project=await call('create',{requirement,withSample});
+  opened(project);
+  if(project&&!withSample)await call('start',{id:project.id,message:''});
 }
 async function createFromPath(path){
-  opened(await call('createPath',{path,requirement:$('requirement').value.trim()}));
+  opened(await call('createPath',{path,requirement:$('message').value.trim()}));
 }
-$('create-text').onclick=()=>action(()=>create(false));$('create-sample').onclick=()=>action(()=>create(true));
+$('create-sample').onclick=()=>action(()=>create(true));
 // Dropped files arrive from the host as paths. On the creator the first path is the sample;
 // inside a task they become extra conversation sources and remain where the user keeps them.
 onDrop(paths=>{
@@ -500,20 +492,20 @@ onDrag(state=>{if(settingsPage)return;document.body.classList.toggle('dragging',
 // A page that never receives a drop still has to keep a stray one from navigating to it.
 document.addEventListener('dragover',event=>event.preventDefault());
 document.addEventListener('drop',event=>event.preventDefault());
-onContext(({page})=>{applyPage(page);if(page==='settings'&&state)void loadModelsForDraft();});
+onContext(({page})=>{applyPage(page);});
 $('generate').onclick=()=>action(async()=>{
   resetProjectView();selectPane('progress');
   const p=current();
+  if(!p){await create(false);return;}
   if(!p.transcript?.some(turn=>turn.role==='user')&&!$('message').value.trim()&&!p.sample)
     throw new Error('请先描述需要的插件，或附加一个样例文件');
   await call('start',{id:selected,message:$('message').value.trim()});$('message').value='';
 });
-$('analyze').onclick=()=>action(async()=>{resetProjectView();await call('analyze',{id:selected,message:$('message').value.trim()});$('message').value='';});
 $('cancel').onclick=()=>action(()=>call('cancel',{id:selected}));
 $('select-sample').onclick=()=>action(async()=>{resetProjectView();await call('selectSample',{id:selected});});
 async function addAttachments(){await call('addAttachments',{id:selected});}
 $('add-files').onclick=()=>action(addAttachments);
-$('message-attach').onclick=()=>action(addAttachments);
+$('message-attach').onclick=()=>action(()=>current()?addAttachments():create(true));
 $('install').onclick=()=>action(()=>call('install',{id:selected}));
 $('restore').onclick=()=>action(async()=>{resetProjectView();await call('restore',{id:selected});});
 $('export').onclick=()=>action(()=>call('export',{id:selected}));
@@ -538,3 +530,88 @@ ready.then(async()=>{
   }catch(e){error(e);}
 }).catch(error);
 setInterval(async()=>{if(polling)return;polling=true;try{await refresh();if(current())await refreshArtifacts();}catch(e){error(e);}finally{polling=false;}},2000);
+
+// Serialize autosaves and ignore completion feedback for a draft changed in flight.
+let providerSaveTimer, searchSaveTimer, providerSaving=false, searchSaving=false;
+let providerRevision=0, searchRevision=0;
+function scheduleProviderSave(){
+  const revision=++providerRevision;clearTimeout(providerSaveTimer);
+  providerSaveTimer=setTimeout(async()=>{
+    if(providerSaving){scheduleProviderSave();return;}
+    const config=providerConfig(), key=$('key').value.trim(), preset=selectedPreset();
+    const validUrl=(()=>{try{return ['http:','https:'].includes(new URL(config.endpoint).protocol);}catch{return false;}})();
+    if(!validUrl||(keyReset||preset&&preset.id!=='custom'&&!preset.local&&!credentialConfigured)&&!key){$('provider-state').textContent='待填写完整';return;}
+    if(config.temperature!==null&&(!Number.isFinite(config.temperature)||config.temperature<0||config.temperature>2)||config.timeoutSeconds!==null&&(!Number.isInteger(config.timeoutSeconds)||config.timeoutSeconds<10||config.timeoutSeconds>900)){$('provider-state').textContent='请检查高级选项';return;}
+    if(JSON.stringify(config)===lastSavedProvider&&!key){$('provider-state').textContent='已配置';return;}
+    providerSaving=true;$('provider-state').textContent='正在保存…';
+    try{
+      await call('saveProvider',{config,key});await refresh();
+      if(revision===providerRevision&&editingProvider===config.id){
+        lastSavedProvider=JSON.stringify(config);draftingProvider=false;if(key){credentialConfigured=true;keyReset=false;$('key').value='';showKeyState();}
+        $('provider-state').textContent='已自动保存';$('provider-state').classList.add('active');populateProviders();
+      }
+    }catch(e){if(revision===providerRevision){$('provider-state').textContent='保存失败';error(e);}}
+    finally{providerSaving=false;}
+  },600);
+}
+function scheduleSearchSave(){
+  const revision=++searchRevision;clearTimeout(searchSaveTimer);
+  searchSaveTimer=setTimeout(async()=>{
+    if(searchSaving){scheduleSearchSave();return;}
+    const provider=$('search-provider').value, endpoint=$('search-endpoint').value.trim(), key=$('search-key').value.trim(), clearKey=searchKeyReset;
+    if(provider==='tavily'&&!searchKeyConfigured&&!key){$('search-state').textContent='待填写密钥';return;}
+    if(provider==='searxng'){try{if(!['http:','https:'].includes(new URL(endpoint).protocol))throw Error();}catch{$('search-state').textContent='待填写有效地址';return;}}
+    searchSaving=true;$('search-state').textContent='正在保存…';
+    try{
+      await call('configureSearch',{config:{provider,endpoint:provider==='searxng'?endpoint:'',key},clearKey});
+      if(revision===searchRevision){savedSearchProvider=provider;savedSearchHasKey=!!key||searchKeyConfigured&&!clearKey;searchKeyConfigured=savedSearchHasKey;searchKeyReset=false;$('search-key').value='';showSearchKeyState();syncSearchFields();$('search-state').textContent='已自动保存';}
+    }catch(e){if(revision===searchRevision){$('search-state').textContent='保存失败';error(e);}}
+    finally{searchSaving=false;}
+  },600);
+}
+$('search-endpoint').oninput=scheduleSearchSave;
+$('search-key').oninput=scheduleSearchSave;
+function renderConfiguredModels(){
+  const list=$('configured-models');list.replaceChildren();
+  for(const model of draftModels){
+    const row=document.createElement('div');row.className='configured-model-row';
+    const edit=document.createElement('button');edit.type='button';edit.textContent=model.name||model.id;edit.title=model.id;
+    edit.onclick=()=>{$('model').value=model.id;$('model-name').value=model.name;};
+    const remove=document.createElement('button');remove.type='button';remove.textContent='×';remove.setAttribute('aria-label',`删除模型 ${model.name||model.id}`);
+    remove.onclick=()=>{draftModels=draftModels.filter(m=>m.id!==model.id);renderConfiguredModels();markProviderDirty();};row.append(edit,remove);list.append(row);
+  }
+  $('model-status').textContent=draftModels.length?`${draftModels.length} 个已配置模型`:'尚未添加模型，可手动获取或添加';
+}
+$('fetch-models').onclick=()=>action(()=>loadModelsForDraft());
+$('add-model').onclick=()=>{
+  const id=$('model').value.trim(),name=$('model-name').value.trim()||id;
+  if(!id){error('请输入模型 ID');return;}
+  const existing=draftModels.find(m=>m.id===id);if(existing)existing.name=name;else draftModels.push({id,name});
+  $('model').value='';$('model-name').value='';renderConfiguredModels();markProviderDirty();
+};
+function renderModelPickers(){
+  for(const id of ['project-chat-model']){
+    const picker=$(id);const options=[];
+    for(const provider of state.providers||[]){
+      const models=provider.models?.length?provider.models:provider.model?[{id:provider.model,name:provider.model}]:[];
+      for(const model of models)options.push(new Option(`${providerLabel(provider)} · ${model.name||model.id}`,JSON.stringify([provider.id,model.id])));
+    }
+    const signature=JSON.stringify(options.map(option=>[option.text,option.value]));
+    if(picker.modelSignature!==signature){picker.replaceChildren(new Option(options.length?'选择模型':'请先配置模型',''),...options);picker.modelSignature=signature;}
+    picker.value=JSON.stringify([state.config?.id,state.config?.model]);picker.disabled=busy||state.projects?.some(p=>running(p));
+  }
+}
+for(const id of ['project-chat-model'])$(id).onchange=()=>action(async()=>{
+  if(!$(id).value)return;const [providerId,model]=JSON.parse($(id).value);
+  await call('selectModel',{providerId,model});
+});
+document.addEventListener('pointerdown',event=>{
+  const menu=$('more-actions');
+  if(menu.open&&!menu.contains(event.target))menu.open=false;
+});
+document.addEventListener('keydown',event=>{
+  if(event.key==='Escape')$('more-actions').open=false;
+});
+$('more-actions').onclick=event=>{
+  if(event.target.closest('button'))$('more-actions').open=false;
+};

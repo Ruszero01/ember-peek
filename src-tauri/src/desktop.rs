@@ -297,7 +297,7 @@ fn requested(app: &AppHandle, label: &str, revision: u64) -> bool {
 /// so a debugging port asked for that way never opens. A development session names its
 /// arguments here instead, and a release build can never enable them. Passing arguments
 /// replaces wry's own defaults, so the caller's value has to include them.
-fn browser_args() -> Option<String> {
+pub(crate) fn browser_args() -> Option<String> {
     if !cfg!(debug_assertions) {
         return None;
     }

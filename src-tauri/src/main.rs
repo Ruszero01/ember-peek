@@ -52,7 +52,7 @@ impl workshop::ProbeWindows for AppWindows {
             }
             // Building a window is not async, and it must not run on the async worker.
             tauri::async_runtime::spawn_blocking(move || {
-                tauri::WebviewWindowBuilder::new(
+                let builder = tauri::WebviewWindowBuilder::new(
                     &app,
                     window.label,
                     tauri::WebviewUrl::App(window.url.into()),
@@ -60,10 +60,12 @@ impl workshop::ProbeWindows for AppWindows {
                 .title(window.title)
                 .inner_size(1000.0, 720.0)
                 .min_inner_size(640.0, 440.0)
-                .center()
-                .build()
-                .map_err(|e| e.to_string())
-                .map(|_| ())
+                .center();
+                let builder = match desktop::browser_args() {
+                    Some(args) => builder.additional_browser_args(&args),
+                    None => builder,
+                };
+                builder.build().map_err(|e| e.to_string()).map(|_| ())
             })
             .await
             .map_err(|e| e.to_string())?
@@ -161,11 +163,36 @@ async fn tool_call(
             params["name"].as_str().map(str::to_owned),
             params["query"].as_str().map(str::to_owned),
         )),
+        "saveProvider" => {
+            let config =
+                serde_json::from_value(params["config"].clone()).map_err(|e| e.to_string())?;
+            service
+                .save_provider(config, params["key"].as_str().map(str::to_owned), false)
+                .await?;
+            Ok(Value::Null)
+        }
+        "selectModel" => {
+            service
+                .select_model(
+                    params["providerId"].as_str().ok_or("Missing provider ID")?,
+                    params["model"].as_str().ok_or("Missing model")?,
+                )
+                .await?;
+            Ok(Value::Null)
+        }
         "configure" => {
             let config =
                 serde_json::from_value(params["config"].clone()).map_err(|e| e.to_string())?;
             service
                 .configure(config, params["key"].as_str().map(str::to_owned))
+                .await?;
+            Ok(Value::Null)
+        }
+        "testProvider" => {
+            let config =
+                serde_json::from_value(params["config"].clone()).map_err(|e| e.to_string())?;
+            service
+                .test_provider(config, params["key"].as_str().map(str::to_owned))
                 .await?;
             Ok(Value::Null)
         }
@@ -312,7 +339,7 @@ async fn tool_call(
             } else {
                 let url = format!("index.html?workshopPreview={}&tool={id}", candidate.id);
                 tauri::async_runtime::spawn_blocking(move || {
-                    tauri::WebviewWindowBuilder::new(
+                    let builder = tauri::WebviewWindowBuilder::new(
                         &app,
                         label,
                         tauri::WebviewUrl::App(url.into()),
@@ -320,9 +347,12 @@ async fn tool_call(
                     .title(format!("{} · 试预览", candidate.name))
                     .inner_size(1000.0, 720.0)
                     .min_inner_size(640.0, 440.0)
-                    .center()
-                    .build()
-                    .map_err(|e| e.to_string())
+                    .center();
+                    let builder = match desktop::browser_args() {
+                        Some(args) => builder.additional_browser_args(&args),
+                        None => builder,
+                    };
+                    builder.build().map_err(|e| e.to_string())
                 })
                 .await
                 .map_err(|e| e.to_string())??;
