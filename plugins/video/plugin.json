@@ -28,7 +28,7 @@
       }
     }
   },
-  "version": "0.1.0",
+  "version": "0.1.1",
   "extensions": [
     "mp4", "m4v", "mov", "qt", "avi", "mkv", "webm", "ogv", "ogg",
     "mpeg", "mpg", "mpe", "m2v", "ts", "m2ts", "mts", "wmv", "asf",
