@@ -40,6 +40,9 @@ More plugins will extend support to additional file formats in the future.
 
 ## Installation and use
 
+Ember Peek runs on Windows x64 with WebView2. Plugin installation requires internet access;
+the installer can download WebView2 if it is missing.
+
 1. Download the latest Windows installer from [GitHub Releases](https://github.com/Ruszero01/ember-peek/releases/latest).
 2. Install and launch Ember Peek.
 3. Choose the recommended plugins during onboarding, or install them later from
@@ -112,18 +115,6 @@ resources explicitly referenced by a document, but it does not upload the opened
 
 Theme and language changes are propagated to settings, preview windows, tray menus, and open
 plugin views.
-
-## 0.1.0 release scope
-
-The first release targets **Windows x64** and uses WebView2. The installer does not bundle
-plugins; installing recommended plugins initially requires internet access. WebView2 may also
-need an online installation if it is missing. Application and plugin versions are independent.
-
-Explorer multi-selection previews the first
-file. Unsaved text-editor drafts are not recovered after a crash. Video codec compatibility may
-require temporary transcoding. The Windows installer is not code-signed.
-
-See the [0.1.0 changelog](CHANGELOG.md) for the complete release baseline.
 
 ## Development
 
