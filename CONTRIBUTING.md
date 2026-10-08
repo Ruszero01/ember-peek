@@ -27,6 +27,8 @@ npm test
 and builds the frontend, and packages every official plugin. `npm test` runs the Node protocol,
 packaging, UI, SDK, and release tests followed by all Rust suites. The CI entry point is
 `npm run ci`; workflows call the same script instead of maintaining a second list of checks.
+Both gates build the frontend before Clippy: Tauri's compile-time context needs `dist/`
+even in a clean checkout. Do not rely on artifacts left by a previous development build.
 
 Explorer hooks, tray behavior, WebView2 lifetime, drag and drop, and real model providers require
 the manual Windows matrix in [docs/testing.md](docs/testing.md).
