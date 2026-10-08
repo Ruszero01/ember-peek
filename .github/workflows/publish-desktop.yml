@@ -1,0 +1,45 @@
+name: Mirror stable desktop release to OSS
+on:
+  release:
+    types: [released]
+permissions:
+  contents: read
+concurrency:
+  group: desktop-oss-stable-windows-x86_64
+  cancel-in-progress: false
+jobs:
+  publish:
+    if: ${{ !github.event.release.draft && !github.event.release.prerelease }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: plugin-production
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_ID: ${{ github.event.release.id }}
+      OSS_REGION: ${{ vars.OSS_REGION }}
+      OSS_BUCKET: ${{ vars.OSS_BUCKET }}
+      OSS_PREFIX: ${{ vars.OSS_PREFIX }}
+      OSS_PUBLIC_BASE_URL: ${{ vars.OSS_PUBLIC_BASE_URL }}
+      OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
+      OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+      OSS_STS_TOKEN: ${{ secrets.OSS_STS_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Download the tested installer from the stable GitHub release
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p installer
+          gh api "repos/$GH_REPO/releases/$RELEASE_ID" > installer/release.json
+          tag=$(node -e 'const r=require("./installer/release.json"); if(r.draft || r.prerelease)process.exit(1); console.log(r.tag_name)')
+          gh release download "$tag" --dir installer --pattern '*-setup.exe' --pattern SHA256SUMS.txt
+      - name: Verify checksums and mirror to OSS
+        run: node scripts/publish-desktop.mjs installer --apply

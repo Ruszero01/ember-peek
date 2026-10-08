@@ -70,7 +70,7 @@ jobs:
         with:
           name: desktop-release-notes
           path: notes
-      - name: Create draft release and attach installer
+      - name: Create a complete prerelease for manual testing
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -86,6 +86,7 @@ jobs:
             fi
             gh release edit "$RELEASE_TAG" --notes-file notes/release-notes.md
           else
-            gh release create "$RELEASE_TAG" --verify-tag --draft --title "Ember Peek $RELEASE_TAG" --notes-file notes/release-notes.md
+            gh release create "$RELEASE_TAG" --verify-tag --draft --prerelease --title "Ember Peek $RELEASE_TAG" --notes-file notes/release-notes.md
           fi
           gh release upload "$RELEASE_TAG" installer/* --clobber
+          gh release edit "$RELEASE_TAG" --draft=false --prerelease --latest=false

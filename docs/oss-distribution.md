@@ -151,3 +151,9 @@ ZIP 和版本记录禁止同名覆盖；目录使用 `Cache-Control: no-cache`�
 - [OSS PutObject：覆盖保护、版本控制及缓存头](https://www.alibabacloud.com/help/en/oss/developer-reference/putobject)
 - [OSS 阻止公共访问](https://www.alibabacloud.com/help/zh/oss/user-guide/block-public-access)
 - [GitHub 手动触发工作流](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/manually-run-a-workflow)
+
+## 宿主安装包镜像
+
+宿主版本标签先创建 GitHub 预发布。维护者手动转为正式发布后，由 Mirror stable desktop release to OSS 下载已有 Release 附件、校验 SHA-256，再上传安装包与稳定版本指针。复用 plugin-production 环境配置，不重新编译。流程见 [Windows 发布与检查更新](windows-desktop.md#宿主检查更新与正式发布)。
+
+匿名读取策略额外允许 ember-peek/desktop/*（channels/* 已包含检查更新元数据）。发布身份需对 ember-peek/desktop/* 和 ember-peek/channels/* 有 GetObject/PutObject 权限；无需匿名列举或写入。插件发布工作流保持独立。

@@ -1,3 +1,4 @@
+import { AboutUpdates } from "./AboutUpdates";
 import {PluginBadge} from "./PluginBadge";
 import {sortPosition,moveSortItem} from "./plugin-sort";
 import React, {
@@ -1908,8 +1909,8 @@ function App() {
                   <BrandMark size={58} />
                   <h1>Ember Peek</h1>
                   <p>{t("about.tagline")}</p>
-                  <span className="version">{APP_VERSION}</span>
                   <div className="about-details">
+                    <AboutUpdates />
                     <span>
                       {t("about.installed")} <strong>{snapshot.plugins.length}</strong>
                     </span>
