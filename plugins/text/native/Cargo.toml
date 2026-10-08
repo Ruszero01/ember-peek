@@ -2,7 +2,7 @@
 name = "ember-text-plugin"
 # A plugin's version is its own: it ships independently of the host's version, and the
 # packaging step refuses a crate that disagrees with the package's plugin.json.
-version = "0.1.0"
+version = "0.1.1"
 edition.workspace = true
 license.workspace = true
 
