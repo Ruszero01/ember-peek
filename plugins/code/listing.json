@@ -1,8 +1,8 @@
 {
-  "summary": "按语言显示语法高亮、共享行号和阅读位置。",
+  "summary": "代码预览，支持语法高亮与行号。",
   "i18n": {
     "en": {
-      "summary": "Syntax highlighting per language, with line numbers and a reading position shared across text plugins."
+      "summary": "Preview code with syntax highlighting and line numbers."
     }
   },
   "publisher": "Ember Peek",

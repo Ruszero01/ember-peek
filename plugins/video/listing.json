@@ -1,8 +1,8 @@
 {
-  "summary": "视频预览：窗口可对齐画面比例，播放、进度与音量在浮层里控制，画面上左右拖动改进度、上下拖动改音量，左右方向键前后 5 秒；遇到系统播不动的编码时按需生成临时兼容代理，长视频按段转码，先出第一段就能看。",
+  "summary": "视频预览，支持播放控制与格式兼容。",
   "i18n": {
     "en": {
-      "summary": "Video preview: the window can match the frame's shape, playback, position and volume live in a floating panel, a horizontal drag on the picture seeks and a vertical one sets the volume while the arrow keys step 5 seconds, and a codec the system cannot decode gets a temporary compatibility proxy on demand, transcoded piece by piece so a long video starts on its first piece."
+      "summary": "Preview videos with playback controls and codec compatibility."
     }
   },
   "publisher": "Ember Peek",
