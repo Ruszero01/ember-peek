@@ -899,7 +899,8 @@ fn main() {
                         host.asset(session, asset).await?
                     };
                     let size = tokio::fs::metadata(&path).await.map_err(|e| e.to_string())?.len();
-                    if size > 32 * 1024 * 1024 { return Err("Plugin file exceeds 32 MiB".to_string()); }
+                    let limit_mib = if asset == "@file" { 128 } else { 32 };
+                    if size > limit_mib * 1024 * 1024 { return Err(format!("File exceeds {limit_mib} MiB")); }
                     let body = tokio::fs::read(&path).await.map_err(|e| e.to_string())?;
                     Ok(ProtocolAsset { status: 200, kind: mime(&path).to_owned(), body,
                         content_range: None, accept_ranges: false })

@@ -22,8 +22,8 @@ fn handle(method: &str, params: &Value) -> Result<Value, String> {
     }
     let path = params["path"].as_str().ok_or("Missing file path")?;
     let size = std::fs::metadata(path).map_err(|e| e.to_string())?.len();
-    if size > 32 * 1024 * 1024 {
-        return Err("图片插件原型支持不超过 32 MiB 的图片".into());
+    if size > 128 * 1024 * 1024 {
+        return Err("图片超过当前 128 MiB 加载上限".into());
     }
     let extension = std::path::Path::new(path)
         .extension()
@@ -290,7 +290,23 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::{avif, bmp, gif, jpeg, png, svg, webp};
+    #[test]
+    fn accepts_large_photos_and_rejects_files_over_the_loading_budget() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("photo.jpg");
+        let file = std::fs::File::create(&path).unwrap();
+        file.set_len(40 * 1024 * 1024).unwrap();
+        let params = json!({"path": path});
+        assert_eq!(
+            handle("open", &params).unwrap()["size"],
+            40 * 1024 * 1024u64
+        );
+        file.set_len(128 * 1024 * 1024 + 1).unwrap();
+        assert!(handle("open", &params).unwrap_err().contains("128 MiB"));
+    }
+
+    use super::{avif, bmp, gif, handle, jpeg, png, svg, webp};
+    use serde_json::json;
 
     #[test]
     fn every_format_this_plugin_claims_reports_its_size() {

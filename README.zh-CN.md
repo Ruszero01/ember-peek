@@ -3,12 +3,12 @@
 
   # Ember Peek
 
-  轻量、快速、由插件驱动的 Windows 11 文件预览工具。
+  轻量、快速、由插件驱动的 Windows 文件预览工具。
 
   在资源管理器中选中文件并按下 `Space`，即可预览文本、代码、Markdown、图片、视频、
   文件信息以及已安装插件支持的其他格式。
 
-  [![Windows 11](https://img.shields.io/badge/Windows-11-2f6fed?style=flat-square&logo=windows11&logoColor=white)](https://github.com/Ruszero01/ember-peek/releases)
+  [![Windows](https://img.shields.io/badge/Windows-2f6fed?style=flat-square&logo=windows11&logoColor=white)](https://github.com/Ruszero01/ember-peek/releases)
   [![Release](https://img.shields.io/github/v/release/Ruszero01/ember-peek?display_name=tag&style=flat-square&color=b7572f)](https://github.com/Ruszero01/ember-peek/releases/latest)
   [![Downloads](https://img.shields.io/github/downloads/Ruszero01/ember-peek/total?style=flat-square&color=f4a477)](https://github.com/Ruszero01/ember-peek/releases)
   [![Tauri 2](https://img.shields.io/badge/Tauri-2-24c8d8?style=flat-square&logo=tauri&logoColor=white)](https://tauri.app/)
@@ -24,6 +24,7 @@
 
 Ember Peek 常驻 Windows 系统托盘，仅在资源管理器文件列表获得焦点时响应空格键。
 预览和编辑能力由独立插件提供，因此宿主保持轻量，用户只需安装自己需要的功能。
+未来将提供更多插件，支持更多文件格式。
 
 | 能力 | 适用内容 | 主要功能 |
 | --- | --- | --- |
@@ -103,10 +104,9 @@ Ember Peek 宿主不包含任何特定格式的渲染器。文件解析、画面
 
 ## 0.1.0 发布范围
 
-首发面向 **Windows 11 x64**，使用 WebView2。安装器不内置插件，首次安装推荐插件需要
+首发面向 **Windows x64**，使用 WebView2。安装器不内置插件，首次安装推荐插件需要
 联网；缺少 WebView2 时也可能需要联网安装。应用与插件版本独立发布。
 
-文本超过 2 MiB 时截断并只读，图片上限 32 MiB；尚无官方 PDF、PSD、FBX 查看器。
 资源管理器多选时预览第一项，文本编辑未保存草稿不提供崩溃后恢复。视频编码兼容可能需要
 临时转码。当前 Windows 安装包未进行代码签名。
 

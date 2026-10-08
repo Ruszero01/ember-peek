@@ -35,7 +35,8 @@ Every view imports `./sdk.js` and awaits `ready` before using session-bound APIs
 
 View theme tokens include `--viewport-mode`: `window` when the view occupies the entire preview window (immersive mode), or `content` when it sits between the host bars. `--safe-top` and `--safe-bottom` remain available for scrollable content and controls that must avoid the floating bars.
 
-`read()` is capped at 1 MiB per call. `fileUrl()` serves the current file up to 32 MiB.
+`read()` is capped at 1 MiB per call. `fileUrl()` serves the current file up to 128 MiB. This session-file budget is separate from the 32 MiB package-resource limit.
+Official text plugins share a 16 MiB decoding and encoded-save budget; truncated sources remain read-only to prevent overwriting unseen content.
 `streamUrl()` is the format-neutral large-file path: a browser-native consumer requests byte
 ranges and the host answers in bounded chunks, so playback or parsing can begin without first
 copying the whole file into WebView memory.
