@@ -3,7 +3,7 @@
   "beta": true,
   "id": "ember.workshop",
   "name": "插件工坊",
-  "version": "0.1.1",
+  "version": "0.1.0",
   "icon": "wand-sparkles",
   "executable": "bin/ember-workshop-plugin.exe",
   "entry": "ui/index.html",
