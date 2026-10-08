@@ -20,7 +20,9 @@ pub fn load(path: &std::path::Path) -> Result<Value, String> {
     let (text, encoding) = if bytes.starts_with(&[0xff, 0xfe]) || bytes.starts_with(&[0xfe, 0xff]) {
         let little = bytes[0] == 0xff;
         let units: Vec<u16> = bytes[2..]
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|b| {
                 if little {
                     u16::from_le_bytes([b[0], b[1]])
@@ -51,6 +53,27 @@ pub fn load(path: &std::path::Path) -> Result<Value, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn utf16_endianness_and_incomplete_units_preserve_editability() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("utf16.txt");
+        for (bytes, encoding) in [
+            (vec![0xff, 0xfe, 0x41, 0x00, 0x2d, 0x4e], "UTF-16LE"),
+            (vec![0xfe, 0xff, 0x00, 0x41, 0x4e, 0x2d], "UTF-16BE"),
+        ] {
+            std::fs::write(&path, &bytes).unwrap();
+            let value = load(&path).unwrap();
+            assert_eq!(value["text"], "A中");
+            assert_eq!(value["encoding"], encoding);
+            assert_eq!(value["editable"], true);
+            let mut incomplete = bytes;
+            incomplete.push(0x42);
+            std::fs::write(&path, incomplete).unwrap();
+            let value = load(&path).unwrap();
+            assert_eq!(value["text"], "A中");
+            assert_eq!(value["editable"], false);
+        }
+    }
     #[test]
     fn complete_text_at_budget_is_editable_but_overflow_is_read_only() {
         let dir = tempfile::tempdir().unwrap();
