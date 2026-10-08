@@ -9,6 +9,7 @@ permission, transport, and presentation primitives.
 - Windows 11 with Microsoft Edge WebView2
 - Node.js 22 and `npm ci`
 - Stable Rust with `rustfmt` and `clippy`
+- Release CI pins Rust `1.99.0`; use `RUSTUP_TOOLCHAIN=1.99.0` when reproducing its checks.
 
 Use `npm run dev` for the normal development loop. The command builds the local plugin mirror,
 starts Vite and Tauri, and watches plugin sources. Do not run a second development server against
