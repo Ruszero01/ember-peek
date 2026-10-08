@@ -1,12 +1,13 @@
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::io::Read;
-const LIMIT: usize = 2 * 1024 * 1024;
+const LIMIT: usize = ember_text_document::MAX_TEXT_BYTES;
 
 fn encode(value: &Value) -> Result<Vec<u8>, String> {
     let text = value["text"].as_str().ok_or("Missing text")?;
-    if text.len() > LIMIT {
-        return Err("编辑内容超过 2 MiB 限制".into());
+    // UTF-16 sources can expand to more UTF-8 bytes without exceeding the file budget.
+    if text.len() > LIMIT * 3 {
+        return Err("编辑内容过大，无法保存".into());
     }
     let mut bytes = Vec::new();
     match value["encoding"].as_str().ok_or("Missing encoding")? {
@@ -30,7 +31,7 @@ fn encode(value: &Value) -> Result<Vec<u8>, String> {
         _ => return Err("不支持的编码".into()),
     }
     if bytes.len() > LIMIT {
-        return Err("编码后的文件超过 2 MiB 限制".into());
+        return Err("编码后的文件超过 16 MiB 限制".into());
     }
     Ok(bytes)
 }
@@ -108,6 +109,30 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn saves_text_above_the_old_limit_without_losing_content() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("large.txt");
+        let original = vec![b'x'; 3 * 1024 * 1024];
+        std::fs::write(&path, &original).unwrap();
+        let mut value = ember_text_document::load(&path).unwrap();
+        let changed = format!("{}updated", value["text"].as_str().unwrap());
+        value["text"] = json!(changed);
+        save(&json!({"path": path, "value": value})).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), changed.as_bytes());
+    }
+    #[test]
+    fn utf16_non_ascii_content_is_measured_in_its_saved_encoding() {
+        let text = "中".repeat(LIMIT / 2 - 1);
+        let encoded = encode(&json!({"text": text, "encoding": "UTF-16LE"})).unwrap();
+        assert_eq!(encoded.len(), LIMIT);
+    }
+    #[test]
+    fn encoded_budget_includes_utf16_and_bom() {
+        let value = json!({"text": "x".repeat(LIMIT / 2), "encoding": "UTF-16LE"});
+        assert!(encode(&value).is_err());
+    }
+
     use super::*;
     #[test]
     fn saves_matching_revision_and_refuses_external_changes_without_overwriting() {
