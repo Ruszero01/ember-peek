@@ -23,12 +23,16 @@ export type Session = {
   viewReady: boolean;
   error: string | null;
 };
+/** A declared setting. `hidden` keeps the host's persistence without a control in the settings
+ * surface: the plugin stores a value it owns (last volume, last zoom) and the user never sees a
+ * switch for it. */
 export type PluginSetting =
   | {
       key: string;
       type: "bool";
       label: string;
       help?: string;
+      hidden?: boolean;
       default: boolean;
     }
   | {
@@ -36,6 +40,7 @@ export type PluginSetting =
       type: "number";
       label: string;
       help?: string;
+      hidden?: boolean;
       default: number;
       min?: number;
       max?: number;
@@ -48,6 +53,7 @@ export type PluginSetting =
       type: "select";
       label: string;
       help?: string;
+      hidden?: boolean;
       default: string;
       options: { value: string; label: string }[];
     }
@@ -56,9 +62,23 @@ export type PluginSetting =
       type: "text";
       label: string;
       help?: string;
+      hidden?: boolean;
+      default: string;
+    }
+  | {
+      key: string;
+      /** A path the host picks for the plugin: empty, or an absolute folder. */
+      type: "folder";
+      label: string;
+      help?: string;
+      hidden?: boolean;
       default: string;
     };
 export type Plugin = {
+  tool?: { api: number; service: string } | null;
+  entry: string;
+  origin: string;
+  source?: string | null;
   activation: { mode: "auto" | "manual"; priority: number };
   id: string;
   name: string;
@@ -69,6 +89,7 @@ export type Plugin = {
   processIds: number[];
   /** Icon name to look up in the host set; unknown or absent falls back to a generic one. */
   icon?: string;
+  beta?: boolean;
   /** Declarations, used to render one control per setting. */
   settings: PluginSetting[];
   /** Current values, keyed by setting key: declared defaults plus user overrides. */
@@ -101,6 +122,7 @@ export type MarketEntry = {
   version: string;
   extensions: string[];
   icon?: string;
+  beta?: boolean;
   summary: string;
   publisher: string;
   /** The source suggests this one for a fresh installation. */
@@ -118,6 +140,7 @@ export type Control = {
   suffix?: string;
   label: string;
   icon?: string;
+  beta?: boolean;
   /** Toggle state: the host draws a pressed control. Ignored for other kinds. */
   active?: boolean;
 };

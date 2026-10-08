@@ -1,130 +1,140 @@
-# Ember Peek
+<div align="center">
+  <img src="assets/brand/mark.svg" width="88" height="88" alt="Ember Peek logo" />
 
-以插件提供全部预览能力的 Tauri v2 桌面应用，当前为 0.1.0 基线（插件协议 `api:1`）。宿主不包含文本、图片、PDF、PSD 或模型渲染器。
+  # Ember Peek
 
-## 开发
+  A fast, lightweight, plugin-driven file previewer for Windows 11.
 
-环境：Windows 11、Node.js 22.9+、Rust stable、MSVC Build Tools、WebView2。
+  Select a file in File Explorer and press `Space` to preview text, source code,
+  Markdown, images, videos, metadata, and formats supported by installed plugins.
 
-```powershell
-npm install
-npm run dev
-```
+  [![Windows 11](https://img.shields.io/badge/Windows-11-2f6fed?style=flat-square&logo=windows11&logoColor=white)](https://github.com/Ruszero01/ember-peek/releases)
+  [![Release](https://img.shields.io/github/v/release/Ruszero01/ember-peek?display_name=tag&style=flat-square&color=b7572f)](https://github.com/Ruszero01/ember-peek/releases/latest)
+  [![Downloads](https://img.shields.io/github/downloads/Ruszero01/ember-peek/total?style=flat-square&color=f4a477)](https://github.com/Ruszero01/ember-peek/releases)
+  [![Tauri 2](https://img.shields.io/badge/Tauri-2-24c8d8?style=flat-square&logo=tauri&logoColor=white)](https://tauri.app/)
 
-安装依赖后，只需 **`npm run dev`** 一条命令。它先构建插件市场（本地镜像），再同时运行 Vite 前端 HMR、Tauri Rust 自动重编译/重启、插件源码与视图监视。`npm run desktop` 是相同的桌面入口。
+  [Download](https://github.com/Ruszero01/ember-peek/releases/latest) · [Get started](#installation-and-use) · [Report an issue](https://github.com/Ruszero01/ember-peek/issues)
 
-调试界面问题时（例如"留白没生效"、"开关点击后跳动"），不要靠读源码推断运行中的实际状态，改用带调试端口的共享环境：
+  **English** · [简体中文](README.zh-CN.md)
+</div>
 
-```powershell
-pwsh -File tools/dev-with-debug.ps1
-node tools/live-targets.mjs                              # 列出当前窗口
-node tools/live-targets.mjs plugin.localhost expr.js     # 读插件视图的真实 DOM
-```
+---
 
-详见 [tools/README.md](tools/README.md)，其中记录了插件更新重开预览、本地目录缓存与草稿保护行为。
+## Overview
 
-启动后常驻托盘，不自动创建 WebView；只有首次启动会打开一次引导页（见下）。之后右键托盘选择“设置”，进入“插件管理 → 插件市场”安装插件。插件源与已安装目录分离：从源里下载的包只有用户点击安装后才会复制到安装目录。
+Ember Peek runs in the Windows system tray and responds to the Space key only when the
+File Explorer file list has focus. Preview and editing features are supplied by independent
+plugins, so the host stays small and users install only the capabilities they need.
 
-Rust 更新是标准 Tauri 的重编译并重启式热重载，不是内存补丁。修改宿主 Rust 时，正在运行的内存会话会随重启清空。
+| Capability | Typical files | Highlights |
+| --- | --- | --- |
+| Plain-text preview | TXT, logs, configuration files | Encoding detection, line numbers, wrapping |
+| Source-code preview | Common programming languages | Syntax highlighting, virtualized long documents |
+| Markdown preview | READMEs, notes, documentation | Render/source modes, outline, linked local and remote images |
+| Image preview | PNG, JPEG, GIF, WebP, BMP, AVIF, SVG | Zoom, pan, fit to window |
+| Video preview | Common video files | Playback, seeking, volume, frame export, codec compatibility |
+| Text editing | Writable text and source files | Search, save, external-change protection |
+| File information | Any local file | Path, size, and basic metadata |
+| Plugin Workshop (Beta) | Custom file formats | AI-assisted generation, validation, trial preview, and installation |
 
-如果你自己已启动 `npm run dev:web`，下面是只连接已有前端服务的高级入口（不会启动插件监视；通常直接用 `npm run dev` 即可）：
+## Installation and use
 
-```powershell
-npm run tauri -- dev --config src-tauri/tauri.external-dev.json
-```
+1. Download the latest Windows installer from [GitHub Releases](https://github.com/Ruszero01/ember-peek/releases/latest).
+2. Install and launch Ember Peek.
+3. Choose the recommended plugins during onboarding, or install them later from
+   **Settings → Plugin Marketplace**.
+4. Select a file in Windows File Explorer and press `Space`.
 
-端口固定为 `127.0.0.1:1420`，占用时直接报错。项目脚本不会搜索、杀掉或替换其他开发服务器。
+Ember Peek does not intercept Space in the address bar, search field, rename editor, or
+other applications.
 
-`npm run dev` 已包含插件监视，不需要再开其他终端。插件源码改动后构建脚本会发布新的包（`buildId` 变化），开发宿主随后**覆盖安装**已装的插件：先停掉受影响的插件进程，再把新包换进同一个安装目录，被切断的预览按原路径自动重开。本地镜像缓存 1 秒，宿主每 2 秒检查一次；受影响会话存在未保存内容时拒绝更新。独立工作时仍可使用 `npm run plugins:watch`。
+| Action | Shortcut or entry point |
+| --- | --- |
+| Show or hide the selected file | `Space` |
+| Hide the preview window | `Esc` |
+| Choose a file from the preview window | `Ctrl` + `O` |
+| Save in the text editor | `Ctrl` + `S` |
+| Open settings | Tray icon → **Settings** |
+| Exit completely | Tray icon → **Exit** |
 
-Ctrl+C 退出整组开发服务，由 Tauri CLI 管理后端与开发钩子的生命周期；开发钩子释放 Vite、文件监视器和它启动的编译进程。端口冲突时不会终止其他进程。
+Closing the preview window hides it rather than exiting the app. After 120 seconds hidden,
+its WebView is released; the tray process and Explorer listener remain active and recreate
+the window on demand.
 
-## 使用
+## Plugins
 
-- 托盘：右键菜单是“设置”和“退出”（开发构建多一项“重置为首次启动”，见下）；左键双击打开空预览窗口。
-- Windows 资源管理器：文件列表中选中文件后按空格预览，按当前标签页的文件视图获取选择。
-- 打开文件：预览窗口中 Ctrl+O、拖放，或底部文件夹按钮。
-- 多插件：同一文件同时启用文本预览、文本编辑等能力；底部功能气泡同时负责视口切换与操作，当前插件高亮，**只有它会展开自己的功能按钮**，其余收起为一条名称，切换时带动效。插件设置提供“自动激活”开关；左侧插件列表拖动排序，越靠上越优先。
-- 浮层：宿主只提供一块可拖动的浮动面板和位置记忆，面板里放什么由插件决定（标题、按钮、搜索框、信息文本都行）。主视口同一时刻只挂载当前插件，切换视口等于换显示源；声明了未提交变更的视口保持挂载。
-- 文本编辑：文本编辑可独立安装，与文本预览共存时共享解析；自带搜索浮层，命中按字符高亮并跳转到对应位置。Ctrl+S 保存并保持编辑，保留编码和统一换行，外部冲突拒绝覆盖。未提交的变更阻止闲置回收，托盘退出会询问是否丢弃。
-- 设置：独立窗口，提供主题、界面语言、沉浸模式、插件市场、已安装插件管理；与预览共享主题偏好。
-- 界面语言：可选跟随系统、简体中文或 English，默认跟随系统；切换立即生效，托盘菜单、原生对话框、窗口标题与已打开的插件视图一起变，语言记在宿主状态里，下次启动在窗口出现前就已生效。插件名称与设置项按插件自己声明的 `i18n` 显示，插件界面内的文案由插件自行翻译；没提供当前语言的插件回落到声明原文。
-- 市场：浏览、搜索、安装、更新。已安装的插件在这里全部以小卡片列出，有可用更新的排在最前并带更新按钮；启用、排序和卸载都在“插件管理”里，那里才是完整列表。
-- 首次启动：打开引导页，从插件源勾选推荐插件安装（走与市场相同的安装流程），也可以直接“去插件市场”或“稍后再说”；只会出现一次。
-- 插件设置：设置侧栏的“插件设置”分组会为每个已安装插件列出一项，点进去是该插件自己的设置页。开关、数字、下拉或文本由插件在 `plugin.json` 里声明，宿主负责绘制与保存；声明可在同一份清单的 `i18n` 里按语言覆盖，详见[插件开发](docs/plugins.md)。图片插件提供“默认适应窗口”，文本类插件提供行号、自动换行与制表符宽度。
-- 插件图标：插件在 `plugin.json` 里声明 `icon`（宿主图标集里的名字），侧栏、插件管理卡片和市场卡片共用同一个图标；未声明或名字未知时退回通用图标。
-- 目录安装：也可选择含 `plugin.json` 的已构建插件目录。
-- Escape：隐藏当前窗口；预览内容中再次按空格也会隐藏窗口，输入框与按钮保留正常空格行为（插件浮层里的 Escape 由插件自己处理）。
-- 关闭按钮隐藏到托盘。每个隐藏窗口满 120 秒后销毁其 WebView；两个窗口都已回收后，WebView2 释放本应用的浏览器进程。可见窗口不会因闲置被销毁。
-- Rust 托盘与 Explorer 监听继续运行，下次触发按需重建窗口。关闭预览不会取消原生插件加载；未使用的插件会话按运行时的 120 秒策略回收。
-- 彻底退出：右键托盘“退出”，释放快捷键监听和插件进程。
+The Ember Peek host contains no format-specific renderer. Plugins own parsing and rendering,
+including linked resources required by a document. The host provides generic lifecycle,
+permission, file, resource, and network transport APIs.
 
-宿主只是外壳：不含任何预览实现，也**不打包任何插件**，因此刚装好的应用预览不了任何东西，直到从插件源装了插件。
+- Browse, install, and update plugins in **Plugin Marketplace**.
+- Enable, order, or remove installed plugins in **Plugin Management**.
+- Use multiple viewers for one file and switch between them from the preview toolbar.
+- Generate a viewer for a custom format with **Plugin Workshop (Beta)**.
+- Build third-party plugins with the [plugin development guide](docs/plugins.md).
 
-结构分三层：宿主负责解析来源、校验、安装与运行；**插件源**是一份远程目录（`catalog.json`），负责插件信息；目录条目里的 artifact 链接负责包下载。源码保留在 GitHub 同仓库，官方目录和包由 OSS 分发。来源列表在 `src-tauri/plugin-sources.json`，由 `npm run source:configure` 写入真实公开地址；未配置时禁止构建桌面发行包。详见 [OSS 分发配置](docs/oss-distribution.md)。
+Plugin packages are checked against their declared SHA-256 and `buildId` before installation.
+Plugin signing is not implemented yet, so only configure sources you trust. Native plugins
+run with the current user's permissions.
 
-首次启动会打开一次引导页，给出插件源建议的几种基础插件（文本、图片预览等，由目录条目的 `recommended` 标记）供勾选；勾中的走与市场相同的公开安装流程（下载 → 校验 `sha256` 与 `buildId` → 复制），其余插件在“插件市场”里随时可装，也可以“稍后再说”。答案记录在宿主状态里，只出现一次。下载物按哈希缓存在 `.plugin-cache`（发行版在应用数据目录的 `plugin-cache`），重复安装不重复下载。更新是覆盖式的：先停掉该插件的进程，再把新包换进同一个安装目录（两步改名，中途崩溃可恢复），被切断的预览在换装后自动恢复，所以每个插件在磁盘上只有一个目录、缓存也只留在用构建，不会随版本数膨胀。**没有签名校验**：目录里声明 `signature` 会被直接拒绝而不是被当作已校验，详见[插件开发](docs/plugins.md)。
+## Plugin Workshop (Beta)
 
-发布插件包：
+Install the Workshop from **Plugin Marketplace**, then configure an OpenAI Chat Completions
+compatible service with streaming and tool calling. Fetch models manually or add a model ID
+and display name; choose the active model in the chat composer. Valid configuration changes
+save automatically.
 
-```powershell
-npm run plugins:dist
-```
+Describe the preview you need and optionally attach a sample file. Workshop generates and
+validates a plugin, runs a trial preview, and lets you install or export the verified result.
+You can continue the conversation, cancel generation, or restore an earlier verified build.
+Network search is optional and configured separately.
 
-产物在 `.release/`（目录、ZIP 和源码指纹）。先运行 `npm run plugins:validate` 和 `npm run plugins:plan`，再运行 `npm run plugins:publish` 上传 OSS。本地输出清理旧包，线上在新目录验证成功后清理旧包，仅保留最新版本；`plugins:dist` 不会改开发镜像。
+Workshop is experimental. Compatibility depends on the model, service, and file format.
+AI requests send your requirements, conversation, and generated code to the configured service;
+sample attachments are referenced by local path rather than uploaded as file contents.
 
-开发版已安装插件位于 `.plugins`，市场是最近一次构建的本地镜像（`.marketplace/`）；开发环境不读官方源，优先用本地构建。调试首次启动流程用托盘右键的“重置为首次启动”（仅开发构建）：它把运行时恢复成首次启动状态并直接打开引导页。需要验证真实远程源时，把 `EMBER_MARKET_SOURCES` 指向一个来源文件。发行版的插件位于系统应用数据目录的 `org.emberpeek.desktop/plugins`。每个包都包含独立可执行程序和网页视图。
+## File safety and privacy
 
-## 验证与构建
+The text editor supports UTF-8, UTF-16 LE, and UTF-16 BE. It preserves the original encoding
+when saving and refuses to overwrite a file changed by another program. Unsaved work prevents
+the affected plugin from being replaced, disabled, reclaimed, or removed without confirmation.
 
-Windows 安装包与 GitHub Release 流程见 [安装包发布](docs/windows-desktop.md#windows-安装包发布)，版本功能记录见 [发布日志](CHANGELOG.md)。Release 正文自动提取当前版本的日志章节。
+Previewing and editing happen locally. Ember Peek may download plugin packages and public
+resources explicitly referenced by a document, but it does not upload the opened file.
 
-```powershell
-npm test
-npm run check
-npm run plugins:dist   # 产出 .release/ 下可上传的插件包与目录索引
-npm run plugins:validate
-npm run source:configure # 先在 .env 配置真实 OSS_PUBLIC_BASE_URL
-npm run build:desktop
-```
+## Interface
 
-`npm test` 分两半：`node --test` 跑宿主前端的协议与 zip 测试（选区版本号、通用控件校验、面板越权调用、打包器与一个提交在仓库里的固定 zip），`cargo test` 用真实独立子进程跑运行时（并发加载、切换类型不重开、崩溃恢复、共享契约与浮层保留、激活优先级与持久化、引导页答案、安装/更新/卸载与目录修剪），以及 SDK 与两个文本插件的原生测试。`npm run check` 是前端生产构建 + 插件打包 + `cargo check --workspace`。以上命令都不启动开发服务器。
+- Light, dark, and system themes.
+- English, Simplified Chinese, and system language selection.
+- Immersive preview mode.
+- Plugin-defined toggle, number, select, text, and folder settings.
 
-版本号以 `package.json` 为唯一来源，脚本同步到 `Cargo.toml`、`src-tauri/tauri.conf.json` 和 `Cargo.lock`：`npm run version:check` 只校验（有漂移退出 1，适合放进 CI），`npm run version:set -- 0.2.0` 改并统一（不带参数运行则按 `package.json` 归位）。**插件不在其中**：每个插件自己发版，版本写在它的 `plugin.json` 里，native crate 各自声明同一个号，打包时校验两者一致——所以插件改一行代码不需要动应用版本。
+Theme and language changes are propagated to settings, preview windows, tray menus, and open
+plugin views.
 
-## 目录
+## 0.1.0 release scope
 
-```text
-src/                  通用宿主界面、消息桥、视图容器
-src-tauri/            标准 Tauri v2 桌面入口（托盘、Explorer 监听、插件源配置）
-crates/runtime/       插件发现、安装与覆盖更新、进程 RPC、会话与回收
-crates/file-store/    宿主与插件共用的文件替换写入
-crates/text-document/ 插件侧共享文本解码库（编码、截断、指纹）
-sdk/native/           可选 Rust JSON-lines 传输库
-sdk/web/              可选视图消息 SDK 与插件侧共享组件
-plugins/text/         纯文本预览
-plugins/code/         代码预览（语法高亮）
-plugins/markdown/     Markdown 渲染 / 源码预览
-plugins/text-editor/  可独立解析或共享文本数据的编辑插件
-plugins/image/        图片预览进程与视图
-plugins/metadata/     全类型文件信息浮层
-scripts/              插件构建、监视与打包（市场镜像、发布物）
-tools/                开发调试脚手架（调试端口、运行时 DOM 与截图）
-docs/                 架构、插件开发、Windows 桌面说明与能力规范
-tests/                宿主前端协议与打包器测试
-```
+The first release targets **Windows 11 x64** and uses WebView2. The installer does not bundle
+plugins; installing recommended plugins initially requires internet access. WebView2 may also
+need an online installation if it is missing. Application and plugin versions are independent.
 
-## 范围与边界
+Text previews truncate above 2 MiB and become read-only; image previews are limited to 32 MiB.
+There are no official PDF, PSD, or FBX viewers yet. Explorer multi-selection previews the first
+file. Unsaved text-editor drafts are not recovered after a crash. Video codec compatibility may
+require temporary transcoding. The Windows installer is not code-signed.
 
-宿主侧保留品牌、浅深主题、设置侧栏、开关样式、悬浮操作栏和沉浸交互，预览实现全部在插件里。
+See the [0.1.0 changelog](CHANGELOG.md) for the complete release baseline.
 
-文本类插件支持 UTF-8（含 BOM）与 UTF-16 LE/BE，最多解码前 2 MiB，超出即截断并只读；代码与编辑视图用 CodeMirror 6 做虚拟化布局，Markdown 用 markdown-it 渲染并用 DOMPurify 清理，不做块级虚拟化。图片插件支持 WebView2 可解码的 PNG/JPEG/GIF/WebP/BMP/AVIF/SVG，单个文件上限 32 MiB，提供缩放、适应窗口与拖动。
+## Development
 
-FBX、PDF、PSD 插件尚未实现；这套协议允许插件携带自己的解析器和任意 HTML/Canvas/WebGL 视图，安装时无需修改宿主。插件从插件源以 zip 下载，装前校验 `sha256` 与 `buildId`，但没有签名系统：目录里声明 `signature` 会被拒绝，而不是被当作已校验。Explorer 集成仅响应资源管理器文件列表中的无修饰空格，不接管其他应用、地址栏、搜索框或重命名输入。多选时预览选择集合的第一项；没有文件系统路径的虚拟项不触发预览。
+Start with [CONTRIBUTING.md](CONTRIBUTING.md), then use the focused references for
+[plugin development](docs/plugins.md), [SDK contracts](sdk/README.md),
+[architecture](docs/architecture.md), [testing](docs/testing.md), and
+[Windows packaging](docs/windows-desktop.md). User-visible changes are tracked in the
+[changelog](CHANGELOG.md).
 
-能力协议和验收项见 [插件能力](docs/specs/plugin-capabilities.md)。
+## Reporting issues
 
-详见 [架构](docs/architecture.md)、[插件开发](docs/plugins.md) 与 [Windows 托盘及窗口开发说明](docs/windows-desktop.md)。
-
-
-文本能力现分为 **文本预览、代码预览、Markdown 预览、文本编辑** 四个可独立安装的插件。编辑固定换行，代码与编辑支持语法高亮；Markdown 支持渲染/源码切换及跟随大纲。同文件插件共享阅读位置，详情见 [文本插件族](docs/specs/text-plugins.md)。
+Please use [GitHub Issues](https://github.com/Ruszero01/ember-peek/issues) and include the
+Windows and Ember Peek versions, file type and size, relevant plugin versions, and reproduction
+steps. Do not upload files containing private or sensitive information.

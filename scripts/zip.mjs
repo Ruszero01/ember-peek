@@ -22,7 +22,7 @@ const STORE = 0;
 
 export const MAX_ENTRIES = 4096;
 export const MAX_TOTAL_BYTES = 256 * 1024 * 1024;
-export const MAX_FILE_BYTES = 64 * 1024 * 1024;
+export const MAX_FILE_BYTES = 128 * 1024 * 1024;
 
 const CRC_TABLE = (() => {
   const table = new Int32Array(256);
@@ -70,7 +70,7 @@ export function createZip(files) {
   let total = 0;
   for (const entry of entries) {
     if (entry.data.length > MAX_FILE_BYTES)
-      throw new Error(`Package entry ${entry.name} is over 64 MiB`);
+      throw new Error(`Package entry ${entry.name} is over 128 MiB`);
     total += entry.data.length;
   }
   if (total > MAX_TOTAL_BYTES)

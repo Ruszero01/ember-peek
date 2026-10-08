@@ -145,7 +145,8 @@ text! {
     dialog_reset_failed: "无法重置为首次启动", "Could not reset to first launch";
     dialog_pending_title: "有未保存的编辑", "Unsaved edits";
     dialog_pending_note: "退出将丢弃所有未保存的编辑，是否继续？", "Quitting discards every unsaved edit. Continue?";
-    dialog_pick_plugin_folder: "选择可信的插件包目录", "Choose a plugin package folder you trust";
+    dialog_pick_folder: "选择目录", "Choose a folder";
+    dialog_pick_package: "选择插件包", "Choose a plugin package";
     dialog_pick_file: "打开文件", "Open file";
     dev_source_name: "开发镜像", "Development mirror";
 
@@ -181,7 +182,7 @@ text! {
     updating: "插件正在更新，请稍后重试", "A plugin is being updated; try again in a moment";
     unsupported_extension: "没有已启用的插件支持 .{extension}，请安装相应插件", "No enabled plugin handles .{extension}; install one for this format";
     too_many_per_file: "一个文件最多同时加载 32 个插件，请停用部分插件", "At most 32 plugins can load one file; disable some";
-    too_many_sessions: "后台文件会话已达 16 个，请保存未保存编辑或等待闲置回收", "16 file sessions are already open in the background; save your edits or wait for idle recycling";
+    too_many_sessions: "已有 16 个文件会话仍在加载或包含未保存编辑，请等待加载完成或保存编辑", "16 file sessions are still loading or contain unsaved edits; wait for loading to finish or save your edits";
     too_many_instances: "后台插件实例已达 64 个，请保存草稿或等待回收", "64 plugin instances are already running in the background; save your drafts or wait for recycling";
     missing_source: "缺少兼容解析源 {contract}（当前源：{current}）", "No compatible data source {contract} (current source: {current})";
     source_failed: "解析源失败：{error}", "The data source failed: {error}";
@@ -189,6 +190,10 @@ text! {
     source_expired: "解析源已过期", "The data source expired";
     no_contract: "该插件没有共享数据契约", "This plugin has no shared data contract";
     plugin_disabled: "插件已停用", "The plugin is disabled";
+
+    // The host's own toolbar actions. They belong to no plugin, so their text lives here.
+    open_default_missing: "没有正在预览的文件", "No file is being previewed";
+    open_default_failed: "无法用默认应用打开该文件：{error}", "Could not open the file with its default app: {error}";
 
     // Session lookups the host answers while a view is talking to it.
     session_expired: "会话已过期", "The session expired";
@@ -222,6 +227,8 @@ text! {
     coerce_option_unknown: "{key} 的取值不在选项中", "{key} is not one of the declared options";
     coerce_text: "{key} 需要文本", "{key} needs text";
     coerce_text_too_long: "{key} 超出 4096 字符", "{key} is over 4096 characters";
+    coerce_folder: "{key} 需要文件夹路径", "{key} needs a folder path";
+    coerce_folder_absolute: "{key} 需要绝对路径，或留空表示不指定", "{key} needs an absolute path, or an empty value for none";
 
     // A manifest that translates itself.
     i18n_limit: "插件最多声明 {max} 种语言", "A plugin may declare at most {max} languages";

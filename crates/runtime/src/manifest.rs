@@ -17,6 +17,10 @@ pub struct Setting {
     pub label: String,
     #[serde(default)]
     pub help: Option<String>,
+    /// Persisted by the host, never rendered: the value is the plugin's own (last volume, last
+    /// zoom), so the settings surface should not show a control for it.
+    #[serde(default)]
+    pub hidden: bool,
     #[serde(default)]
     pub default: Value,
     /// `number` only.
@@ -47,6 +51,7 @@ pub enum SettingKind {
     Number,
     Select,
     Text,
+    Folder,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -102,7 +107,10 @@ fn valid_locale_tag(tag: &str) -> bool {
 /// A translation is validated as strictly as the declaration it overrides: it is rendered
 /// by the same code, and a name that is too long or a setting that does not exist would
 /// otherwise show up as a wrong or missing control rather than as a rejected package.
-fn validate_i18n(manifest_locales: &BTreeMap<String, ManifestText>, settings: &[Setting]) -> Result<(), String> {
+fn validate_i18n(
+    manifest_locales: &BTreeMap<String, ManifestText>,
+    settings: &[Setting],
+) -> Result<(), String> {
     if manifest_locales.len() > MAX_LOCALES {
         return Err(msg!(text().i18n_limit, max = MAX_LOCALES));
     }
@@ -110,17 +118,29 @@ fn validate_i18n(manifest_locales: &BTreeMap<String, ManifestText>, settings: &[
         if !valid_locale_tag(tag) {
             return Err(msg!(text().i18n_tag_invalid, tag = tag));
         }
-        if messages.name.as_ref().is_some_and(|name| name.is_empty() || name.chars().count() > 80) {
+        if messages
+            .name
+            .as_ref()
+            .is_some_and(|name| name.is_empty() || name.chars().count() > 80)
+        {
             return Err(msg!(text().i18n_name_invalid, tag = tag));
         }
         for (key, translated) in &messages.settings {
             if !settings.iter().any(|setting| &setting.key == key) {
                 return Err(msg!(text().i18n_setting_undeclared, tag = tag, key = key));
             }
-            if translated.label.as_ref().is_some_and(|label| label.is_empty() || label.chars().count() > 80) {
+            if translated
+                .label
+                .as_ref()
+                .is_some_and(|label| label.is_empty() || label.chars().count() > 80)
+            {
                 return Err(msg!(text().i18n_label_invalid, tag = tag, key = key));
             }
-            if translated.help.as_ref().is_some_and(|help| help.chars().count() > 400) {
+            if translated
+                .help
+                .as_ref()
+                .is_some_and(|help| help.chars().count() > 400)
+            {
                 return Err(msg!(text().i18n_help_invalid, tag = tag, key = key));
             }
             if let Some(option_labels) = settings
@@ -130,10 +150,20 @@ fn validate_i18n(manifest_locales: &BTreeMap<String, ManifestText>, settings: &[
             {
                 for (value, label) in &translated.options {
                     if !option_labels.iter().any(|option| &option.value == value) {
-                        return Err(msg!(text().i18n_option_undeclared, tag = tag, key = key, value = value));
+                        return Err(msg!(
+                            text().i18n_option_undeclared,
+                            tag = tag,
+                            key = key,
+                            value = value
+                        ));
                     }
                     if label.is_empty() || label.chars().count() > 80 {
-                        return Err(msg!(text().i18n_option_invalid, tag = tag, key = key, value = value));
+                        return Err(msg!(
+                            text().i18n_option_invalid,
+                            tag = tag,
+                            key = key,
+                            value = value
+                        ));
                     }
                 }
             } else if !translated.options.is_empty() {
@@ -160,6 +190,7 @@ impl Setting {
                 .map(|option| Value::String(option.value.clone()))
                 .unwrap_or(Value::Null),
             SettingKind::Text => Value::String(String::new()),
+            SettingKind::Folder => Value::String(String::new()),
         }
     }
 
@@ -209,6 +240,22 @@ impl Setting {
                 }
                 Ok(Value::String(content.to_owned()))
             }
+            // A folder is a path a native process has to be able to use as it stands, so only
+            // an empty string (keep whatever the plugin defaults to) or an absolute path are
+            // accepted. A relative one would silently resolve against whatever directory the
+            // plugin process happened to start in.
+            SettingKind::Folder => {
+                let path = value
+                    .as_str()
+                    .ok_or_else(|| msg!(text().coerce_folder, key = self.key))?;
+                if path.chars().count() > 4096 {
+                    return Err(msg!(text().coerce_text_too_long, key = self.key));
+                }
+                if !path.is_empty() && !Path::new(path).is_absolute() {
+                    return Err(msg!(text().coerce_folder_absolute, key = self.key));
+                }
+                Ok(Value::String(path.to_owned()))
+            }
         }
     }
 }
@@ -243,16 +290,15 @@ fn validate_settings(settings: &[Setting]) -> Result<(), String> {
             return Err(msg!(text().setting_help_invalid, key = setting.key));
         }
         if let Some(multiplier) = setting.display_multiplier {
-            if setting.kind != SettingKind::Number
-                || !multiplier.is_finite()
-                || multiplier <= 0.0
-            {
+            if setting.kind != SettingKind::Number || !multiplier.is_finite() || multiplier <= 0.0 {
                 return Err(msg!(text().setting_multiplier_invalid, key = setting.key));
             }
         }
-        if setting.suffix.as_ref().is_some_and(|suffix| {
-            setting.kind != SettingKind::Number || suffix.chars().count() > 8
-        }) {
+        if setting
+            .suffix
+            .as_ref()
+            .is_some_and(|suffix| setting.kind != SettingKind::Number || suffix.chars().count() > 8)
+        {
             return Err(msg!(text().setting_suffix_invalid, key = setting.key));
         }
         if !setting.default.is_null() {
@@ -296,8 +342,10 @@ pub enum Capability {
 #[serde(rename_all = "camelCase")]
 pub enum Permission {
     ReadFile,
+    ReadResources,
     WriteFile,
     Clipboard,
+    OpenLink,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -353,11 +401,21 @@ pub struct Manifest {
     /// catalogue can grow without invalidating already-published plugins.
     #[serde(default)]
     pub icon: Option<String>,
+    /// Optional release maturity marker, independent of the API version.
+    #[serde(default)]
+    pub beta: bool,
     pub executable: String,
     pub entry: String,
     pub capabilities: Vec<Capability>,
     #[serde(default)]
     pub overlay: Option<OverlaySize>,
+    /// The plugin takes part in the preparation phase: the host builds the preview window but
+    /// does not show it until this plugin's view has reported ready, which is also when the
+    /// view may state what it needs the window to be. So the window is never shown at one size
+    /// and changed under the user's eyes. Its position is not the plugin's to state: that stays
+    /// the host's, and so does the size the user chose for themselves.
+    #[serde(default)]
+    pub prepare: bool,
     #[serde(default)]
     pub activation: Activation,
     #[serde(default)]
@@ -518,6 +576,7 @@ impl Manifest {
 
 #[derive(Clone, Debug)]
 pub struct Package {
+    pub tool: Option<crate::tool::Tool>,
     pub manifest: Manifest,
     pub directory: PathBuf,
 }
@@ -588,13 +647,9 @@ impl Package {
             }
         }
         if manifest.targets.len() > 8
-            || manifest
-                .targets
-                .iter()
-                .enumerate()
-                .any(|(index, target)| {
-                    !valid_target(target) || manifest.targets[..index].contains(target)
-                })
+            || manifest.targets.iter().enumerate().any(|(index, target)| {
+                !valid_target(target) || manifest.targets[..index].contains(target)
+            })
         {
             return Err("Invalid target declaration".into());
         }
@@ -617,6 +672,9 @@ impl Package {
         }
         if manifest.has(Capability::Overlay) != manifest.overlay.is_some() {
             return Err("Overlay capability requires an overlay size declaration".into());
+        }
+        if manifest.prepare && !manifest.has(Capability::View) {
+            return Err("A plugin that prepares before the window is shown must own a view".into());
         }
         if let Some(size) = &manifest.overlay {
             if !(120..=1600).contains(&size.width) || !(24..=1200).contains(&size.height) {
@@ -650,6 +708,7 @@ impl Package {
             }
         }
         Ok(Self {
+            tool: crate::tool::load(directory)?,
             manifest,
             directory: directory.canonicalize().map_err(|e| e.to_string())?,
         })
@@ -837,6 +896,8 @@ mod tests {
             json!([{"key": "s", "type": "select", "label": "S", "options": [
                 {"value": "a", "label": "A"}, {"value": "a", "label": "B"}
             ]}]),
+            // A folder that would resolve against the plugin process at run time.
+            json!([{"key": "d", "type": "folder", "label": "D", "default": "frames"}]),
         ];
         for case in cases {
             let manifest = manifest_with(case.clone());
@@ -849,6 +910,27 @@ mod tests {
             {"key": "good_key-1", "type": "bool", "label": "Good"}
         ]));
         assert!(validate_settings(&ok.settings).is_ok());
+    }
+
+    /// A folder setting is the one path the host hands to a native process, so it accepts
+    /// the two shapes a declaration can promise and refuses the rest.
+    #[test]
+    fn a_folder_setting_is_empty_or_absolute() {
+        let manifest = manifest_with(json!([
+            {"key": "d", "type": "folder", "label": "D"}
+        ]));
+        assert!(validate_settings(&manifest.settings).is_ok());
+        let folder = &manifest.settings[0];
+        assert_eq!(folder.default_value(), json!(""));
+        assert_eq!(folder.coerce(&json!("")).unwrap(), json!(""));
+        let absolute = if cfg!(windows) {
+            r"C:\Frames"
+        } else {
+            "/frames"
+        };
+        assert_eq!(folder.coerce(&json!(absolute)).unwrap(), json!(absolute));
+        assert!(folder.coerce(&json!("frames")).is_err());
+        assert!(folder.coerce(&json!(7)).is_err());
     }
 
     /// A manifest with the given settings and language table, loaded the way a package is.
@@ -902,10 +984,7 @@ mod tests {
         assert_eq!(english.settings[0].label, "Wrap long lines");
         // A field the translation leaves out keeps the declaration: a plugin writes only
         // what it can actually translate.
-        assert_eq!(
-            english.settings[0].help.as_deref(),
-            Some("关闭后不折断。")
-        );
+        assert_eq!(english.settings[0].help.as_deref(), Some("关闭后不折断。"));
         // Options are translated one by one, and the ones left out stay as declared.
         let options = english.settings[1].options.as_ref().unwrap();
         assert_eq!(options[0].label, "甲");
@@ -1001,6 +1080,17 @@ mod tests {
         }
         std::fs::write(directory.path().join("plugin.json"), value.to_string()).unwrap();
         Package::load(directory.path()).map(|package| package.manifest)
+    }
+
+    #[test]
+    fn beta_is_optional_and_serialized_for_installed_plugins() {
+        let manifest = load_with_icon(None).unwrap();
+        assert!(!manifest.beta);
+        let mut value = serde_json::to_value(manifest).unwrap();
+        value["beta"] = json!(true);
+        let beta: Manifest = serde_json::from_value(value).unwrap();
+        assert!(beta.beta);
+        assert_eq!(serde_json::to_value(beta).unwrap()["beta"], true);
     }
 
     #[test]
@@ -1143,5 +1233,36 @@ mod tests {
         .is_err());
         assert!(load_with_capabilities(json!(["view"]), None).is_ok());
         assert!(load_with_capabilities(json!(["controls"]), None).is_ok());
+    }
+
+    #[test]
+    fn preparing_before_the_window_is_shown_needs_a_view_to_show() {
+        // The preparation exists to size the window a view is about to appear in, so a plugin
+        // with no view has nothing to prepare. Anything else is accepted, and a package that
+        // never mentions it prepares nothing.
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::write(directory.path().join("worker.exe"), "").unwrap();
+        std::fs::create_dir_all(directory.path().join("ui")).unwrap();
+        std::fs::write(directory.path().join("ui/index.html"), "").unwrap();
+        let write = |prepare: bool, capabilities: Value| {
+            let mut value = json!({
+                "api": 1,
+                "id": "test.plugin",
+                "name": "test",
+                "version": "1.0.0",
+                "extensions": ["png"],
+                "executable": "worker.exe",
+                "entry": "ui/index.html",
+                "capabilities": capabilities,
+            });
+            if prepare {
+                value["prepare"] = json!(true);
+            }
+            std::fs::write(directory.path().join("plugin.json"), value.to_string()).unwrap();
+            Package::load(directory.path()).map(|package| package.manifest)
+        };
+        assert!(write(true, json!(["view"])).unwrap().prepare);
+        assert!(!write(false, json!(["view"])).unwrap().prepare);
+        assert!(write(true, json!(["controls"])).is_err());
     }
 }

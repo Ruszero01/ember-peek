@@ -4,8 +4,8 @@
 
 `npm run build:desktop -- --bundles nsis --ci -- --locked` 构建 Windows x64 NSIS 安装程序，输出到 `target/release/bundle/nsis/*-setup.exe`。按当前用户安装，提供简体中文和英文界面；缺少 WebView2 时使用 Tauri 默认的联网引导安装方式。安装包包含官方插件源配置，插件独立从 OSS 下载，不包含发布凭据。
 
-- `Baseline checks` 仅在推送 `v*` 版本标签时构建并保留安装包 14 天，分支推送和 PR 不触发。
-- `Release Windows desktop` 可手动执行，只构建可下载的 Actions 产物；推送与应用版本一致的标签（例如 `v0.1.0`）则同时创建 GitHub Release 草稿，附安装包和 `SHA256SUMS.txt`，由维护者验收后发布。产物保留 30 天，Release 附件不受此期限影响。
+- 普通分支推送和 PR 不触发远程构建；`Manual baseline checks` 仅供维护者显式运行，统一执行版本与发布日志校验、Rust 格式与 Clippy、前端构建、插件构建和全部自动化测试。
+- 只有推送与应用版本一致的标签（例如 `v0.1.0`）才触发 `Release Windows desktop`。该任务先执行完整 CI，再构建一次安装包并创建 GitHub Release 草稿，附安装包和 `SHA256SUMS.txt`，由维护者验收后发布。产物保留 30 天，Release 附件不受此期限影响。
 - 本体发布使用 GitHub 自带的 `GITHUB_TOKEN`，不需要 OSS 密钥。工作流必须先提交推送；手动入口需要工作流进入默认分支。
 - Release 正文来自根目录 `CHANGELOG.md` 的 `## [版本号]` 章节，自动按 `package.json` 版本提取，缺失、重复或为空时构建失败；重跑草稿发布会同步更新正文。发版前先写日志，再更新版本和推送标签。`npm run release:notes` 可本地预览正文。
 - 当前未配置 Windows 代码签名证书，安装包未签名。CI 的构建成功不等于安装、卸载和 Explorer 集成验收通过；请在 Windows 测试机验证。
@@ -14,12 +14,14 @@
 
 ## 入口与职责
 
-- `src-tauri/src/desktop.rs`：原生托盘、两个窗口、选择请求版本号、关闭与闲置回收。
+- `src-tauri/src/desktop.rs`：原生托盘、两个窗口、选择请求版本号、关闭与闲置回收，以及把当前预览的文件交给系统默认应用。
 - `src-tauri/src/explorer.rs`：Windows 低级键盘钩子和独立 COM 选择读取线程；不依赖 WebView 存活。
 - `src-tauri/src/main.rs`：注册通用命令、初始化插件运行时、退出清理和周期回收。
 - `src/main.tsx`：按 URL 的 `window=preview/settings` 选择窗口界面；设置窗口内部再切 `general` / `plugins` / `about` / `welcome` / 某个插件的设置页。设置窗口从不挂载插件视图。
 
 启动只创建原生托盘。预览窗口标签为 `preview`，设置窗口为 `settings`；它们独立显示和回收，仍共享一个 Rust 插件运行时与主题偏好。不是每次预览都新建一个窗口：所有文件复用预览窗口，切换会话时保留后台插件任务。
+
+**预览窗口的位置与大小归用户**：窗口按需创建，创建时用记住的那一份（`host-state.json` 的 `window`），没有记住过才用宿主的默认尺寸并居中。记录来自窗口自己的 `Resized` / `Moved` 事件而不是退出路径 —— 宿主靠隐藏窗口关窗，也可能被直接结束，只在退出时写会漏掉大部分情况；写入在窗口停止移动之后延迟一次完成，拖一次边只落一次盘。隐藏、最小化的窗口没有自己的位置可记；最大化的窗口只把"最大化"记为标志位，尺寸保留它最大化之前的那个，否则下次还原会得到一个占满屏幕的窗口。取消最大化或从最小化还原时，宿主会按[准备阶段与尺寸](specs/window-preparation.md)第 3 条把窗口的尺寸重新设置一次：操作系统还回来的是进入那个状态之前的那一份，可能是上一个插件适配出来的临时形状，不能就这么留在窗口上。插件在准备阶段声明的窗口尺寸（见[准备阶段](specs/plugin-capabilities.md#准备阶段)）不写进这一份：那是这次打开的临时尺寸，写进去会让下一张图从上一张图的尺寸开始算，越看越窄。位置同理，插件只声明尺寸，宿主从不动位置 —— 用户放在哪里就在哪里，从未放过则居中。显示器被拔掉后记住的位置可能已经不在任何屏幕上，所以创建后会检查窗口实际落在哪块屏，露出的部分太少就居中，而不是把窗口留在看不见的地方。设置窗口不记忆：它每次居中打开。
 
 右键菜单是“设置”和“退出”；debug 构建多出“重置为首次启动”，它把运行时恢复到首次启动状态（卸载全部插件、清空记住的选择与 `onboarded`、删除包目录），随后直接打开首启引导页。有未提交变更时它会拒绝并在对话框里说明，与卸载一致。发行构建不注册这一项。左键双击清空当前选择并显示预览；右键“设置”显示独立设置窗口。关闭按钮与 Alt+F4 被转换为隐藏。Escape 隐藏窗口（插件浮层里的 Escape 由插件自己处理，不会传到宿主）；内容区域的无修饰空格也隐藏预览。插件 SDK 转发这些快捷键，输入框、可编辑内容和按钮保留正常空格行为。
 
@@ -72,10 +74,12 @@ Windows 上动态创建 WebView 使用独立阻塞线程，并以创建锁避免
 8. 关闭两个窗口，等待约 122 秒以上，查看本应用 WebView2 进程释放、Rust 托盘仍在；再选文件按空格和双击托盘，应能重建窗口。
 9. 保持设置打开、仅关闭预览，等待回收后设置仍可用；共享浏览器进程此时保留是正常的。
 10. 托盘退出后检查应用及插件进程结束。修改前端应 HMR；修改 Rust 应重新编译重启并恢复托盘；改插件源码后重新构建，宿主应覆盖安装并自动重开被切断的预览（本地镜像缓存 1 秒，宿主每 2 秒检查一次；先确认没有未保存草稿）。
+11. 把预览窗口拖到第二块显示器并调整大小，退出应用（托盘退出或结束进程都试一次），重新打开文件：窗口应回到同一位置和大小；最大化后退出再打开，应还原为最大化，取消最大化后是最大化之前的大小。拔掉那块显示器再打开，窗口不应停在看不见的地方。debug 构建的“重置为首次启动”之后，窗口回到默认尺寸居中。
 
 ## 参考
 
 - [Tauri 原生托盘](https://v2.tauri.app/learn/system-tray/)
+- [ShellExecuteW](https://learn.microsoft.com/en-us/windows/win32/api/shellapi/nf-shellapi-shellexecutew)
 - [Windows LowLevelKeyboardProc](https://learn.microsoft.com/en-us/windows/win32/winmsg/lowlevelkeyboardproc)
 - [IShellWindows](https://learn.microsoft.com/en-us/windows/win32/api/exdisp/nn-exdisp-ishellwindows)
 - [IFolderView2::GetSelection](https://learn.microsoft.com/en-us/windows/win32/api/shobjidl_core/nf-shobjidl_core-ifolderview2-getselection)

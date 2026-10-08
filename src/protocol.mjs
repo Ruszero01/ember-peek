@@ -36,13 +36,82 @@ export function validateControls(value, say = (key) => key) {
       id: item.id,
       kind: item.kind,
       label: item.label,
-      icon: typeof item.icon === "string" ? item.icon.slice(0, 32) : "",
+      icon: typeof item.icon === "string" ? item.icon.slice(0, 40) : "",
       // Only meaningful for a toggle; the host uses it to draw the pressed state.
       active: item.active === true,
       ...(item.kind === "scrub" ? { value: item.value, min: item.min, max: item.max,
         suffix: typeof item.suffix === "string" ? item.suffix.slice(0, 8) : "" } : {}),
     };
   });
+}
+
+/** Generated plugins are created against the current SDK and therefore use its full
+ * control contract. Requiring an icon and an explicit toggle state keeps trial preview
+ * identical to the installed host toolbar and catches incomplete agent output early. */
+export function validateWorkshopControls(value, say = (key) => key) {
+  const controls = validateControls(value, say);
+  for (let index = 0; index < controls.length; index++) {
+    const raw = value[index];
+    if (
+      typeof raw.icon !== "string" ||
+      !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(raw.icon)
+    )
+      throw new Error(say("protocol.workshopControlIcon"));
+    if (raw.kind === "toggle" && typeof raw.active !== "boolean")
+      throw new Error(say("protocol.workshopToggleState"));
+  }
+  return controls;
+}
+
+/** A plugin supplies wording and opaque action ids; the host supplies only modal behavior,
+ * focus management and consistent presentation. */
+export function validateDialog(value, say = (key) => key) {
+  if (
+    !value ||
+    typeof value !== "object" ||
+    typeof value.title !== "string" ||
+    value.title.length < 1 ||
+    value.title.length > 120 ||
+    (value.message !== undefined &&
+      (typeof value.message !== "string" || value.message.length > 600)) ||
+    (value.detail !== undefined &&
+      (typeof value.detail !== "string" || value.detail.length > 2000)) ||
+    (value.cancelLabel !== undefined &&
+      (typeof value.cancelLabel !== "string" || value.cancelLabel.length < 1 || value.cancelLabel.length > 40)) ||
+    !Array.isArray(value.actions) ||
+    value.actions.length < 1 ||
+    value.actions.length > 3
+  ) throw new Error(say("protocol.invalidDialog"));
+  const ids = new Set();
+  let primary = 0;
+  const actions = value.actions.map((action) => {
+    if (
+      !action ||
+      typeof action.id !== "string" ||
+      !/^[a-zA-Z0-9._-]{1,64}$/.test(action.id) ||
+      ids.has(action.id) ||
+      typeof action.label !== "string" ||
+      action.label.length < 1 ||
+      action.label.length > 40 ||
+      (action.tone !== undefined && !["default", "danger"].includes(action.tone))
+    ) throw new Error(say("protocol.invalidDialog"));
+    ids.add(action.id);
+    if (action.primary === true) primary++;
+    return {
+      id: action.id,
+      label: action.label,
+      tone: action.tone === "danger" ? "danger" : "default",
+      primary: action.primary === true,
+    };
+  });
+  if (primary > 1) throw new Error(say("protocol.invalidDialog"));
+  return {
+    title: value.title,
+    message: typeof value.message === "string" ? value.message : "",
+    detail: typeof value.detail === "string" ? value.detail : "",
+    cancelLabel: typeof value.cancelLabel === "string" ? value.cancelLabel : "",
+    actions,
+  };
 }
 
 // Requests that belong to the session rather than to one mount of it. A plugin entry can be

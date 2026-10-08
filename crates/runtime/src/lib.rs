@@ -4,6 +4,8 @@ pub mod i18n;
 pub mod manifest;
 pub mod market;
 mod process;
+pub mod sharing;
+pub mod tool;
 
 use crate::i18n::{msg, text, Locale, Refusal};
 use manifest::{Activation, ActivationMode, Capability, Manifest, Package, Permission};
@@ -23,6 +25,9 @@ use tokio::sync::Mutex;
 
 pub const IDLE_TTL: Duration = Duration::from_secs(120);
 const MAX_SESSIONS: usize = 16;
+/// Keep a small working set of completed files. In-flight loads and unsaved work are protected
+/// separately and may temporarily take the runtime above this cache size.
+const RECENT_FILES: usize = 4;
 /// Name prefix for the installed directory a replacement moved aside. Everything else that
 /// is not a plugin lives under a dot name, and `scan` skips those.
 const REPLACED_PREFIX: &str = ".replaced-";
@@ -38,6 +43,9 @@ pub struct SessionInfo {
     pub label: String,
     pub capabilities: Vec<Capability>,
     pub overlay: Option<manifest::OverlaySize>,
+    /// The plugin prepares before the preview window is shown, so the host holds that window
+    /// back until this session's view reports ready.
+    pub prepare: bool,
     pub available: bool,
     /// The plugin has changes it has not committed. Only the plugin can clear this, and the
     /// host treats it as a reason not to destroy the session: what it protects is the user's
@@ -59,8 +67,23 @@ struct Session {
     package: Package,
     data: Value,
     touched: Instant,
+    /// Last open or selection, independent of when an asynchronous parse happened to finish.
+    last_used: Instant,
     calls: usize,
     source: Option<String>,
+}
+
+/// Where the user left the preview window, in CSS pixels: the window is theirs to size, so the
+/// next run opens it the way they left it instead of at the size this host was born with.
+/// `maximized` is remembered apart from the size, because restoring a maximized window at the
+/// maximized size would leave it oversized the moment it is restored.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct WindowState {
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+    pub maximized: bool,
 }
 
 /// What a replacement cut: the files whose previews were dropped, and whether the session
@@ -119,12 +142,61 @@ fn blocking_change(inner: &Inner, plugin_id: Option<&str>) -> Option<PendingChan
         .map(pending_change)
 }
 
+/// Retire the oldest complete file groups while preserving the active file, unfinished calls,
+/// and plugin-declared edits. Source and consumer sessions always leave together. A worker is
+/// shared by all sessions of its plugin version, so release individual sessions here; the idle
+/// pass stops the process once its last session is gone.
+fn trim_completed_files(inner: &mut Inner, target: usize) {
+    let active_file = inner
+        .active
+        .as_ref()
+        .and_then(|id| inner.sessions.get(id))
+        .map(|session| session.info.file_id.clone());
+    let mut files: HashMap<String, (Instant, bool)> = HashMap::new();
+    for session in inner.sessions.values() {
+        let entry = files
+            .entry(session.info.file_id.clone())
+            .or_insert((session.last_used, true));
+        entry.0 = entry.0.max(session.last_used);
+        entry.1 &= session.calls == 0 && !session.info.pending && session.info.status != "loading";
+    }
+    while files.len() > target {
+        let Some(oldest) = files
+            .iter()
+            .filter(|(file, (_, complete))| *complete && active_file.as_ref() != Some(*file))
+            .min_by_key(|(file, (used, _))| (*used, *file))
+            .map(|(file, _)| file.clone())
+        else {
+            break;
+        };
+        let ids: Vec<_> = inner
+            .sessions
+            .values()
+            .filter(|session| session.info.file_id == oldest)
+            .map(|session| session.info.id.clone())
+            .collect();
+        for id in ids {
+            if let Some(session) = inner.sessions.remove(&id) {
+                if let Some(worker) = inner.workers.get(&session.package.key()).cloned() {
+                    tokio::spawn(async move {
+                        let _ = worker.release(json!({"session": id})).await;
+                    });
+                }
+            }
+        }
+        files.remove(&oldest);
+    }
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PluginInfo {
+    pub tool: Option<tool::Tool>,
     #[serde(flatten)]
     pub manifest: Manifest,
     pub enabled: bool,
+    pub origin: String,
+    pub source: Option<String>,
     pub process_ids: Vec<u32>,
     /// Current values keyed by setting key: declared defaults plus user overrides.
     pub values: serde_json::Map<String, Value>,
@@ -146,6 +218,8 @@ pub struct Snapshot {
 
 #[derive(Default)]
 struct Inner {
+    sources: BTreeMap<String, String>,
+    origins: BTreeMap<String, String>,
     updating: bool,
     packages: BTreeMap<String, Package>,
     workers: HashMap<String, Arc<Worker>>,
@@ -167,6 +241,9 @@ struct Inner {
     /// The interface language the host last spoke. Persisted because the tray menu is
     /// built before any window exists, from the language the previous session ended in.
     locale: Locale,
+    /// Where the user left the preview window. Persisted for the same reason `onboarded` is:
+    /// the window is created from it, and the window is created before anything could ask.
+    window: Option<WindowState>,
 }
 
 pub struct Runtime {
@@ -180,6 +257,8 @@ pub struct Runtime {
 #[derive(Default, Deserialize)]
 #[serde(default)]
 struct StoredState {
+    sources: BTreeMap<String, String>,
+    origins: BTreeMap<String, String>,
     disabled: HashSet<String>,
     removed: HashSet<String>,
     settings: BTreeMap<String, serde_json::Map<String, Value>>,
@@ -188,6 +267,8 @@ struct StoredState {
     onboarded: bool,
     /// The language tag the host last spoke, absent before anything has chosen one.
     locale: Option<String>,
+    /// The preview window's placement, absent before the user has sized one.
+    window: Option<WindowState>,
 }
 
 fn read_state(root: &Path) -> Result<StoredState, String> {
@@ -197,11 +278,15 @@ fn read_state(root: &Path) -> Result<StoredState, String> {
         let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
         serde_json::from_slice(&bytes).map_err(|e| e.to_string())
     };
-    if !path.exists() && !backup.exists() { return Ok(StoredState::default()); }
+    if !path.exists() && !backup.exists() {
+        return Ok(StoredState::default());
+    }
     match read(&path) {
         Ok(state) => Ok(state),
         Err(error) => {
-            let state = read(&backup).map_err(|backup_error| msg!(text().state_corrupt, error = error, backup = backup_error))?;
+            let state = read(&backup).map_err(|backup_error| {
+                msg!(text().state_corrupt, error = error, backup = backup_error)
+            })?;
             let bytes = std::fs::read(&backup).map_err(|e| e.to_string())?;
             ember_file_store::atomic_write(&path, &bytes).map_err(|e| e.to_string())?;
             eprintln!("宿主状态读取失败，已从备份恢复：{error}");
@@ -228,6 +313,8 @@ impl Runtime {
         // otherwise.
         i18n::set_locale(locale);
         let inner = Inner {
+            sources: state.sources,
+            origins: state.origins,
             disabled: state.disabled,
             removed: state.removed,
             settings: state.settings,
@@ -235,6 +322,7 @@ impl Runtime {
             activation: state.activation,
             onboarded: state.onboarded,
             locale,
+            window: state.window,
             ..Default::default()
         };
         Ok(Arc::new(Self {
@@ -248,6 +336,8 @@ impl Runtime {
 
     fn persist(&self, inner: &Inner) -> Result<(), String> {
         let bytes = serde_json::to_vec(&json!({
+            "sources": inner.sources,
+            "origins": inner.origins,
             "disabled": inner.disabled,
             "removed": inner.removed,
             "settings": inner.settings,
@@ -255,17 +345,21 @@ impl Runtime {
             "activation": inner.activation,
             "onboarded": inner.onboarded,
             "locale": inner.locale.tag(),
+            "window": inner.window,
         }))
         .map_err(|e| e.to_string())?;
         let path = self.root.join("host-state.json");
         let backup = self.root.join("host-state.backup.json");
         match std::fs::read(&path) {
             Ok(previous) => {
-                serde_json::from_slice::<StoredState>(&previous).map_err(|e| msg!(text().state_invalid, error = e))?;
+                serde_json::from_slice::<StoredState>(&previous)
+                    .map_err(|e| msg!(text().state_invalid, error = e))?;
                 ember_file_store::atomic_write(&backup, &previous).map_err(|e| e.to_string())?;
             }
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                if !backup.exists() { ember_file_store::atomic_write(&backup, &bytes).map_err(|e| e.to_string())?; }
+                if !backup.exists() {
+                    ember_file_store::atomic_write(&backup, &bytes).map_err(|e| e.to_string())?;
+                }
             }
             Err(error) => return Err(msg!(text().state_unreadable, error = error)),
         }
@@ -298,10 +392,30 @@ impl Runtime {
         self.inner.lock().await.locale
     }
 
+    /// Where the user left the preview window, or `None` while nothing has been remembered and
+    /// the window opens at the host's own default.
+    pub async fn window_state(&self) -> Option<WindowState> {
+        self.inner.lock().await.window.clone()
+    }
+
+    /// Remember the preview window's placement for the next run. The host calls this after the
+    /// window stops moving, so a drag is one write rather than one per pixel.
+    pub async fn set_window_state(&self, state: Option<WindowState>) -> Result<(), String> {
+        let mut inner = self.inner.lock().await;
+        if inner.window == state {
+            return Ok(());
+        }
+        inner.window = state;
+        self.persist(&inner)
+    }
+
     /// Opaque, bounded navigation state shared only by the same file and data contract.
     pub async fn view_state(&self, id: &str, value: Option<Value>) -> Result<Value, String> {
         let mut inner = self.inner.lock().await;
-        let session = inner.sessions.get(id).ok_or_else(|| msg!(text().session_expired))?;
+        let session = inner
+            .sessions
+            .get(id)
+            .ok_or_else(|| msg!(text().session_expired))?;
         let contract = session
             .package
             .manifest
@@ -364,9 +478,10 @@ impl Runtime {
                         continue;
                     }
                     let id = package.manifest.id.clone();
-                    match packages.get(&id).map(|old| {
-                        (old.key(), old.manifest.revision)
-                    }) {
+                    match packages
+                        .get(&id)
+                        .map(|old| (old.key(), old.manifest.revision))
+                    {
                         Some((_, revision)) if revision >= package.manifest.revision => {
                             superseded.push(package.key())
                         }
@@ -419,6 +534,13 @@ impl Runtime {
                 manifest.activation = activation.clone();
             }
             plugins.push(PluginInfo {
+                source: inner.sources.get(&package.manifest.id).cloned(),
+                tool: package.tool.clone(),
+                origin: inner
+                    .origins
+                    .get(&package.manifest.id)
+                    .cloned()
+                    .unwrap_or_else(|| "unknown".into()),
                 manifest,
                 enabled: !inner.disabled.contains(&package.manifest.id),
                 process_ids: pids,
@@ -508,6 +630,7 @@ impl Runtime {
         inner.warnings.clear();
         inner.removed.clear();
         inner.onboarded = false;
+        inner.window = None;
         // A fresh installation has no package directories either. Anything still locked by
         // a process that has not exited yet stays retired instead, and the collector
         // removes it once that process is gone.
@@ -546,7 +669,14 @@ impl Runtime {
                 .settings
                 .iter()
                 .find(|setting| setting.key == key)
-                .is_some_and(|setting| setting.default_value() == accepted);
+                .is_some_and(|setting| {
+                    // Compared after coercion: a declared number default is stored as written, so
+                    // writing `1` back to a setting declared `1` reaches here as `1.0`, and the
+                    // two have to meet or the override is kept and shadows later default changes.
+                    setting
+                        .coerce(&setting.default_value())
+                        .is_ok_and(|default| default == accepted)
+                });
             let stored = inner.settings.entry(plugin_id.to_owned()).or_default();
             if restored {
                 // Back to the default: drop the override so later default changes apply.
@@ -567,7 +697,10 @@ impl Runtime {
 
     pub async fn settings_for_session(&self, id: &str) -> Result<Value, String> {
         let inner = self.inner.lock().await;
-        let session = inner.sessions.get(id).ok_or_else(|| msg!(text().session_expired))?;
+        let session = inner
+            .sessions
+            .get(id)
+            .ok_or_else(|| msg!(text().session_expired))?;
         let empty = serde_json::Map::new();
         let stored = inner
             .settings
@@ -606,7 +739,10 @@ impl Runtime {
 
     pub async fn session_data(&self, id: &str) -> Result<Value, String> {
         let inner = self.inner.lock().await;
-        let session = inner.sessions.get(id).ok_or_else(|| msg!(text().session_expired))?;
+        let session = inner
+            .sessions
+            .get(id)
+            .ok_or_else(|| msg!(text().session_expired))?;
         if session.info.status != "ready" {
             return Err(msg!(text().session_not_ready));
         }
@@ -624,7 +760,10 @@ impl Runtime {
 
     pub async fn complete_view(&self, id: &str, error: Option<String>) -> Result<(), String> {
         let mut inner = self.inner.lock().await;
-        let session = inner.sessions.get_mut(id).ok_or_else(|| msg!(text().session_expired))?;
+        let session = inner
+            .sessions
+            .get_mut(id)
+            .ok_or_else(|| msg!(text().session_expired))?;
         session.info.view_ready = true;
         session.touched = Instant::now();
         if let Some(error) = error {
@@ -644,9 +783,21 @@ impl Runtime {
             .ok_or("Session expired".into())
     }
 
+    /// Resolve one document-owned resource. The host knows only the current file and URL
+    /// semantics; the plugin remains responsible for discovering references in its format.
+    /// `readResources` is deliberately separate from `readFile`, because a related path may
+    /// walk above the document directory when the document itself says `../assets/x.png`.
+    pub async fn resource_file(&self, id: &str, reference: &str) -> Result<PathBuf, String> {
+        let source = self.session_file(id).await?;
+        resolve_resource_path(&source, reference)
+    }
+
     pub async fn authorize(&self, id: &str, permission: Permission) -> Result<(), String> {
         let inner = self.inner.lock().await;
-        let session = inner.sessions.get(id).ok_or_else(|| msg!(text().session_expired))?;
+        let session = inner
+            .sessions
+            .get(id)
+            .ok_or_else(|| msg!(text().session_expired))?;
         if !session.package.manifest.permissions.contains(&permission) {
             return Err(msg!(text().permission_undeclared));
         }
@@ -667,10 +818,14 @@ impl Runtime {
         reason: Option<String>,
     ) -> Result<(), String> {
         let mut inner = self.inner.lock().await;
-        let session = inner.sessions.get_mut(id).ok_or_else(|| msg!(text().session_expired))?;
+        let session = inner
+            .sessions
+            .get_mut(id)
+            .ok_or_else(|| msg!(text().session_expired))?;
         session.info.pending = pending;
         session.info.pending_reason = if pending {
-            reason.map(|reason| reason.trim().to_string())
+            reason
+                .map(|reason| reason.trim().to_string())
                 .filter(|reason| !reason.is_empty())
                 .map(|reason| reason.chars().take(60).collect())
         } else {
@@ -714,9 +869,18 @@ impl Runtime {
     pub async fn source_call(&self, id: &str, method: &str, value: Value) -> Result<Value, String> {
         let source = {
             let inner = self.inner.lock().await;
-            let consumer = inner.sessions.get(id).ok_or_else(|| msg!(text().session_expired))?;
-            let source_id = consumer.source.as_ref().ok_or_else(|| msg!(text().no_source))?;
-            let provider = inner.sessions.get(source_id).ok_or_else(|| msg!(text().source_expired))?;
+            let consumer = inner
+                .sessions
+                .get(id)
+                .ok_or_else(|| msg!(text().session_expired))?;
+            let source_id = consumer
+                .source
+                .as_ref()
+                .ok_or_else(|| msg!(text().no_source))?;
+            let provider = inner
+                .sessions
+                .get(source_id)
+                .ok_or_else(|| msg!(text().source_expired))?;
             if !provider
                 .package
                 .manifest
@@ -733,7 +897,10 @@ impl Runtime {
 
     pub async fn asset(&self, id: &str, path: &str) -> Result<PathBuf, String> {
         let inner = self.inner.lock().await;
-        let session = inner.sessions.get(id).ok_or_else(|| msg!(text().session_expired))?;
+        let session = inner
+            .sessions
+            .get(id)
+            .ok_or_else(|| msg!(text().session_expired))?;
         manifest::contained(
             &session.package.directory,
             if path.is_empty() {
@@ -750,7 +917,10 @@ impl Runtime {
         }
         let (worker, path, settings) = {
             let mut inner = self.inner.lock().await;
-            let session = inner.sessions.get_mut(id).ok_or_else(|| msg!(text().session_expired))?;
+            let session = inner
+                .sessions
+                .get_mut(id)
+                .ok_or_else(|| msg!(text().session_expired))?;
             if session.calls >= 8 {
                 return Err(msg!(text().too_many_calls));
             }
@@ -762,7 +932,11 @@ impl Runtime {
             let empty = serde_json::Map::new();
             let stored = inner.settings.get(&manifest.id).unwrap_or(&empty);
             let settings = manifest.resolve_settings(stored);
-            let worker = inner.workers.get(&key).cloned().ok_or_else(|| msg!(text().worker_expired))?;
+            let worker = inner
+                .workers
+                .get(&key)
+                .cloned()
+                .ok_or_else(|| msg!(text().worker_expired))?;
             (worker, path, settings)
         };
         let result = worker
@@ -793,7 +967,8 @@ impl Runtime {
                 .get(id)
                 .cloned()
                 .unwrap_or_else(|| inner.packages[id].manifest.activation.clone());
-            activation.priority = i32::try_from(ids.len() - index).map_err(|_| msg!(text().too_many_plugins))?;
+            activation.priority =
+                i32::try_from(ids.len() - index).map_err(|_| msg!(text().too_many_plugins))?;
             inner.activation.insert(id.clone(), activation);
         }
         inner.preferred.clear();
@@ -881,8 +1056,35 @@ impl Runtime {
     }
 
     pub async fn install(self: &Arc<Self>, source: &Path) -> Result<(), String> {
+        self.install_from(source, None).await
+    }
+
+    pub async fn install_from(
+        self: &Arc<Self>,
+        source: &Path,
+        origin: Option<String>,
+    ) -> Result<(), String> {
+        self.install_from_source(source, origin, None).await
+    }
+
+    pub async fn install_from_source(
+        self: &Arc<Self>,
+        source: &Path,
+        origin: Option<String>,
+        source_id: Option<String>,
+    ) -> Result<(), String> {
         let _installation = self.installation.lock().await;
         let package = Package::load(source)?;
+        let id = package.manifest.id.clone();
+        if !package.manifest.targets.is_empty()
+            && !package
+                .manifest
+                .targets
+                .iter()
+                .any(|t| t == manifest::HOST_TARGET)
+        {
+            return Err("Plugin target does not match this host".into());
+        }
         let installed = self
             .inner
             .lock()
@@ -891,10 +1093,36 @@ impl Runtime {
             .get(&package.manifest.id)
             .cloned();
         if let Some(installed) = &installed {
-            let incoming = semver::Version::parse(&package.manifest.version).map_err(|e| msg!(text().invalid_version, error = e))?;
-            let current = semver::Version::parse(&installed.manifest.version).map_err(|e| msg!(text().installed_invalid_version, error = e))?;
+            let incoming = semver::Version::parse(&package.manifest.version)
+                .map_err(|e| msg!(text().invalid_version, error = e))?;
+            let current = semver::Version::parse(&installed.manifest.version)
+                .map_err(|e| msg!(text().installed_invalid_version, error = e))?;
             if incoming.cmp_precedence(&current).is_lt() {
-                return Err(msg!(text().downgrade, installed = current, incoming = incoming));
+                return Err(msg!(
+                    text().downgrade,
+                    installed = current,
+                    incoming = incoming
+                ));
+            }
+        }
+        if let Some(incoming) = &origin {
+            let inner = self.inner.lock().await;
+            if inner.packages.contains_key(&id)
+                && inner
+                    .origins
+                    .get(&id)
+                    .is_some_and(|old| old != incoming && old != "unknown")
+            {
+                return Err("Plugin ID belongs to another source. Uninstall it explicitly before changing sources / 同名插件来自其他来源，请明确卸载后再更换来源".into());
+            }
+            if inner.packages.contains_key(&id)
+                && source_id.as_ref().is_some_and(|incoming| {
+                    inner.sources.get(&id).is_some_and(|old| old != incoming)
+                })
+            {
+                return Err(
+                    "Plugin ID belongs to another catalog / 同名插件来自另一个插件目录".into(),
+                );
             }
         }
         match installed {
@@ -908,7 +1136,68 @@ impl Runtime {
             // An update replaces the installed directory; only a first install adds one.
             Some(installed) => self.replace_package(source, &installed).await,
             None => self.install_package(source).await,
+        }?;
+        if let Some(origin) = origin {
+            let mut inner = self.inner.lock().await;
+            inner.origins.insert(id.clone(), origin);
+            if let Some(source_id) = source_id {
+                inner.sources.insert(id.clone(), source_id);
+            } else {
+                inner.sources.remove(&id);
+            }
+            if let Err(error) = self.persist(&inner) {
+                inner.origins.remove(&id);
+                return Err(error);
+            }
         }
+        Ok(())
+    }
+
+    pub async fn tool_package(&self, id: &str) -> Result<Package, String> {
+        let inner = self.inner.lock().await;
+        let package = inner
+            .packages
+            .get(id)
+            .filter(|package| package.tool.is_some())
+            .ok_or("Tool is not installed")?;
+        if inner.disabled.contains(id) {
+            return Err("Tool is disabled".into());
+        }
+        if inner.origins.get(id).map(String::as_str) != Some("official") {
+            return Err(
+                "Tool service access requires an installation from a host-trusted official source"
+                    .into(),
+            );
+        }
+        Ok(package.clone())
+    }
+    /// Recover provenance only when a verified source package exactly matches a legacy install.
+    pub(crate) async fn recover_origin(
+        &self,
+        source: &Path,
+        catalog: &str,
+        origin: &str,
+    ) -> Result<(), String> {
+        let _installation = self.installation.lock().await;
+        let incoming = Package::load(source)?;
+        let mut inner = self.inner.lock().await;
+        let id = &incoming.manifest.id;
+        if inner
+            .origins
+            .get(id)
+            .is_some_and(|value| value != "unknown")
+        {
+            return Ok(());
+        }
+        let Some(installed) = inner.packages.get(id) else {
+            return Ok(());
+        };
+        if sharing::export(&installed.directory)? != sharing::export(source)? {
+            return Ok(());
+        }
+        inner.origins.insert(id.clone(), origin.into());
+        inner.sources.insert(id.clone(), catalog.into());
+        self.persist(&inner)
     }
 
     pub async fn update_development(self: &Arc<Self>, source: &Path) -> Result<(), String> {
@@ -921,7 +1210,9 @@ impl Runtime {
             .packages
             .get(&package.manifest.id)
             .cloned();
-        let Some(installed) = installed else { return Ok(()) };
+        let Some(installed) = installed else {
+            return Ok(());
+        };
         if installed.manifest.build_id.is_empty()
             || installed.manifest.build_id == package.manifest.build_id
         {
@@ -934,9 +1225,13 @@ impl Runtime {
     ///
     /// An update does not stack a new revision beside the old one: the installed directory is
     /// swapped for the verified new one, so a machine keeps exactly one copy per plugin. The
-    /// swap is two renames, which is why an update stops the plugin first — Windows will not
-    /// rename a directory with a running executable inside it — and why a crash between the
-    /// two leaves the previous revision recoverable instead of a half-written install.
+    /// swap is two renames, which is why an update stops the plugin first: every plugin is
+    /// started in its own package directory, and Windows will not rename a directory that a
+    /// process has as its working directory. A program the plugin started that outlives the
+    /// plugin -- stopping it does not reach its children -- holds the same directory and blocks
+    /// the swap just as firmly, so a plugin keeps its own helpers elsewhere (see
+    /// `docs/plugins.md`). A crash between the two renames leaves the previous revision
+    /// recoverable instead of a half-written install.
     ///
     /// Whatever was previewing the plugin is cut and put back on the new build. Uncommitted
     /// work is never in scope: an update is refused while the plugin reports any, so nothing a
@@ -992,7 +1287,10 @@ impl Runtime {
         if failures.is_empty() {
             Ok(())
         } else {
-            Err(msg!(text().reopen_failed, failures = failures.join(text().semicolon)))
+            Err(msg!(
+                text().reopen_failed,
+                failures = failures.join(text().semicolon)
+            ))
         }
     }
 
@@ -1017,24 +1315,30 @@ impl Runtime {
         loop {
             let before = (files.len(), affected_keys.len());
             for session in inner.sessions.values() {
-                if session.info.plugin_id == id || files.contains(&session.info.file_id)
-                    || affected_keys.contains(&session.package.key()) {
+                if session.info.plugin_id == id
+                    || files.contains(&session.info.file_id)
+                    || affected_keys.contains(&session.package.key())
+                {
                     files.insert(session.info.file_id.clone());
                     affected_keys.insert(session.package.key());
                 }
             }
-            if before == (files.len(), affected_keys.len()) { break; }
+            if before == (files.len(), affected_keys.len()) {
+                break;
+            }
         }
-        if let Some(session) = inner.sessions.values().find(|s| files.contains(&s.info.file_id) && s.info.pending) {
+        if let Some(session) = inner
+            .sessions
+            .values()
+            .find(|s| files.contains(&s.info.file_id) && s.info.pending)
+        {
             return Err(pending_change(session).refusal(Refusal::Update));
         }
         inner.updating = true;
         let dropped: Vec<String> = inner
             .sessions
             .values()
-            .filter(|session| {
-                session.info.plugin_id == id || files.contains(&session.info.file_id)
-            })
+            .filter(|session| session.info.plugin_id == id || files.contains(&session.info.file_id))
             .map(|session| session.info.id.clone())
             .collect();
         let was_active = inner
@@ -1047,7 +1351,9 @@ impl Runtime {
         let mut keys = HashSet::new();
         for session_id in dropped {
             if let Some(session) = inner.sessions.remove(&session_id) {
-                if !paths.contains(&session.path) { paths.push(session.path.clone()); }
+                if !paths.contains(&session.path) {
+                    paths.push(session.path.clone());
+                }
                 keys.insert(session.package.key());
             }
         }
@@ -1087,7 +1393,10 @@ impl Runtime {
         if let Some((path, plugin)) = taken.active {
             let id = {
                 let inner = self.inner.lock().await;
-                inner.sessions.values().find(|s| s.path == path && s.info.plugin_id == plugin)
+                inner
+                    .sessions
+                    .values()
+                    .find(|s| s.path == path && s.info.plugin_id == plugin)
                     .or_else(|| inner.sessions.values().find(|s| s.path == path))
                     .map(|s| s.info.id.clone())
             };
@@ -1179,13 +1488,7 @@ impl Runtime {
     /// the uninstaller uses, so a revision still serving a preview is deleted once that preview
     /// is gone rather than being ripped out from under it.
     async fn retire_superseded(&self, id: &str) -> Result<(), String> {
-        let installed = self
-            .inner
-            .lock()
-            .await
-            .packages
-            .get(id)
-            .map(Package::key);
+        let installed = self.inner.lock().await.packages.get(id).map(Package::key);
         let Some(installed) = installed else {
             return Ok(());
         };
@@ -1239,6 +1542,8 @@ impl Runtime {
 
     pub async fn reap(&self) {
         let mut inner = self.inner.lock().await;
+        // A parse that finished after the user switched files no longer needs a full idle TTL.
+        trim_completed_files(&mut inner, RECENT_FILES);
         let active_file = inner
             .active
             .as_ref()
@@ -1333,6 +1638,41 @@ impl Runtime {
     }
 }
 
+fn resolve_resource_path(source: &Path, reference: &str) -> Result<PathBuf, String> {
+    let reference = reference.trim();
+    if reference.is_empty() || reference.len() > 4096 || reference.contains('\0') {
+        return Err("Invalid resource reference".into());
+    }
+    let reference = reference
+        .split('#')
+        .next()
+        .unwrap_or_default()
+        .split('?')
+        .next()
+        .unwrap_or_default();
+    let candidate = if reference.to_ascii_lowercase().starts_with("file:") {
+        reqwest::Url::parse(reference)
+            .map_err(|_| "Invalid file resource URL".to_owned())?
+            .to_file_path()
+            .map_err(|_| "Invalid file resource URL".to_owned())?
+    } else {
+        let path = PathBuf::from(reference);
+        if path.is_absolute() {
+            path
+        } else {
+            source
+                .parent()
+                .ok_or("Source file has no parent directory")?
+                .join(path)
+        }
+    };
+    let path = candidate.canonicalize().map_err(|e| e.to_string())?;
+    if !path.is_file() {
+        return Err("Resource is not a file".into());
+    }
+    Ok(path)
+}
+
 /// Put an assembled package directory in place.
 ///
 /// `rename` is the right primitive: atomic and free. But Windows refuses to rename a
@@ -1367,8 +1707,8 @@ pub(crate) fn publish_directory(from: &Path, to: &Path) -> Result<(), String> {
 /// directory aside first means the worst case is a complete previous revision sitting under
 /// `REPLACED_PREFIX`, which `scan` puts back (see `recover_replaced`).
 ///
-/// A caller must stop the plugin first: Windows refuses both renames while its executable
-/// is running.
+/// A caller must stop the plugin first: Windows refuses both renames while a process has the
+/// directory as its working directory, and a plugin is started inside the one it ships in.
 fn swap_directory(from: &Path, to: &Path) -> Result<(), String> {
     let name = to
         .file_name()
@@ -1485,5 +1825,32 @@ mod tests {
             std::fs::read_to_string(published.join("plugin.json")).unwrap(),
             "already published"
         );
+    }
+
+    #[test]
+    fn document_resources_resolve_relative_parent_and_file_urls() {
+        let temp = tempfile::tempdir().unwrap();
+        let docs = temp.path().join("docs");
+        let assets = temp.path().join("assets");
+        std::fs::create_dir_all(&docs).unwrap();
+        std::fs::create_dir_all(&assets).unwrap();
+        let source = docs.join("readme.md");
+        let image = assets.join("cover image.png");
+        std::fs::write(&source, "![cover](../assets/cover%20image.png)").unwrap();
+        std::fs::write(&image, b"png").unwrap();
+
+        // URL decoding happens at the protocol boundary; path resolution itself accepts the
+        // decoded reference and supports a document's normal `../assets` layout.
+        assert_eq!(
+            resolve_resource_path(&source, "../assets/cover image.png?raw=1#hero").unwrap(),
+            image.canonicalize().unwrap()
+        );
+        let file_url = reqwest::Url::from_file_path(&image).unwrap();
+        assert_eq!(
+            resolve_resource_path(&source, file_url.as_str()).unwrap(),
+            image.canonicalize().unwrap()
+        );
+        assert!(resolve_resource_path(&source, "../assets").is_err());
+        assert!(resolve_resource_path(&source, "https://example.com/image.png").is_err());
     }
 }

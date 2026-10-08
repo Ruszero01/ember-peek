@@ -1,8 +1,8 @@
 {
-  "summary": "Markdown 渲染与源码切换，标题大纲自动跟随阅读位置。",
+  "summary": "Markdown 预览，支持大纲与源码切换。",
   "i18n": {
     "en": {
-      "summary": "Rendered Markdown with a source view, and an outline that follows the reading position."
+      "summary": "Preview Markdown with an outline and source view."
     }
   },
   "publisher": "Ember Peek",

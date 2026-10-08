@@ -5,20 +5,30 @@
 ## 启动共享环境
 
 ```powershell
-.\tools\dev-with-debug.ps1
+.\tools\dev-with-debug.ps1                      # 只起服务，窗口按需自己开
+.\tools\dev-with-debug.ps1 docs\plugins.md      # 一条命令：服务 + 直接打开这个文件的预览窗口
 ```
 
-（本机只有 Windows PowerShell 5.1，没有 `pwsh`，所以直接用脚本路径调用。）
+（本机只有 Windows PowerShell 5.1，没有 `pwsh`，所以直接用脚本路径调用。想双击启动就双击 `tools\dev-with-debug.cmd`：它用不依赖本机执行策略的方式调同一个脚本，出错时暂停好让你看见原因。`.ps1` 双击默认是记事本打开，不会运行。）
+
+**这条命令是共享的**：前端在 `1420`，调试端点在 `9444`，没有"谁的窗口"之分 —— 谁都能用 `tools/live-targets.mjs` 读同一个窗口，也都能用 `tools/live-shot.mjs` 截它。带上一个文件参数是让它真正只有一步：宿主按需创建窗口，没有窗口时调试端点没有目标可列，所以传文件＝起来就能接。
+
+起来之后先跑一次 `node tools/live-targets.mjs`，确认窗口 URL 是 `http://127.0.0.1:1420/...` 而不是 `tauri.localhost`：后者说明窗口吃的是 `dist` 产物，既没有 HMR，也不是你正在改的那份源码。
 
 它做三件事：
 
 1. 若 `1420` 已被占用则复用，否则在 `http://127.0.0.1:1420` 启动 Vite + 插件监视
-2. 若 `9222` 已有实例在跑则直接退出，避免重复启动
-3. 否则带 WebView2 调试端口启动应用，调试端点位于 `http://127.0.0.1:9222`
+2. 若 `9444` 已有实例在跑则直接退出，避免重复启动
+3. 否则带 WebView2 调试端口启动应用，调试端点位于 `http://127.0.0.1:9444`
 
 它用 `tauri.external-dev.json` 启动：那份配置清空 `beforeDevCommand`（不再自己起前端），并把 `devUrl` 再写一遍。**`--config` 是整块替换 `build` 表**，所以少写 `devUrl` 时应用会静默回落到 `frontendDist`（`../dist`）——窗口跑的是上次 `npm run build` 的产物，既没有 HMR，也不是开发服务器上那份代码。调前端时看到"改了没生效"，先确认窗口的 URL 是 `http://127.0.0.1:1420/...` 而不是 `tauri.localhost`。
 
-之所以不用 `npm run dev`，是因为调试端口依赖 `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` 环境变量。**注意：必须直接运行脚本**，`npm run tauri -- dev` 这条链路会把环境变量交给 npm 而不是最终的应用，调试端口不会打开。
+调试端口这条路径有两处坑，都踩过，改之前先看清楚：
+
+- **不能用 `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`。** wry 总是给 WebView2 传一份显式的参数串（默认是 `--disable-features=...`），而 WebView2 只在这份参数串为空时才去读它自己的环境变量 —— 于是那个变量永远不生效，端口永远不开。参数改由应用自己传：脚本设置 `EMBER_WEBVIEW_ARGS`，`src-tauri/src/desktop.rs` 里的 `browser_args()` 把它交给窗口构建器。**传参是整体替换 wry 的默认值**，所以脚本里要把那几个 `--disable-features` 一起写上。
+- **端口不能落在 Windows 保留段里。** `netsh int ipv4 show excludedportrange protocol=tcp` 里那些段（Hyper-V/WSL 占的）谁也绑不上，WebView2 会**静默失败**——端点就是不出现，看起来像脚手架坏了。本机的 `9222` 正落在 `9126–9225` 里，所以默认端口改成了 `9444`；脚本启动前会先试绑，绑不上就直接报错并让你换端口。
+
+手动设置这个变量再 `npm run dev` 也能开调试端口（变量一样会到达应用进程），区别只在脚本还替你做了两件事：启动前检查端口能否绑定、已有人在跑就复用而不是再起一套。
 
 ## 读取运行时状态
 
@@ -60,6 +70,8 @@ node tools/live-shot.mjs out.png 820 668 240 72 3         # 截指定区域 x y 
 ```js
 await client.typeText("插件");
 ```
+
+**但真实输入派发不了"离开"。** 用 `Input.dispatchMouseEvent` 把指针移到插件网页上方时，父文档收不到 `pointerout` / `pointerleave`（指针进了另一个 document，而这一跳是注入的，浏览器那套跨进程 hover 收尾没有发生），于是所有"移开后该收起"的状态都停在原地。宿主两条栏的显形就是这种状态：注入的移动能叫出两条栏，却收不回去。**显形一侧可以用注入输入测，收起一侧必须用手测**，别把它当成回归报上去——2026-09-23 就这么误判过一次。想在脚本里清掉这种卡住的状态，就派一个合成的 `pointerout`（`bubbles: true`，坐标指向插件区域），React 合成事件会照常走 `dropChrome`。
 
 ## 三个必须知道的坑
 

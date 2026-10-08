@@ -1,0 +1,91 @@
+{
+  "api": 1,
+  "id": "ember.video",
+  "name": "视频预览",
+  "i18n": {
+    "en": {
+      "name": "Video Preview",
+      "settings": {
+        "autoplay": {
+          "label": "Autoplay",
+          "help": "Start playback automatically after the video is ready."
+        },
+        "loop": {
+          "label": "Loop playback",
+          "help": "Start over instead of stopping at the end."
+        },
+        "volume": {
+          "label": "Volume"
+        },
+        "frameWindow": {
+          "label": "Match the window to the video",
+          "help": "On, opening a video gives the window the frame's shape. In immersive mode the picture reaches the window edges."
+        },
+        "exportDir": {
+          "label": "Export location",
+          "help": "Folder exported frames are written to. Empty saves beside the source video."
+        }
+      }
+    }
+  },
+  "version": "0.1.0",
+  "extensions": [
+    "mp4", "m4v", "mov", "qt", "avi", "mkv", "webm", "ogv", "ogg",
+    "mpeg", "mpg", "mpe", "m2v", "ts", "m2ts", "mts", "wmv", "asf",
+    "flv", "f4v", "3gp", "3g2", "vob", "rm", "rmvb", "divx"
+  ],
+  "icon": "video",
+  "settings": [
+    {
+      "key": "autoplay",
+      "type": "bool",
+      "label": "自动播放",
+      "help": "视频准备好后自动开始播放。",
+      "default": true
+    },
+    {
+      "key": "loop",
+      "type": "bool",
+      "label": "循环播放",
+      "help": "播完从头继续，而不是停在结尾。",
+      "default": false
+    },
+    {
+      "key": "volume",
+      "type": "number",
+      "label": "音量",
+      "hidden": true,
+      "default": 1,
+      "min": 0.01,
+      "max": 1
+    },
+    {
+      "key": "frameWindow",
+      "type": "bool",
+      "label": "窗口对齐视频",
+      "help": "打开视频时按画面比例调整窗口；沉浸模式下画面贴住窗口边缘。",
+      "default": true
+    },
+    {
+      "key": "exportDir",
+      "type": "folder",
+      "label": "导出位置",
+      "help": "导出帧保存到哪个文件夹；留空保存到源视频所在目录。",
+      "default": ""
+    }
+  ],
+  "prepare": true,
+  "executable": "bin/ember-video-plugin.exe",
+  "entry": "ui/index.html",
+  "capabilities": ["view", "overlay", "controls"],
+  "overlay": {
+    "width": 620,
+    "height": 48,
+    "anchor": "bottomRight"
+  },
+  "permissions": ["readFile", "writeFile"],
+  "activation": {
+    "mode": "auto",
+    "priority": 100
+  }
+}

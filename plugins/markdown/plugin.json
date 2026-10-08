@@ -49,7 +49,9 @@
   ],
   "permissions": [
     "readFile",
-    "clipboard"
+    "readResources",
+    "clipboard",
+    "openLink"
   ],
   "provides": "ember.text/1",
   "activation": {

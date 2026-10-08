@@ -1,8 +1,8 @@
 {
-  "summary": "支持缩放、适应窗口和拖动。",
+  "summary": "图片预览，支持缩放与拖动。",
   "i18n": {
     "en": {
-      "summary": "Zoom, fit-to-window and panning."
+      "summary": "Preview images with zoom and pan controls."
     }
   },
   "publisher": "Ember Peek",

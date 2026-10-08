@@ -1,0 +1,10 @@
+{
+  "summary": "视频预览，支持播放控制与格式兼容。",
+  "i18n": {
+    "en": {
+      "summary": "Preview videos with playback controls and codec compatibility."
+    }
+  },
+  "publisher": "Ember Peek",
+  "recommended": true
+}

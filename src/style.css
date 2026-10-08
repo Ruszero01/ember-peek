@@ -15,6 +15,13 @@
   --faint: #666975;
   --accent: #f4a477;
   --accent-bg: #352920;
+  /* Meaning rather than branding: what a callout, a diff or a status is saying. A plugin that
+     has to mark one of these reads the token instead of inventing a colour that only works in
+     one theme. */
+  --info: #5b9bf8;
+  --success: #4caf7d;
+  --warning: #e0a33a;
+  --danger: #e05f5f;
   --hover: #2c2d34;
   --canvas: #141519;
   --shadow: 0 14px 40px #0003;
@@ -55,6 +62,10 @@
   --faint: #969aa4;
   --accent: #ba6338;
   --accent-bg: #fbeee5;
+  --info: #2f6fed;
+  --success: #2f8a55;
+  --warning: #a06a10;
+  --danger: #c0392b;
   --hover: #e9eaef;
   --canvas: #f0f1f4;
   --shadow: 0 14px 40px #3030400d;
@@ -113,9 +124,6 @@ button.busy:disabled {
      reading it. */
   --chrome-gap: 24px;
   --chrome-pad: 11px;
-  /* Depth of the viewport's bottom fade. A token rather than a number in the rule, because it
-     is the one piece of the viewport treatment a plugin author may want to reason about. */
-  --viewport-fade: 44px;
 }
 .titlebar {
   height: 56px;
@@ -424,6 +432,40 @@ h2 {
   display: flex;
   gap: 8px;
 }
+/* The hint over the plugin list while a package is on its way in. It is a label and not a
+   target: the platform owns the drag, so an element that took the pointer here would
+   swallow the drop it is explaining. */
+.package-drop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--bg) 76%, transparent);
+  backdrop-filter: blur(3px);
+}
+.package-drop > div {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 32px 44px;
+  border: 1px dashed var(--accent);
+  border-radius: var(--radius-card);
+  background: var(--card);
+  box-shadow: var(--shadow);
+  text-align: center;
+}
+.package-drop strong {
+  font-size: 14px;
+}
+.package-drop span {
+  font-size: 12px;
+  color: var(--muted);
+}
 .text-button {
   color: var(--muted);
   font-size: 11px;
@@ -588,6 +630,14 @@ h2 {
   padding-left: 13px;
   padding-right: 49px;
 }
+/* A folder setting is a path plus the host dialog that chooses one; the field stays
+   editable so a path can be pasted, and the button commits what the dialog returned. */
+.setting-folder {
+  gap: 6px;
+}
+.setting-control .setting-folder input {
+  width: 224px;
+}
 .setting-input-suffix {
   position: absolute;
   top: 50%;
@@ -748,7 +798,6 @@ h2 {
   background: var(--canvas);
 }
 .preview-app[data-viewport="band"] .preview-canvas {
-  --viewport-fade: 12px;
   position: relative;
   order: 2;
   flex: 1;
@@ -760,28 +809,8 @@ h2 {
   position: absolute;
   inset: 0;
 }
-/* Host-owned edge fades do not intercept content selection or scrolling. */
-.preview-canvas::before,
-.preview-canvas::after {
-  content: "";
-  position: absolute;
-  z-index: 3;
-  left: 0;
-  right: 0;
-  height: var(--viewport-fade);
-  pointer-events: none;
-  background: var(--canvas);
-}
-.preview-canvas::before {
-  top: 0;
-  mask-image: linear-gradient(to bottom, #000, transparent);
-  -webkit-mask-image: linear-gradient(to bottom, #000, transparent);
-}
-.preview-canvas::after {
-  bottom: 0;
-  mask-image: linear-gradient(to top, #000, transparent);
-  -webkit-mask-image: linear-gradient(to top, #000, transparent);
-}
+/* Nothing of the host's is painted over the plugin's rectangle: the viewport is the plugin's
+   pixels edge to edge, and what that excludes is written down in docs/plugins.md. */
 .plugin-view {
   /* All plugin surfaces share this iframe. Exclude the replaced element from
      host selection without disabling text selection inside its own document. */
@@ -932,51 +961,29 @@ kbd {
   transform: none;
 }
 /* Floating bars must not own the content's pixels: a bar catches the pointer on its pills
-   only, never on the gaps between them or the transparent rest of its row. */
-.preview-app[data-viewport="window"] .title-layer.shown,
-.preview-app[data-viewport="window"] .preview-overlays.shown {
+   only, never on the gaps between them or the transparent rest of its row. The pills keep the
+   pointer even while the bar is hidden, because they are the reveal target — the pointer has to
+   be able to land on one to call the bars back, and entering it shows them in the same moment,
+   so what gets clicked is a pill that is already on screen. The box that reveals the chrome is
+   then the box the user can see, instead of a second, invisible one drawn beside it. */
+.preview-app[data-viewport="window"] .title-layer,
+.preview-app[data-viewport="window"] .preview-overlays {
   pointer-events: none;
 }
-.preview-app[data-viewport="window"] .title-layer .brand,
-.preview-app[data-viewport="window"] .title-layer .window-buttons,
-.preview-app[data-viewport="window"] .preview-overlays .floating-file-info,
-.preview-app[data-viewport="window"] .preview-overlays .preview-action-groups {
+/* The reveal target is each bubble's own painted box, not the row it sits in: the flex wrapper
+   around the bottom-right bubbles draws nothing, so it is not a target — the pointer lands on a
+   bubble or it lands on the plugin. */
+.preview-app[data-viewport="window"] .brand,
+.preview-app[data-viewport="window"] .window-buttons,
+.preview-app[data-viewport="window"] .floating-file-info,
+.preview-app[data-viewport="window"] .toolbar-actions,
+.preview-app[data-viewport="window"] .toolbar-host-actions {
   pointer-events: auto;
 }
 /* The window's whole title row is a drag handle; over the content that would swallow every
    click in the top 56px. Only the two pills keep it, and the brand already drags. */
 .preview-app[data-viewport="window"] .title-layer .drag-zone {
   pointer-events: none;
-}
-/* Sensors for the auto-hiding bars. The bottom one is only 6px of the window's true edge, so
-   the plugin keeps the scrollbar lane and everything above it; the top stays 8px, where a
-   plugin has nothing to hit anyway. */
-.preview-app[data-viewport="window"] .edge {
-  pointer-events: auto;
-}
-.preview-app[data-viewport="window"] .edge.top {
-  height: 8px;
-}
-.preview-app[data-viewport="window"] .edge.bottom {
-  height: 6px;
-}
-/* Both sensors would sit at the wrong edge once the viewport is the band; the bars are
-   always shown there, so they are not sensing anything anyway. */
-.preview-app[data-viewport="band"] .edge {
-  pointer-events: none;
-}
-.edge {
-  position: absolute;
-  left: 0;
-  right: 0;
-  height: 10px;
-  z-index: 25;
-}
-.edge.top {
-  top: 0;
-}
-.edge.bottom {
-  bottom: 0;
 }
 .preview-overlays {
   position: relative;
@@ -1173,6 +1180,15 @@ kbd {
     transition: none !important;
   }
 }
+/* The tab bar keeps its place on every tab; this row exists so a tool's settings entry can sit
+   on the same line as the tabs instead of on a header row of its own. */
+.plugin-tabs-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
 .plugin-tabs {
   display: inline-flex;
   gap: 3px;
@@ -1180,8 +1196,8 @@ kbd {
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--card);
-  margin-bottom: 20px;
 }
+.tool-settings-link { flex: none; }
 .plugin-tabs button {
   padding: 7px 13px;
   border-radius: 5px;
@@ -1474,7 +1490,9 @@ kbd {
 .plugin-enable .text-button { border-left: 1px solid var(--border); border-radius: 0; padding-left: 12px; margin-left: 3px; font-size: 10px; }
 .plugin-enable .text-button:hover { color: #ed827d; }
 .market-source { display: flex; align-items: center; gap: 10px; padding: 11px 12px 11px 16px; border: 1px solid var(--border); border-radius: 10px; background: linear-gradient(110deg, var(--accent-bg), var(--card)); color: var(--accent); margin-top: 16px; }
-.market-source strong { font-size: 11px; font-weight: 600; color: var(--text); }
+/* The caution that belongs with installing: it sits on the line naming the source, where it is
+   read at the moment it matters, instead of on a band under every list. */
+.source-note { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--muted); font-size: 11px; }
 .source-badge { margin-left: auto; font-size: 9px; border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent); padding: 3px 7px; border-radius: 5px; }
 /* The banner's own refresh: one icon on the line the source is named on, rather than a
    second toolbar above it. It acts on what the banner shows, so it belongs to it. */
@@ -1516,6 +1534,7 @@ kbd {
 .confirm-icon { width: 48px; height: 48px; border-radius: 14px; background: var(--accent-bg); color: var(--accent); display: grid; place-items: center; margin-bottom: 18px; }
 .plugin-confirm h2 { font-size: 18px; margin: 0 0 12px; overflow-wrap: anywhere; }
 .plugin-confirm p { color: var(--muted); font-size: 12px; line-height: 1.8; }
+.plugin-dialog p { white-space: pre-wrap; }
 .confirm-source { padding: 12px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; color: var(--muted); font-size: 11px; overflow-wrap: anywhere; max-height: 120px; overflow: auto; }
 .plugin-confirm footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px; }
 .confirm-submit { background: var(--accent); color: var(--bg); padding: 8px 16px; border-radius: 7px; font-size: 12px; font-weight: 600; }
@@ -1580,6 +1599,7 @@ kbd {
 .toolbar-actions .scrub-control {
   width: 58px;
   min-width: 58px;
+  position: relative;
   font-size: 11px;
   font-variant-numeric: tabular-nums;
   cursor: ns-resize;
@@ -1587,7 +1607,26 @@ kbd {
   user-select: none;
 }
 .scrub-control.scrubbing { background: var(--accent-bg); color: var(--accent); }
-.scrub-track { position: relative; width: 24px; height: 22px; margin: 3px 0; }
+/* Two parts, one piece: at rest the readout sits centered on its own; hovering (or focusing, or
+   dragging) slides it left to make room for the scale on the right, which slides in from the
+   same direction, so the control looks like one object opening rather than two swapping places.
+   Hover is what teaches the control: the scale is how a user sees that this number can be
+   dragged. Letting go or moving away plays both transitions backwards, recentring the number. */
+.scrub-value { transition: transform .18s cubic-bezier(.22, 1, .36, 1); }
+.scrub-track {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  right: 4px;
+  width: 22px;
+  opacity: 0;
+  transform: translateX(7px);
+  transition:
+    opacity .16s ease,
+    transform .18s cubic-bezier(.22, 1, .36, 1);
+}
+.scrub-control:is(:hover, :focus-visible, .scrubbing) .scrub-value { transform: translateX(-11px); }
+.scrub-control:is(:hover, :focus-visible, .scrubbing) .scrub-track { opacity: 1; transform: none; }
 .scrub-ticks { position: absolute; inset: 0 5px; background: repeating-linear-gradient(to top, var(--muted) 0 1px, transparent 1px 5px); opacity: .45; }
 .scrub-thumb { position: absolute; left: 1px; right: 1px; height: 3px; border-radius: 3px; background: var(--accent); transform: translateY(50%); box-shadow: 0 0 5px var(--accent-bg); }
 
@@ -1614,3 +1653,46 @@ kbd {
 /* The way out sits below the two ways in, and reads as the least of the three. */
 .welcome-later { margin-top: -8px; font-size: 11.5px; }
 .welcome .warning, .welcome .quiet-note { max-width: 520px; }
+/* Installed tool plugins own their page; the host owns the frame boundary. A tool page fills
+   the room it is given instead of asking for a fixed height: a fixed one (660px, 620px, …)
+   overflows a short window and covers whatever the host put under it. */
+.tool-page { width: 100%; min-height: 0; margin-top: 0; }
+.tool-page iframe { width: 100%; height: 100%; border: 0; background: transparent; }
+.plugin-group-heading{display:flex;align-items:center;gap:10px;margin:25px 0 13px}.plugin-group-heading h2{font-size:12px;font-weight:600;letter-spacing:.3px;margin:0;color:var(--muted)}.plugin-group-heading>span{display:grid;place-items:center;min-width:21px;height:20px;border-radius:6px;font-size:10px;background:var(--surface);color:var(--muted)}.plugin-group-heading>div{height:1px;flex:1;background:var(--border)}.plugin-group-heading+.market-card{margin-top:0}.settings-app .market-card{border-radius:13px}
+
+/* Tool surfaces own their internal scroll regions. Never scroll the iframe shell, and keep the
+   header and the page padding the other tabs have: the tab bar sits in the same place on every
+   tab, so opening a tool must not shift it. The tool page then takes whatever is left. */
+.settings-main.tool-surface{display:flex;min-height:0;flex-direction:column;overflow:hidden}
+.settings-main.tool-surface>.plugin-tabs-row{width:100%;margin:0 0 10px;flex:none}
+.settings-main.tool-surface>.tool-page{display:flex;min-height:0;flex:1;flex-direction:column;margin:0;overflow:hidden}
+.settings-main.tool-surface>.tool-page iframe{display:block;width:100%;height:100%;min-height:0;flex:1;border:0}
+.workshop-preview-window{height:100vh;display:flex;flex-direction:column;overflow:hidden;background:var(--bg)}.workshop-preview-window>header{display:flex;align-items:center;gap:20px;padding:12px 18px;border-bottom:1px solid var(--border);font-size:12px}.workshop-preview-window>header>span{color:var(--muted);overflow-wrap:anywhere}.workshop-preview-canvas{flex:1;min-height:0}.workshop-preview-canvas iframe{width:100%;height:100%;border:0}.workshop-preview-window>.workshop-preview-controls{flex:none;justify-content:flex-start;border-top:1px solid var(--border);background:var(--card)}.workshop-preview-window>footer:empty{display:none}
+
+.plugin-sort-list{position:relative}
+.plugin-sort-list .plugin-nav-item{transition:transform .18s ease,background .18s}
+.plugin-sort-list .plugin-nav-item.is-dragging{opacity:0;transform:none;pointer-events:none}
+.plugin-drag-handle{touch-action:none}
+.plugin-sort-preview{position:fixed!important;margin:0!important;z-index:1000;pointer-events:none;background:var(--card);box-shadow:0 6px 20px #0004;border:1px solid var(--border);opacity:1!important;transition:none!important}
+.plugin-sort-preview.active{background:var(--accent-bg)}
+@media(prefers-reduced-motion:reduce){.plugin-sort-list .plugin-nav-item{transition:none}}
+
+/* Availability stays visible independently of the selected settings page. */
+.plugin-nav-item[data-enabled="true"] .plugin-nav-link>svg{color:var(--muted)}
+.plugin-nav-item[data-enabled="true"] .plugin-nav-link>strong{color:var(--muted)}
+.plugin-nav-item[data-enabled="true"].active .plugin-nav-link>svg,
+.plugin-nav-item[data-enabled="true"].active .plugin-nav-link>strong{color:var(--accent)}
+.plugin-nav-item[data-enabled="false"] .plugin-nav-link>svg,
+.plugin-nav-item[data-enabled="false"] .plugin-nav-link>strong{color:var(--faint)}
+.plugin-disabled-badge{flex:none;padding:2px 5px;border:1px solid var(--border);border-radius:5px;background:var(--raised);color:var(--muted);font-size:9px;font-weight:500;line-height:1.4;white-space:nowrap}
+
+/* Reserve the trailing metadata columns before sizing the plugin name. */
+.plugin-nav-link{display:grid;grid-template-columns:19px minmax(0,1fr) 25px;column-gap:12px;overflow:hidden}
+.plugin-nav-link:has(.plugin-disabled-badge){grid-template-columns:19px minmax(0,1fr) auto 25px;column-gap:8px}
+.plugin-nav-link>strong{display:block;max-width:100%}
+.plugin-nav-link>.plugin-order-number{width:25px;min-width:25px;margin:0}
+
+.plugin-beta-badge{display:inline-flex;flex:none;align-items:center;padding:2px 6px;border:1px solid color-mix(in srgb,var(--accent) 30%,transparent);border-radius:6px;background:var(--accent-bg);color:var(--accent);font-size:9px;font-weight:500;line-height:1.4;vertical-align:middle;margin-left:8px;white-space:nowrap}
+
+.plugin-detail h2{gap:6px}
+.plugin-detail h2>.plugin-beta-badge,.installed-chip-text>.plugin-beta-badge{margin-left:0}

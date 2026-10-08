@@ -1,3 +1,4 @@
+import {PluginBadge} from "./PluginBadge";
 import { useEffect, useState } from "react";
 import { Package, Download, RotateCw, LoaderCircle } from "lucide-react";
 import { call, desktop } from "./bridge";
@@ -48,7 +49,7 @@ function InstalledChip({
         {/* The version stays short so a real plugin name is never the part that gets
             truncated; what the update moves away from is in the button's tooltip, and the
             confirm dialog repeats it before anything is installed. */}
-        <span>v{entry.installedVersion}</span>
+        <span>v{entry.installedVersion}</span><PluginBadge beta={entry.beta}/>
       </span>
       {entry.updateAvailable && (
         <button
@@ -93,7 +94,7 @@ function AvailableCard({
       <div className="plugin-detail">
         <h2>
           {entry.name}
-          <span className="plugin-version">v{entry.version}</span>
+          <span className="plugin-version">v{entry.version}</span><PluginBadge beta={entry.beta}/>
         </h2>
         <p>{entry.summary}</p>
         <PluginDetails extensions={entry.extensions}>
@@ -186,9 +187,9 @@ export function Marketplace({
     setError("");
     try {
       progress(t(INSTALL_STEPS[0]));
-      const path = await call<string>("market_prepare", { id: entry.id });
+      await call<string>("market_prepare", { id: entry.id });
       progress(t(INSTALL_STEPS[1]));
-      await call("install_plugin", { path });
+      await call("market_install", { id: entry.id });
       progress(t(INSTALL_STEPS[2]));
       await onInstalled();
       await refresh();
@@ -209,11 +210,13 @@ export function Marketplace({
   return (
     <>
       {action && <PluginConfirm action={action} onClose={() => setAction(null)} />}
-      {/* The banner carries its own refresh: it acts on the source this banner names, so it
-          reads as part of it instead of floating above it as a second toolbar. */}
+      {/* The banner names the source it reads from and carries the caution that belongs with
+          installing anything. It used to repeat "plugin marketplace" here, which the tab above
+          already says, while that caution sat on a band of its own under every list. It keeps
+          its own refresh, which acts on the source the banner names. */}
       <div className="market-source">
         <Package size={16} />
-        <strong>{t("market.title")}</strong>
+        <span className="source-note">{t("plugins.trustWarning")}</span>
         <span className="source-badge">
           {sourceNames.length === 1
             ? sourceNames[0]

@@ -9,6 +9,7 @@ import {
 import { GripHorizontal } from "lucide-react";
 import { useT } from "./i18n";
 import type { Session } from "./types";
+import { keepViewMounted, visitView } from "./recentViews";
 
 type Position = { x: number; y: number };
 type Size = { width: number; height: number };
@@ -86,19 +87,12 @@ export function PluginStage({
   const [positions, setPositions] = useState(loadPositions);
   const [dragging, setDragging] = useState<string>();
   const [front, setFront] = useState<string>();
-  // Keep the current view and one recent view mounted. This makes quick back-and-forth
-  // switching instant while placing a hard ceiling on retained WebView resources.
+  // Keep a bounded visit order. Only unfinished background views stay mounted; completed
+  // views can be rebuilt from the runtime cache if the user returns to them.
   const [recentViews, setRecentViews] = useState<string[]>([]);
   useEffect(() => {
     if (!active?.id) return;
-    setRecentViews((old) => [
-      active.id,
-      ...old.filter((id) => {
-        if (id === active.id) return false;
-        const session = sessions.find((candidate) => candidate.id === id);
-        return Boolean(session?.available && session.size <= 4 * 1024 * 1024);
-      }),
-    ].slice(0, 2));
+    setRecentViews((old) => visitView(old, active.id));
   }, [active?.id]);
   // The viewport a panel is placed in, measured rather than assumed: it is the window in
   // immersive mode and the band between the chrome bars otherwise.
@@ -220,7 +214,7 @@ export function PluginStage({
         .filter((s) => {
           if (!s.capabilities.includes("view"))
             return !s.capabilities.includes("overlay");
-          return s.id === active?.id || s.pending || recentViews.includes(s.id);
+          return keepViewMounted(s, active?.id, recentViews);
         })
         .map((session) => (
           <div key={session.id} className="contribution-frame">

@@ -2,6 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   validateControls,
+  validateWorkshopControls,
+  validateDialog,
   isSessionOwning,
   ROLES,
   Selection,
@@ -36,6 +38,15 @@ test("a toggle control carries the state the host draws", () => {
   // Only an explicit true lights a control up, so a typo cannot silently press it.
   assert.equal(off.active, false);
   assert.equal(on.active, false);
+});
+test("workshop controls declare host icons and explicit toggle state", () => {
+  const controls = validateWorkshopControls([
+    { id: "copy", kind: "button", label: "复制", icon: "copy" },
+    { id: "wrap", kind: "toggle", label: "换行", icon: "text-wrap", active: true },
+  ]);
+  assert.equal(controls[1].active, true);
+  assert.throws(() => validateWorkshopControls([{ id: "copy", kind: "button", label: "复制" }]));
+  assert.throws(() => validateWorkshopControls([{ id: "wrap", kind: "toggle", label: "换行", icon: "text-wrap" }]));
 });
 test("malformed or excessive controls never enter the host UI", () => {
   for (const bad of [
@@ -116,4 +127,24 @@ test("scrub controls retain numeric bounds and reject invalid ranges", () => {
   for (const patch of [{ value: NaN }, { min: 0 }, { max: Infinity }, { max: 2 }, { value: 3000 }]) {
     assert.throws(() => validateControls([{ ...control, ...patch }]));
   }
+});
+
+test("plugin dialogs preserve opaque action results without host business semantics", () => {
+  const dialog = validateDialog({
+    title: "导出当前帧？",
+    message: "PNG 截图将写到源视频旁边。",
+    detail: "clip-frame-00-12-500.png",
+    cancelLabel: "取消",
+    actions: [{ id: "export", label: "导出 PNG", primary: true }],
+  });
+  assert.equal(dialog.actions[0].id, "export");
+  assert.equal(dialog.actions[0].primary, true);
+  assert.throws(() => validateDialog({ title: "x", actions: [] }));
+  assert.throws(() => validateDialog({
+    title: "x",
+    actions: [
+      { id: "same", label: "A" },
+      { id: "same", label: "B" },
+    ],
+  }));
 });

@@ -1,5 +1,5 @@
 #![cfg(feature = "test-worker")]
-use ember_runtime::Runtime;
+use ember_runtime::{Runtime, WindowState};
 use serde_json::json;
 use std::{
     path::Path,
@@ -136,6 +136,160 @@ async fn switching_types_does_not_cancel_loading_and_idle_workers_are_collected(
     let snapshot = runtime.snapshot().await;
     assert!(snapshot.sessions.is_empty());
     assert!(snapshot.plugins.iter().all(|p| p.process_ids.is_empty()));
+    runtime.shutdown().await;
+}
+
+#[tokio::test]
+async fn completed_files_form_a_recent_four_file_window_instead_of_exhausting_slots() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("installed");
+    package(&root.join("one"), "test.one", "one");
+    let runtime = Runtime::new(root).unwrap();
+    runtime.scan().await.unwrap();
+    let mut opened = Vec::new();
+    for index in 0..20 {
+        let path = temp.path().join(format!("file-{index}.one"));
+        std::fs::write(&path, format!("file {index}")).unwrap();
+        let session = runtime.open(path.clone()).await.unwrap();
+        runtime.activate(Some(session.id.clone())).await.unwrap();
+        ready(&runtime, &session.id).await;
+        let snapshot = runtime.snapshot().await;
+        assert!(snapshot.sessions.len() <= 4, "completed files accumulated");
+        opened.push((path, session.id));
+    }
+    let recent = runtime.open(opened[17].0.clone()).await.unwrap();
+    assert_eq!(recent.id, opened[17].1, "a recent parse should be reused");
+    let old = runtime.open(opened[0].0.clone()).await.unwrap();
+    assert_ne!(old.id, opened[0].1, "the oldest parse should be replaced");
+    runtime.activate(Some(old.id.clone())).await.unwrap();
+    ready(&runtime, &old.id).await;
+    assert!(runtime.snapshot().await.sessions.len() <= 4);
+    runtime.shutdown().await;
+}
+
+#[tokio::test]
+async fn sliding_window_retires_every_contribution_of_a_file_together() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("installed");
+    package(&root.join("alpha"), "test.alpha", "one");
+    package(&root.join("beta"), "test.beta", "one");
+    let runtime = Runtime::new(root).unwrap();
+    runtime.scan().await.unwrap();
+    let mut first_file = String::new();
+    for index in 0..5 {
+        let path = temp.path().join(format!("file-{index}.one"));
+        std::fs::write(&path, "content").unwrap();
+        let selected = runtime.open(path).await.unwrap();
+        if index == 0 {
+            first_file = selected.file_id.clone();
+        }
+        runtime.activate(Some(selected.id.clone())).await.unwrap();
+        let group: Vec<_> = runtime
+            .snapshot()
+            .await
+            .sessions
+            .into_iter()
+            .filter(|session| session.file_id == selected.file_id)
+            .collect();
+        assert_eq!(group.len(), 2);
+        for session in group {
+            ready(&runtime, &session.id).await;
+        }
+    }
+    let sessions = runtime.snapshot().await.sessions;
+    assert_eq!(sessions.len(), 8);
+    assert!(sessions.iter().all(|session| session.file_id != first_file));
+    runtime.shutdown().await;
+}
+
+#[tokio::test]
+async fn unsaved_file_group_survives_the_sliding_window_until_its_edit_is_cleared() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("installed");
+    package(&root.join("one"), "test.one", "one");
+    let runtime = Runtime::new(root).unwrap();
+    runtime.scan().await.unwrap();
+    let draft_path = temp.path().join("draft.one");
+    std::fs::write(&draft_path, "draft").unwrap();
+    let draft = runtime.open(draft_path).await.unwrap();
+    runtime.activate(Some(draft.id.clone())).await.unwrap();
+    ready(&runtime, &draft.id).await;
+    runtime
+        .set_pending(&draft.id, true, Some("unsaved edit".into()))
+        .await
+        .unwrap();
+    for index in 0..6 {
+        let path = temp.path().join(format!("other-{index}.one"));
+        std::fs::write(&path, "other").unwrap();
+        let session = runtime.open(path).await.unwrap();
+        runtime.activate(Some(session.id.clone())).await.unwrap();
+        ready(&runtime, &session.id).await;
+    }
+    assert!(runtime
+        .snapshot()
+        .await
+        .sessions
+        .iter()
+        .any(|s| s.id == draft.id));
+    runtime.set_pending(&draft.id, false, None).await.unwrap();
+    let replacement = temp.path().join("replacement.one");
+    std::fs::write(&replacement, "replacement").unwrap();
+    let replacement = runtime.open(replacement).await.unwrap();
+    runtime
+        .activate(Some(replacement.id.clone()))
+        .await
+        .unwrap();
+    ready(&runtime, &replacement.id).await;
+    assert!(runtime
+        .snapshot()
+        .await
+        .sessions
+        .iter()
+        .all(|s| s.id != draft.id));
+    runtime.shutdown().await;
+}
+
+#[tokio::test]
+async fn an_unfinished_background_parse_is_reused_then_replaced_after_completion() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("installed");
+    package(&root.join("one"), "test.one", "one");
+    let runtime = Runtime::new(root).unwrap();
+    runtime.scan().await.unwrap();
+    let held_path = temp.path().join("held.one");
+    std::fs::write(&held_path, "held").unwrap();
+    let held = runtime.open(held_path.clone()).await.unwrap();
+    runtime.activate(Some(held.id.clone())).await.unwrap();
+    assert_eq!(runtime.open(held_path.clone()).await.unwrap().id, held.id);
+    for index in 0..6 {
+        let path = temp.path().join(format!("quick-{index}.one"));
+        std::fs::write(&path, "quick").unwrap();
+        let session = runtime.open(path).await.unwrap();
+        runtime.activate(Some(session.id.clone())).await.unwrap();
+        ready(&runtime, &session.id).await;
+    }
+    assert!(runtime
+        .snapshot()
+        .await
+        .sessions
+        .iter()
+        .any(|s| s.id == held.id));
+    std::fs::write(held_path.with_extension("go"), "release").unwrap();
+    ready(&runtime, &held.id).await;
+    let replacement = temp.path().join("after.one");
+    std::fs::write(&replacement, "after").unwrap();
+    let replacement = runtime.open(replacement).await.unwrap();
+    runtime
+        .activate(Some(replacement.id.clone()))
+        .await
+        .unwrap();
+    ready(&runtime, &replacement.id).await;
+    assert!(runtime
+        .snapshot()
+        .await
+        .sessions
+        .iter()
+        .all(|s| s.id != held.id));
     runtime.shutdown().await;
 }
 
@@ -318,7 +472,10 @@ async fn updating_replaces_the_installed_directory_and_puts_the_preview_back() {
     assert_eq!(sessions[0].name, before.name);
     // Re-activating is what keeps the preview window on that file: it shows the active
     // session's file, and the session that was on screen no longer exists.
-    assert_eq!(runtime.snapshot().await.active, Some(sessions[0].id.clone()));
+    assert_eq!(
+        runtime.snapshot().await.active,
+        Some(sessions[0].id.clone())
+    );
     ready(&runtime, &sessions[0].id).await;
     runtime.shutdown().await;
 }
@@ -386,21 +543,48 @@ async fn updating_a_peer_protects_drafts_in_all_affected_worker_sessions() {
     runtime.open(file).await.unwrap();
     runtime.open(other).await.unwrap();
     let snapshot = runtime.snapshot().await;
-    for session in &snapshot.sessions { ready(&runtime, &session.id).await; }
-    let active = snapshot.sessions.iter().find(|s| s.name == "other.md").unwrap();
+    for session in &snapshot.sessions {
+        ready(&runtime, &session.id).await;
+    }
+    let active = snapshot
+        .sessions
+        .iter()
+        .find(|s| s.name == "other.md")
+        .unwrap();
     runtime.activate(Some(active.id.clone())).await.unwrap();
     set_build_id(&preview, "new");
-    for session in snapshot.sessions.iter().filter(|s| s.plugin_id == "test.editor") {
-        runtime.set_pending(&session.id, true, Some("未保存草稿".into())).await.unwrap();
+    for session in snapshot
+        .sessions
+        .iter()
+        .filter(|s| s.plugin_id == "test.editor")
+    {
+        runtime
+            .set_pending(&session.id, true, Some("未保存草稿".into()))
+            .await
+            .unwrap();
         let error = runtime.install(&preview).await.unwrap_err();
         assert!(error.contains("未保存草稿"), "{error}");
-        assert!(runtime.snapshot().await.sessions.iter().any(|s| s.id == session.id && s.pending));
+        assert!(runtime
+            .snapshot()
+            .await
+            .sessions
+            .iter()
+            .any(|s| s.id == session.id && s.pending));
         runtime.set_pending(&session.id, false, None).await.unwrap();
     }
     runtime.install(&preview).await.unwrap();
-    assert!(runtime.snapshot().await.plugins.iter().any(|p| p.manifest.build_id == "new"));
+    assert!(runtime
+        .snapshot()
+        .await
+        .plugins
+        .iter()
+        .any(|p| p.manifest.build_id == "new"));
     let after = runtime.snapshot().await;
-    let active = after.sessions.iter().find(|s| Some(&s.id) == after.active.as_ref()).unwrap();
+    let active = after
+        .sessions
+        .iter()
+        .find(|s| Some(&s.id) == after.active.as_ref())
+        .unwrap();
     assert_eq!(active.name, "other.md");
     assert_eq!(active.plugin_id, "test.editor");
     runtime.shutdown().await;
@@ -448,15 +632,14 @@ async fn an_interrupted_swap_is_put_back() {
     std::fs::create_dir_all(root.join(format!(".replaced-{}", installed[0]))).unwrap();
     runtime.scan().await.unwrap();
     assert_eq!(installed_dirs(&root), installed);
-    assert!(root
-        .read_dir()
-        .unwrap()
-        .flatten()
-        .all(|entry| !entry.file_name().to_string_lossy().starts_with(".replaced-")));
+    assert!(root.read_dir().unwrap().flatten().all(|entry| !entry
+        .file_name()
+        .to_string_lossy()
+        .starts_with(".replaced-")));
     runtime.shutdown().await;
 }
 
-/// A package that declares two settings, so the whole declaration -> store -> plugin
+/// A package that declares a few settings, so the whole declaration -> store -> plugin
 /// path can be exercised through the echo the test worker replies with.
 fn configurable_package(path: &Path, id: &str, extension: &str) {
     std::fs::create_dir_all(path.join("ui")).unwrap();
@@ -482,7 +665,9 @@ fn configurable_package(path: &Path, id: &str, extension: &str) {
                 {"key": "zoom", "type": "number", "label": "缩放",
                  "default": 1, "min": 0.5, "max": 4, "step": 0.5},
                 {"key": "mode", "type": "select", "label": "模式", "default": "safe",
-                 "options": [{"value": "safe", "label": "稳"}, {"value": "fast", "label": "快"}]}
+                 "options": [{"value": "safe", "label": "稳"}, {"value": "fast", "label": "快"}]},
+                {"key": "lastZoom", "type": "number", "label": "上次缩放", "hidden": true,
+                 "default": 1, "min": 1, "max": 4, "step": 0.5}
             ]
         })
         .to_string(),
@@ -507,6 +692,18 @@ async fn plugin_settings_round_trip_through_storage_and_reach_the_plugin() {
     assert_eq!(plugins[0].values["zoom"].as_f64(), Some(1.0));
     assert_eq!(plugins[0].values, plugins[0].defaults);
 
+    // A hidden declaration is the plugin's own state: it is resolved, coerced and stored like any
+    // other value, and the flag travels with it so the settings surface can leave the control out
+    // instead of the host having to know which values are worth showing.
+    let hidden = plugins[0]
+        .manifest
+        .settings
+        .iter()
+        .find(|setting| setting.key == "lastZoom")
+        .unwrap();
+    assert!(hidden.hidden);
+    assert_eq!(plugins[0].values["lastZoom"], json!(1));
+
     // Values are coerced onto the declaration: 99 clamps to max, 3.7 snaps to the step.
     runtime
         .set_setting("test.one", "wrap", json!(false))
@@ -520,10 +717,15 @@ async fn plugin_settings_round_trip_through_storage_and_reach_the_plugin() {
         .set_setting("test.one", "mode", json!("fast"))
         .await
         .unwrap();
+    runtime
+        .set_setting("test.one", "lastZoom", json!(3.7))
+        .await
+        .unwrap();
     let plugins = runtime.snapshot().await.plugins;
     assert_eq!(plugins[0].values["wrap"], json!(false));
     assert_eq!(plugins[0].values["zoom"], json!(3.5));
     assert_eq!(plugins[0].values["mode"], json!("fast"));
+    assert_eq!(plugins[0].values["lastZoom"], json!(3.5));
 
     // Undeclared keys and values that fail the schema never reach storage.
     assert!(runtime
@@ -552,6 +754,7 @@ async fn plugin_settings_round_trip_through_storage_and_reach_the_plugin() {
     assert_eq!(echoed["echo"]["settings"]["wrap"], json!(false));
     assert_eq!(echoed["echo"]["settings"]["zoom"], json!(3.5));
     assert_eq!(echoed["echo"]["settings"]["mode"], json!("fast"));
+    assert_eq!(echoed["echo"]["settings"]["lastZoom"], json!(3.5));
 
     // Changing a setting with a live session succeeds (the worker accepts the
     // `settings` notification) and updates storage without disturbing the session.
@@ -573,15 +776,21 @@ async fn plugin_settings_round_trip_through_storage_and_reach_the_plugin() {
     assert_eq!(plugins[0].values["wrap"], json!(false));
     assert_eq!(plugins[0].values["zoom"], json!(2.0));
     assert_eq!(plugins[0].values["mode"], json!("fast"));
+    assert_eq!(plugins[0].values["lastZoom"], json!(3.5));
 
     // Returning a setting to its default drops the override, so a later default
-    // change is picked up instead of being shadowed forever.
+    // change is picked up instead of being shadowed forever. A number counts too: the coerced
+    // value of `lastZoom` is `1.0` where the declaration writes `1`.
     restarted
         .set_setting("test.one", "wrap", json!(true))
         .await
         .unwrap();
     restarted
         .set_setting("test.one", "mode", json!("safe"))
+        .await
+        .unwrap();
+    restarted
+        .set_setting("test.one", "lastZoom", json!(1))
         .await
         .unwrap();
     let state: serde_json::Value =
@@ -847,7 +1056,10 @@ async fn resetting_to_first_launch_leaves_nothing_installed() {
     let runtime = Runtime::new(root.clone()).unwrap();
     runtime.install(&source).await.unwrap();
     runtime.complete_onboarding().await.unwrap();
-    runtime.set_setting("test.one", "wrap", json!(false)).await.unwrap();
+    runtime
+        .set_setting("test.one", "wrap", json!(false))
+        .await
+        .unwrap();
     runtime.enabled("test.one", false).await.unwrap();
     assert_eq!(runtime.snapshot().await.plugins.len(), 1);
 
@@ -952,13 +1164,21 @@ async fn a_refusal_names_the_work_the_plugin_reports() {
         refusal.replace("卸载", "停用")
     );
     assert_eq!(
-        runtime.blocking_change(Some("test.one")).await.unwrap().reason,
+        runtime
+            .blocking_change(Some("test.one"))
+            .await
+            .unwrap()
+            .reason,
         "未应用的裁剪"
     );
     // A plugin that names nothing is still protected, in the host's neutral words.
     runtime.set_pending(&session.id, true, None).await.unwrap();
     assert_eq!(
-        runtime.blocking_change(Some("test.one")).await.unwrap().reason,
+        runtime
+            .blocking_change(Some("test.one"))
+            .await
+            .unwrap()
+            .reason,
         "尚未提交的变更"
     );
     assert!(runtime.blocking_change(None).await.is_some());
@@ -981,7 +1201,7 @@ async fn a_superseded_revision_is_retired_on_the_next_scan() {
     assert_eq!(installed.len(), 1);
 
     // What the older scheme produced: a second directory, a higher revision, newer contents.
-    let newer = format!("test.one-9999999999999");
+    let newer = "test.one-9999999999999".to_owned();
     let copy = root.join(&newer);
     let worker = std::fs::copy(
         root.join(&installed[0]).join("worker.exe"),
@@ -1000,9 +1220,10 @@ async fn a_superseded_revision_is_retired_on_the_next_scan() {
         copy.join("ui/index.html"),
     )
     .unwrap();
-    let mut manifest: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(root.join(&installed[0]).join("plugin.json")).unwrap())
-            .unwrap();
+    let mut manifest: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(root.join(&installed[0]).join("plugin.json")).unwrap(),
+    )
+    .unwrap();
     manifest["revision"] = json!(9999999999999u64);
     std::fs::write(copy.join("plugin.json"), manifest.to_string()).unwrap();
 
@@ -1015,4 +1236,43 @@ async fn a_superseded_revision_is_retired_on_the_next_scan() {
     runtime.reap().await;
     assert_eq!(installed_dirs(&root), vec![newer]);
     runtime.shutdown().await;
+}
+
+#[tokio::test]
+async fn the_window_placement_is_remembered_across_runs() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("installed");
+    let runtime = Runtime::new(root.clone()).unwrap();
+    // Nothing remembered yet is the answer the host uses to open its default, centered window.
+    assert_eq!(runtime.window_state().await, None);
+
+    // A negative x and a size below the default are what a window on a second monitor to the
+    // left looks like: the placement is the user's, not a value this host would have chosen.
+    let placement = WindowState {
+        x: -1200,
+        y: 40,
+        width: 820,
+        height: 1040,
+        maximized: false,
+    };
+    runtime
+        .set_window_state(Some(placement.clone()))
+        .await
+        .unwrap();
+    let state: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(root.join("host-state.json")).unwrap()).unwrap();
+    assert_eq!(
+        state["window"],
+        json!({"x": -1200, "y": 40, "width": 820, "height": 1040, "maximized": false})
+    );
+    runtime.shutdown().await;
+
+    // The next run opens where the user left it.
+    let restarted = Runtime::new(root.clone()).unwrap();
+    assert_eq!(restarted.window_state().await, Some(placement));
+
+    // A reset to first launch forgets it, the same as it forgets the plugins and the language.
+    restarted.reset_to_first_launch().await.unwrap();
+    assert_eq!(restarted.window_state().await, None);
+    restarted.shutdown().await;
 }

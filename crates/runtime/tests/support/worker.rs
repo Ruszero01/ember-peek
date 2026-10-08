@@ -23,6 +23,13 @@ fn main() {
                 if text == "slow" {
                     std::thread::sleep(Duration::from_millis(700));
                 }
+                if text == "held" {
+                    let release = std::path::Path::new(path).with_extension("go");
+                    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+                    while !release.exists() && std::time::Instant::now() < deadline {
+                        std::thread::sleep(Duration::from_millis(10));
+                    }
+                }
                 if text == "broken" {
                     writeln!(
                         output.lock().unwrap(),

@@ -1,31 +1,30 @@
-name: Baseline checks
+name: Manual baseline checks
+
 on:
-  push:
-    tags: ['v*']
+  workflow_dispatch:
+
 permissions:
   contents: read
+
+concurrency:
+  group: manual-baseline-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   check:
     runs-on: windows-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-      - run: npm ci
-      - run: npm run version:check
-      - run: npm run release:notes
-      - run: npm test
-      - run: npm run build
-      - run: cargo check --workspace --all-features --locked
-      - run: npm run plugins:dist
-      - run: npm run plugins:validate
-      - name: Build Windows NSIS installer
-        run: npm run build:desktop -- --bundles nsis --ci -- --locked
-      - uses: actions/upload-artifact@v4
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          name: ember-peek-windows-x64-nsis
-          path: target/release/bundle/nsis/*-setup.exe
-          if-no-files-found: error
-          retention-days: 14
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+      - run: npm ci
+      - run: npm run ci

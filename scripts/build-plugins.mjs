@@ -27,6 +27,10 @@ const webSdk = path.join(root, "sdk", "web", "index.js");
 // Shared plugin-side UI. Copied into every package next to sdk.js and folded into the
 // build hash, so changing a shared component republishes the packages that use it.
 const webSdkExtras = [
+  // Loaded by a page before its own module: the CSP allows no inline script, so a page whose
+  // module never boots would otherwise show nothing at all.
+  [path.join(root, "sdk", "web", "boot.js"), "boot.js"],
+  [path.join(root, "sdk", "web", "tool.js"), "sdk-tool.js"],
   [path.join(root, "sdk", "web", "search.js"), "sdk-search.js"],
   [path.join(root, "sdk", "web", "text", "surface.css"), "sdk-text.css"],
   [path.join(root, "sdk", "web", "ui.css"), "sdk-ui.css"],
@@ -226,6 +230,54 @@ async function treeText(directory, out = []) {
   return out.join("\n");
 }
 
+/** Names of the files a package carries, relative to its `ui` directory. */
+async function packageFiles(ui, prefix = "", names = new Set()) {
+  for (const entry of await readdir(path.join(ui, prefix), {
+    withFileTypes: true,
+  })) {
+    if (entry.isDirectory())
+      await packageFiles(ui, `${prefix}${entry.name}/`, names);
+    else names.add(`${prefix}${entry.name}`);
+  }
+  return names;
+}
+
+/**
+ * A page that imports something the package does not carry fails at load with no visible
+ * error: the tool keeps showing its static markup, which looks like a working but empty
+ * screen. Packaging therefore refuses to write a package whose own references cannot be
+ * satisfied, including the assets and prompts a development kit declares.
+ */
+async function verifyPackage({ directory, manifest, provided }) {
+  const ui = path.join(directory, "ui");
+  const files = await packageFiles(ui);
+  const carried = new Set([...files, ...provided]);
+  const missing = [];
+  for (const name of files) {
+    if (!/\.(js|html|css)$/.test(name)) continue;
+    const code = await readFile(path.join(ui, name), "utf8");
+    for (const reference of references(code, path.extname(name))) {
+      if (/^(data:|https?:|#)/.test(reference)) continue;
+      const target = reference.split(/[?#]/)[0].replace(/^\.\//, "");
+      // A bare specifier without a file extension is a package import, not ours.
+      if (!/\.[a-z0-9]+$/i.test(target)) continue;
+      if (!carried.has(target)) missing.push(`${name} -> ${reference}`);
+    }
+  }
+  if (files.has("development-kit.json")) {
+    const kit = JSON.parse(
+      await readFile(path.join(ui, "development-kit.json"), "utf8"),
+    );
+    for (const name of [...(kit.assets ?? []), kit.prompt, kit.analysisPrompt])
+      if (name && !carried.has(name))
+        missing.push(`development-kit.json -> ${name}`);
+  }
+  if (missing.length)
+    throw new Error(
+      `${manifest.id}: the package does not carry files it references: ${missing.join(", ")}`,
+    );
+}
+
 /** The target a built package runs on, as `os-arch`. Packaging runs on the build
  * host, so the native executable in the package is the host's target. */
 function hostTarget() {
@@ -366,6 +418,10 @@ async function publish(release, { dist = false } = {}) {
     }
     await hashInputTree(input, path.join(directory, "native"), "native");
     await hashInputTree(input, path.join(directory, "ui"), "ui");
+    if (manifest.id === "ember.workshop") {
+      await hashInputTree(input, path.join(directory, "agent"), "agent");
+      hashInput(input, "node-runtime", await readFile(process.execPath));
+    }
     await hashInputTree(input, path.join(root, "sdk"), "sdk");
     const nativeManifest = await readFile(path.join(directory, "native", "Cargo.toml"), "utf8");
     for (const library of pluginLibraries.filter((lib) => lib.name !== "ember-plugin-sdk" && nativeManifest.includes(lib.name))) {
@@ -393,10 +449,33 @@ async function publish(release, { dist = false } = {}) {
       return uiText.includes(name) || uiText.includes(base);
     });
     const bundled = [];
+    const agentFiles = [];
+    if (manifest.id === "ember.workshop") {
+      const agent = await build({ entryPoints: [path.join(directory, "agent", "runner.mjs")], bundle: true, platform: "node", format: "esm", target: "node22", metafile: true, write: false, outfile: "agent.mjs", banner: {js: "import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);"} });
+      agentFiles.push(...agent.outputFiles.map(file => ({name: path.basename(file.path), contents: file.contents})));
+      agentFiles.push({name: "node.exe", contents: await readFile(process.execPath)});
+      let notices = await readFile(path.join(directory, "agent", "PI-LICENSE.txt"), "utf8");
+      notices += "\n\nNode.js runtime\n" + await readFile(path.join(directory, "agent", "NODE-LICENSE.txt"), "utf8");
+      const dependencies = new Set();
+      for (const input of Object.keys(agent.metafile.inputs)) {
+        const absolute = path.resolve(root, input);
+        const match = absolute.match(/^(.*[\\/]node_modules[\\/](?:@[^\\/]+[\\/])?[^\\/]+)/);
+        if (match) dependencies.add(match[1]);
+      }
+      for (const dependency of [...dependencies].sort()) {
+        const names = await readdir(dependency);
+        for (const name of names.filter(name => /^(LICENSE|LICENCE|COPYING|NOTICE)(\.|$)/i.test(name))) {
+          if ((await stat(path.join(dependency, name))).isFile()) notices += `\n\n${path.basename(dependency)} / ${name}\n` + await readFile(path.join(dependency, name), "utf8");
+        }
+      }
+      agentFiles.push({name: "THIRD-PARTY-NOTICES.txt", contents: Buffer.from(notices)});
+      for (const file of agentFiles) hash.update(file.contents);
+    }
     for (const name of bundledSdk) {
       if (uiText.includes(`sdk-${name}.js`))
         bundled.push(...(await bundle(name)));
     }
+    await verifyPackage({ directory, manifest, provided: ["sdk.js", ...extras.map(([, name]) => name), ...bundled.map((file) => path.basename(file.path))] });
     for (const file of bundled) hash.update(file.contents);
     hash.update(await readFile(native));
     hash.update(await readFile(webSdk));
@@ -423,6 +502,7 @@ async function publish(release, { dist = false } = {}) {
       for (const [source, name] of extras)
         await cp(source, path.join(staging, "ui", name));
       await cp(native, path.join(staging, "bin", executable));
+      for (const file of agentFiles) await writeFile(path.join(staging, "bin", file.name), file.contents);
       // The install-time revision is zeroed: the installer assigns it, and leaving the
       // build clock in here would make the same inputs produce different bytes, which
       // would make the catalog's sha256 meaningless.
@@ -447,6 +527,7 @@ async function publish(release, { dist = false } = {}) {
       name: manifest.name,
       extensions: manifest.extensions,
       ...(manifest.icon ? { icon: manifest.icon } : {}),
+      ...(manifest.beta ? { beta: true } : {}),
       targets: [target],
       summary: listing.summary,
       publisher: listing.publisher,

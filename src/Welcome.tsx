@@ -1,3 +1,4 @@
+import {PluginBadge} from "./PluginBadge";
 import { useEffect, useState } from "react";
 import { Check, LoaderCircle, ArrowRight } from "lucide-react";
 import { call, desktop, windowAction } from "./bridge";
@@ -92,8 +93,8 @@ export function Welcome({ onDone }: { onDone: () => Promise<unknown> }) {
         }),
       );
       try {
-        const path = await call<string>("market_prepare", { id: entry.id });
-        await call("install_plugin", { path });
+        await call<string>("market_prepare", { id: entry.id });
+        await call("market_install", { id: entry.id });
       } catch (e) {
         failures.push(t("welcome.failure", { name: entry.name, error: String(e) }));
       }
@@ -177,7 +178,7 @@ export function Welcome({ onDone }: { onDone: () => Promise<unknown> }) {
                 </span>
                 <h2>
                   {entry.name}
-                  <span className="plugin-version">v{entry.version}</span>
+                  <span className="plugin-version">v{entry.version}</span><PluginBadge beta={entry.beta}/>
                 </h2>
                 <p>{entry.summary}</p>
               </button>

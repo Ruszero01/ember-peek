@@ -57,25 +57,33 @@ struct SourceConfig {
 
 /// Read and check a sources file into the list a `Market` takes.
 pub fn read_sources(path: &Path) -> Result<Vec<Source>, String> {
-    let bytes = std::fs::read(path)
-        .map_err(|error| msg!(text().sources_read_failed, path = path.display(), error = error))?;
+    let bytes = std::fs::read(path).map_err(|error| {
+        msg!(
+            text().sources_read_failed,
+            path = path.display(),
+            error = error
+        )
+    })?;
     if bytes.len() > 64 * 1024 {
         return Err(msg!(text().sources_too_large));
     }
-    let config: SourceConfig =
-        serde_json::from_slice(&bytes).map_err(|error| msg!(text().sources_invalid, error = error))?;
+    let config: SourceConfig = serde_json::from_slice(&bytes)
+        .map_err(|error| msg!(text().sources_invalid, error = error))?;
     if config.api != 1 {
         return Err(msg!(text().sources_api));
     }
     if config.sources.len() > MAX_SOURCES {
         return Err(msg!(text().sources_limit, max = MAX_SOURCES));
     }
-    if config.sources.is_empty() { return Err(msg!(text().sources_empty)); }
+    if config.sources.is_empty() {
+        return Err(msg!(text().sources_empty));
+    }
     Ok(config.sources)
 }
 
 #[derive(Clone)]
 pub struct Market {
+    official_sources: Vec<String>,
     sources: Vec<Source>,
     /// Catalog of the source the host contributes itself — the development mirror. Its label
     /// is the host's own wording, so it is resolved in the interface language whenever the
@@ -148,6 +156,8 @@ struct Listing {
     extensions: Option<Vec<String>>,
     #[serde(default)]
     icon: Option<String>,
+    #[serde(default)]
+    beta: bool,
 }
 
 /// The display text one language replaces in a catalog entry.
@@ -167,6 +177,7 @@ struct Offering {
     version: String,
     extensions: Vec<String>,
     icon: Option<String>,
+    beta: bool,
     summary: String,
     publisher: String,
     targets: Vec<String>,
@@ -206,6 +217,7 @@ pub struct Entry {
     pub extensions: Vec<String>,
     /// Declared icon name, so the market card matches the installed card.
     pub icon: Option<String>,
+    pub beta: bool,
     pub summary: String,
     pub publisher: String,
     /// Suggested for a fresh installation.
@@ -240,6 +252,7 @@ impl Market {
             Err(error) => (Vec::new(), Some(error)),
         };
         Ok(Self {
+            official_sources: Vec::new(),
             sources,
             local_catalog: None,
             cache,
@@ -254,6 +267,12 @@ impl Market {
     /// the process started.
     pub fn with_local_source(mut self, catalog: &str) -> Self {
         self.local_catalog = Some(catalog.to_owned());
+        self
+    }
+
+    /// Authority comes from host configuration, never a package's name or ID.
+    pub fn with_official_sources(mut self, catalogs: Vec<String>) -> Self {
+        self.official_sources = catalogs;
         self
     }
 
@@ -279,7 +298,9 @@ impl Market {
         let mut index = self.remote.lock().await;
         let ttl = if self.sources.iter().all(|s| !artifact::is_http(&s.catalog)) {
             LOCAL_CATALOG_TTL
-        } else { CATALOG_TTL };
+        } else {
+            CATALOG_TTL
+        };
         if let Some(at) = index.at {
             if at.elapsed() < ttl {
                 return (
@@ -351,6 +372,7 @@ impl Market {
                 version: offering.version.clone(),
                 extensions: offering.extensions.clone(),
                 icon: offering.icon.clone(),
+                beta: offering.beta,
                 summary: offering.summary.clone(),
                 publisher: offering.publisher.clone(),
                 recommended: offering.recommended,
@@ -359,8 +381,9 @@ impl Market {
                 // the publisher never meant to release, so comparing it would offer users
                 // every build instead of the releases someone decided on. Development sync
                 // still follows the bytes — that is what keeps the dev loop live.
-                update_available: installed
-                    .is_some_and(|installed| newer_version(&offering.version, &installed.manifest.version)),
+                update_available: installed.is_some_and(|installed| {
+                    newer_version(&offering.version, &installed.manifest.version)
+                }),
                 installed_version: installed.map(|plugin| plugin.manifest.version.clone()),
             });
         }
@@ -425,7 +448,10 @@ impl Market {
             }
         }
         let Some(bytes) = body else {
-            return Err(msg!(text().download_failed, failures = failures.join(text().semicolon)));
+            return Err(msg!(
+                text().download_failed,
+                failures = failures.join(text().semicolon)
+            ));
         };
         // The selected mirror passed both transfer checks. After unpacking, confirm
         // that its manifest declares the same build and version as the catalog.
@@ -461,8 +487,58 @@ impl Market {
     }
 
     pub async fn install(&self, runtime: &Arc<Runtime>, id: &str) -> Result<(), String> {
-        runtime.install(&self.prepare(id).await?).await?;
+        let (offerings, _) = self.offerings().await;
+        let offering = offerings
+            .into_iter()
+            .find(|offering| offering.id == id)
+            .ok_or_else(|| msg!(text().not_in_catalog))?;
+        if !runs_here(&offering.targets) {
+            return Err("Plugin target is not supported".into());
+        }
+        let origin = if self.official_sources.contains(&offering.remote.catalog) {
+            "official"
+        } else {
+            "market"
+        };
+        runtime
+            .install_from_source(
+                &self.materialize(&offering).await?,
+                Some(origin.into()),
+                Some(offering.remote.catalog.clone()),
+            )
+            .await?;
         self.prune_cache(runtime).await.map(|_| ())
+    }
+    pub async fn recover_legacy_origins(&self, runtime: &Runtime) {
+        let snapshot = runtime.snapshot().await;
+        let legacy: Vec<_> = snapshot
+            .plugins
+            .iter()
+            .filter(|p| p.origin == "unknown")
+            .collect();
+        if legacy.is_empty() {
+            return;
+        }
+        let (offerings, _) = self.offerings().await;
+        for offering in offerings {
+            if !legacy.iter().any(|p| {
+                p.manifest.id == offering.id
+                    && !p.manifest.build_id.is_empty()
+                    && p.manifest.build_id == offering.remote.build_id
+            }) {
+                continue;
+            }
+            if let Ok(directory) = self.materialize(&offering).await {
+                let origin = if self.official_sources.contains(&offering.remote.catalog) {
+                    "official"
+                } else {
+                    "market"
+                };
+                let _ = runtime
+                    .recover_origin(&directory, &offering.remote.catalog, origin)
+                    .await;
+            }
+        }
     }
 
     /// Drop cached packages no installed revision can reach.
@@ -575,7 +651,9 @@ fn validate_source(source: &Source, label: &str) -> Result<(), String> {
         }
         // A relative location would resolve against whatever directory the host happens
         // to run in, which is not a mirror anyone can rely on.
-        if !artifact::is_http(value) && !value.starts_with("file://") && !Path::new(value).is_absolute()
+        if !artifact::is_http(value)
+            && !value.starts_with("file://")
+            && !Path::new(value).is_absolute()
         {
             return Err(msg!(
                 text().source_field_scheme,
@@ -595,7 +673,13 @@ async fn read_source(client: &reqwest::Client, source: &Source) -> Result<Vec<Li
             .timeout(CATALOG_TIMEOUT)
             .send()
             .await
-            .map_err(|error| msg!(text().catalog_read_failed, catalog = source.catalog, error = error))?;
+            .map_err(|error| {
+                msg!(
+                    text().catalog_read_failed,
+                    catalog = source.catalog,
+                    error = error
+                )
+            })?;
         if !response.status().is_success() {
             return Err(msg!(
                 text().catalog_http,
@@ -604,11 +688,13 @@ async fn read_source(client: &reqwest::Client, source: &Source) -> Result<Vec<Li
             ));
         }
         let mut body = Vec::new();
-        while let Some(chunk) = response
-            .chunk()
-            .await
-            .map_err(|error| msg!(text().catalog_interrupted, catalog = source.catalog, error = error))?
-        {
+        while let Some(chunk) = response.chunk().await.map_err(|error| {
+            msg!(
+                text().catalog_interrupted,
+                catalog = source.catalog,
+                error = error
+            )
+        })? {
             if body.len() + chunk.len() > MAX_CATALOG_BYTES {
                 return Err(msg!(text().catalog_too_large, catalog = source.catalog));
             }
@@ -616,8 +702,13 @@ async fn read_source(client: &reqwest::Client, source: &Source) -> Result<Vec<Li
         }
         body
     } else {
-        std::fs::read(local_catalog_path(&source.catalog))
-            .map_err(|error| msg!(text().catalog_read_failed, catalog = source.catalog, error = error))?
+        std::fs::read(local_catalog_path(&source.catalog)).map_err(|error| {
+            msg!(
+                text().catalog_read_failed,
+                catalog = source.catalog,
+                error = error
+            )
+        })?
     };
     Ok(parse_catalog(&bytes)?.entries)
 }
@@ -647,7 +738,11 @@ fn collect(
                 // An entry the host cannot read is reported rather than dropped: a market
                 // silently missing a plugin is the failure this path exists to avoid.
                 Err(error) => {
-                    warnings.push(msg!(text().file_error, file = label_of(&catalog.source), error = error));
+                    warnings.push(msg!(
+                        text().file_error,
+                        file = label_of(&catalog.source),
+                        error = error
+                    ));
                     continue;
                 }
             };
@@ -717,6 +812,7 @@ fn resolve(listing: &Listing, source: &Source, label: &str) -> Result<Offering, 
         version: listing.version.clone(),
         extensions: listing.extensions.clone().unwrap_or_default(),
         icon: listing.icon.clone(),
+        beta: listing.beta,
         summary,
         publisher: listing.publisher.clone(),
         targets: listing.targets.clone(),
@@ -745,7 +841,10 @@ fn artifact_url(base: &str, artifact: &str) -> Result<String, String> {
     }
     let base = base.strip_suffix('/').unwrap_or(base);
     if Path::new(base).is_absolute() && !base.starts_with("file://") {
-        return Ok(Path::new(base).join(artifact).to_string_lossy().into_owned());
+        return Ok(Path::new(base)
+            .join(artifact)
+            .to_string_lossy()
+            .into_owned());
     }
     Ok(format!("{base}/{artifact}"))
 }
@@ -755,7 +854,10 @@ fn runs_here(targets: &[String]) -> bool {
 }
 
 fn newer_version(candidate: &str, installed: &str) -> bool {
-    match (semver::Version::parse(candidate), semver::Version::parse(installed)) {
+    match (
+        semver::Version::parse(candidate),
+        semver::Version::parse(installed),
+    ) {
         (Ok(candidate), Ok(installed)) => candidate.cmp_precedence(&installed).is_gt(),
         _ => false,
     }
@@ -844,6 +946,14 @@ mod tests {
     }
 
     #[test]
+    fn beta_defaults_off_and_survives_catalog_resolution() {
+        let mut entry = listing("test.beta", "beta.zip");
+        assert!(!entry.beta);
+        entry.beta = true;
+        assert!(resolve(&entry, &source(), "Tests").unwrap().beta);
+    }
+
+    #[test]
     fn reads_a_sources_file() {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("market-sources.json");
@@ -867,7 +977,10 @@ mod tests {
                 .to_string(),
         )
         .unwrap();
-        assert_eq!(read_sources(&path).unwrap()[0].label(), "https://host/catalog.json");
+        assert_eq!(
+            read_sources(&path).unwrap()[0].label(),
+            "https://host/catalog.json"
+        );
 
         std::fs::write(&path, json!({"api":2,"sources":[]}).to_string()).unwrap();
         assert!(read_sources(&path).is_err());
@@ -884,7 +997,10 @@ mod tests {
     #[test]
     fn resolves_artifact_names_inside_the_declared_base() {
         #[cfg(windows)]
-        assert_eq!(artifact_url(r"\\?\C:\mirror", "a.zip").unwrap(), r"\\?\C:\mirror\a.zip");
+        assert_eq!(
+            artifact_url(r"\\?\C:\mirror", "a.zip").unwrap(),
+            r"\\?\C:\mirror\a.zip"
+        );
         assert_eq!(
             artifact_url("https://host/plugins", "ember.text-1.0.0-abc.zip").unwrap(),
             "https://host/plugins/ember.text-1.0.0-abc.zip"
@@ -894,7 +1010,10 @@ mod tests {
             "file:///C:/mirror/a.zip"
         );
         for name in ["../a.zip", "/a.zip", "sub/a.zip", "a.txt", "", "a.zip?x=1"] {
-            assert!(artifact_url("https://host/plugins", name).is_err(), "{name}");
+            assert!(
+                artifact_url("https://host/plugins", name).is_err(),
+                "{name}"
+            );
         }
     }
 
@@ -924,7 +1043,10 @@ mod tests {
                 catalog: catalog.into(),
                 base: base.into(),
             };
-            assert!(validate_source(&broken, &broken.label()).is_err(), "{catalog} {base}");
+            assert!(
+                validate_source(&broken, &broken.label()).is_err(),
+                "{catalog} {base}"
+            );
         }
     }
 
@@ -944,7 +1066,10 @@ mod tests {
     fn resolves_entries_and_reports_the_ones_it_cannot_read() {
         let mut broken = listing("test.two", "b.zip");
         broken.sha256 = "not-a-hash".into();
-        let catalogs = vec![catalog(source(), vec![listing("test.one", "a.zip"), broken])];
+        let catalogs = vec![catalog(
+            source(),
+            vec![listing("test.one", "a.zip"), broken],
+        )];
         let (offerings, warnings) = collect(&catalogs, &plain);
         assert_eq!(offerings.len(), 1);
         assert_eq!(offerings[0].id, "test.one");
@@ -980,11 +1105,13 @@ mod tests {
 
         let mut conflicting = mirrored.clone();
         conflicting.sha256 = "b".repeat(64);
-        let (conflicted, warnings) =
-            collect(
-                &[catalog(source(), vec![mirrored]), catalog(other, vec![conflicting])],
-                &plain,
-            );
+        let (conflicted, warnings) = collect(
+            &[
+                catalog(source(), vec![mirrored]),
+                catalog(other, vec![conflicting]),
+            ],
+            &plain,
+        );
         assert_eq!(conflicted.len(), 1);
         assert_eq!(conflicted[0].remote.urls.len(), 1);
         assert_eq!(warnings.len(), 1, "{warnings:?}");

@@ -18,12 +18,15 @@ impl Runtime {
             .unwrap_or("")
             .to_lowercase();
         let mut inner = self.inner.lock().await;
-        if inner.updating { return Err(msg!(text().updating)); }
+        if inner.updating {
+            return Err(msg!(text().updating));
+        }
         let mut packages: Vec<_> = inner
             .packages
             .values()
             .filter(|p| {
                 !inner.disabled.contains(&p.manifest.id)
+                    && p.tool.is_none()
                     && (p.manifest.matches(&extension)
                         || path
                             .file_name()
@@ -93,6 +96,7 @@ impl Runtime {
                 .filter(|s| s.info.file_id == file_id)
             {
                 session.touched = Instant::now();
+                session.last_used = Instant::now();
             }
             if let Some(selected) = inner.sessions.values().find(|s| {
                 s.info.file_id == file_id
@@ -135,6 +139,9 @@ impl Runtime {
                 }
             }
         }
+        // Make room before admitting another file. Completed background previews are cheap to
+        // reopen; an unfinished parse is not, so only complete groups enter this sliding cache.
+        trim_completed_files(&mut inner, RECENT_FILES - 1);
         if inner
             .sessions
             .values()
@@ -188,6 +195,7 @@ impl Runtime {
                 entry: package.manifest.entry.clone(),
                 capabilities: package.manifest.capabilities.clone(),
                 overlay: package.manifest.overlay.clone(),
+                prepare: package.manifest.prepare,
                 available: true,
                 pending: false,
                 pending_reason: None,
@@ -214,6 +222,7 @@ impl Runtime {
                     package: package.clone(),
                     data: json!({"cacheKey":cache_key}),
                     touched: Instant::now(),
+                    last_used: Instant::now(),
                     calls: usize::from(error.is_none()),
                     source: source.clone(),
                 },
@@ -297,7 +306,10 @@ impl Runtime {
     pub async fn activate(&self, id: Option<String>) -> Result<(), String> {
         let mut inner = self.inner.lock().await;
         let next_file = if let Some(id) = &id {
-            let session = inner.sessions.get(id).ok_or_else(|| msg!(text().session_expired))?;
+            let session = inner
+                .sessions
+                .get(id)
+                .ok_or_else(|| msg!(text().session_expired))?;
             if inner.disabled.contains(&session.info.plugin_id)
                 || !inner.packages.contains_key(&session.info.plugin_id)
             {
@@ -329,15 +341,22 @@ impl Runtime {
                 || Some(&session.info.file_id) == next_file.as_ref()
             {
                 session.touched = Instant::now();
+                if Some(&session.info.file_id) == next_file.as_ref() {
+                    session.last_used = Instant::now();
+                }
             }
         }
         inner.active = id;
+        trim_completed_files(&mut inner, RECENT_FILES);
         Ok(())
     }
 
     pub async fn return_target(&self, id: &str) -> Result<String, String> {
         let inner = self.inner.lock().await;
-        let session = inner.sessions.get(id).ok_or_else(|| msg!(text().session_expired))?;
+        let session = inner
+            .sessions
+            .get(id)
+            .ok_or_else(|| msg!(text().session_expired))?;
         let available = |s: &&Session| {
             s.info.file_id == session.info.file_id
                 && s.package.manifest.has(Capability::View)
@@ -363,7 +382,10 @@ impl Runtime {
 
     pub async fn source_data(&self, id: &str) -> Result<Value, String> {
         let inner = self.inner.lock().await;
-        let session = inner.sessions.get(id).ok_or_else(|| msg!(text().session_expired))?;
+        let session = inner
+            .sessions
+            .get(id)
+            .ok_or_else(|| msg!(text().session_expired))?;
         let Some(source) = session
             .source
             .as_ref()

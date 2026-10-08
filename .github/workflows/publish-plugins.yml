@@ -14,15 +14,21 @@ concurrency:
 jobs:
   build:
     runs-on: windows-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
       - run: npm ci
-      - run: npm run version:check
-      - run: npm test
+      - run: npm run ci
       - run: npm run plugins:dist
       - run: npm run plugins:validate
       - uses: actions/upload-artifact@v4
@@ -34,6 +40,7 @@ jobs:
   publish:
     needs: build
     runs-on: windows-latest
+    timeout-minutes: 20
     environment: plugin-production
     env:
       OSS_REGION: ${{ vars.OSS_REGION }}

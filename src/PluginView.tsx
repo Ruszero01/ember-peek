@@ -1,7 +1,8 @@
 import { useEffect, useRef } from "react";
 import { call, viewUrl } from "./bridge";
-import { validateControls, isSessionOwning, ROLES } from "./protocol.mjs";
+import { validateControls, validateDialog, isSessionOwning, ROLES } from "./protocol.mjs";
 import { useT } from "./i18n";
+import type { PluginDialogRequest } from "./protocol.mjs";
 import type { Control, Session, Theme, ViewReport } from "./types";
 
 export function PluginView({
@@ -17,9 +18,9 @@ export function PluginView({
   register,
   registerPeer,
   peer,
-  edge,
   shortcut,
   panel,
+  confirm,
 }: {
   session: Session;
   /** Which surface of the plugin's entry this is: its view, or its floating panel. */
@@ -46,10 +47,11 @@ export function PluginView({
   ) => void;
   /** Forward one opaque payload to the plugin's other mount; false when it is not up. */
   peer: (to: string, payload: unknown) => boolean;
-  edge: (value: string) => void;
   shortcut: (key: string) => void;
   /** Ask the host to show or hide this plugin's floating panel. */
   panel: (open: boolean) => void;
+  /** Show format-agnostic modal chrome and return the plugin's selected action id. */
+  confirm: (request: PluginDialogRequest) => Promise<string | null>;
 }) {
   const t = useT();
   // When one entry owns both a view and a panel, the panel mount is secondary: it renders
@@ -67,9 +69,9 @@ export function PluginView({
     settings,
     controls,
     report,
-    edge,
     shortcut,
     panel,
+    confirm,
     peer,
   });
   latest.current = {
@@ -80,9 +82,9 @@ export function PluginView({
     settings,
     controls,
     report,
-    edge,
     shortcut,
     panel,
+    confirm,
     peer,
   };
   const generation = useRef(0);
@@ -108,8 +110,7 @@ export function PluginView({
     () => () => {
       generation.current++;
       clearTimeout(handshake.current);
-      channel.current?.port1.close();
-      channel.current?.port2.close();
+      closeChannel("Plugin view closed");
       register(instanceId, null);
       // Peers are keyed by the session both mounts belong to, not by the mount.
       registerPeer(session.id, role, null);
@@ -117,9 +118,23 @@ export function PluginView({
     [instanceId, register, registerPeer, role, session.id],
   );
 
+  function closeChannel(reason: string) {
+    const current = channel.current;
+    if (!current) return;
+    try {
+      current.port1.postMessage({ type: "disconnect", error: reason });
+    } catch {
+      // The old endpoint may already be gone; closing both local ports is still required.
+    } finally {
+      current.port1.close();
+      current.port2.close();
+      if (channel.current === current) channel.current = null;
+    }
+  }
+
   function connect() {
     const ticket = ++generation.current;
-    channel.current?.port1.close();
+    closeChannel("Plugin view reconnected");
     const connection = new MessageChannel();
     channel.current = connection;
     clearTimeout(handshake.current);
@@ -137,9 +152,10 @@ export function PluginView({
       try {
         if (message?.type === "connected") {
           clearTimeout(handshake.current);
-          const [data, source] = await Promise.all([
+          const [data, source, basis] = await Promise.all([
             call("session_data", { id: session.id }),
             call("source_data", { id: session.id }),
+            call<{ width: number; height: number }>("window_basis"),
           ]);
           if (ticket === generation.current)
             connection.port1.postMessage({
@@ -148,6 +164,14 @@ export function PluginView({
               source,
               session: session.id,
               file: { name: session.name, size: session.size },
+              // The user's recorded size is independent of a previous plugin's temporary
+              // size. The current dimensions also let the view measure host chrome around its
+              // own viewport without mistaking a previous image's size for the baseline.
+              window: {
+                ...basis,
+                currentWidth: window.innerWidth,
+                currentHeight: window.innerHeight,
+              },
               theme: latest.current.theme,
               locale: latest.current.locale,
               visible: latest.current.visible,
@@ -176,9 +200,7 @@ export function PluginView({
           typeof message.text === "string"
         ) {
           throw new Error(t("view.searchNotHost"));
-        } else if (message?.type === "edge" && latest.current.visible)
-          latest.current.edge(message.value);
-        else if (message?.type === "shortcut" && latest.current.visible)
+        } else if (message?.type === "shortcut" && latest.current.visible)
           latest.current.shortcut(message.key);
         else if (message?.type === "request") {
           if (!Number.isSafeInteger(message.id) || requests >= 8)
@@ -189,7 +211,12 @@ export function PluginView({
             let value;
             if (secondary && isSessionOwning(message.method))
               throw new Error(t("view.panelNoSession"));
-            if (message.method === "viewState") {
+            if (message.method === "icons") {
+              value = await call("icon_data", {
+                name: typeof params?.name === "string" ? params.name.slice(0,40) : null,
+                query: typeof params?.query === "string" ? params.query.slice(0,40) : null,
+              });
+            } else if (message.method === "viewState") {
               if (secondary)
                 throw new Error(t("view.onlyPrimaryNavigates"));
               value = await call("view_state", {
@@ -253,6 +280,23 @@ export function PluginView({
                 offset: params.offset,
                 length: params.length,
               });
+            } else if (message.method === "prepare" && latest.current.interactive) {
+              // The window is a viewport matter, so only the mount that owns the viewport may
+              // prepare it. What the plugin states is passed through as declared: the host
+              // constrains it (the screen, the smallest window it builds) but does not read
+              // anything into it, and a panel has no window of its own to prepare.
+              if (secondary) throw new Error(t("view.onlyPrimaryPrepares"));
+              const window = params?.window;
+              if (
+                window !== undefined &&
+                (typeof window?.width !== "number" ||
+                  typeof window?.height !== "number")
+              )
+                throw new Error(t("view.invalidPrepare"));
+              value = await call("prepare_view", {
+                id: session.id,
+                window: window ?? null,
+              });
             } else if (message.method === "peer") {
               // A dumb pipe between this plugin's own mounts. The host forwards the payload
               // without looking inside, so a plugin can build its own features (search,
@@ -300,6 +344,19 @@ export function PluginView({
               await call("authorize_clipboard", { id: session.id });
               await navigator.clipboard.writeText(params.text);
               value = null;
+            } else if (
+              message.method === "openExternal" &&
+              latest.current.interactive
+            ) {
+              // The host is the only one who can leave the preview — the plugin page is
+              // sandboxed — so a clicked link arrives here as text. What may actually be opened
+              // is decided on the native side, before the shell sees the string.
+              if (typeof params?.url !== "string" || params.url.length > 2048)
+                throw new Error(t("view.invalidLink"));
+              await call("open_link", { id: session.id, url: params.url });
+              value = null;
+            } else if (message.method === "confirm" && latest.current.interactive) {
+              value = await latest.current.confirm(validateDialog(params, t));
             } else throw new Error(t("view.unsupportedCapability"));
             connection.port1.postMessage({
               type: "reply",
@@ -337,6 +394,12 @@ export function PluginView({
       title={`${session.pluginId} · ${session.name}`}
       className={`plugin-view${visible && (session.capabilities.includes("view") || session.capabilities.includes("overlay")) ? " selected" : ""}`}
       sandbox="allow-scripts"
+      // The frame is a document of its own, so it gets the one browser permission a media
+      // viewer cannot work around: starting its own playback. A cross-origin frame has no
+      // autoplay at all, which would leave a plugin that opens a video waiting for a gesture
+      // that the page never provides. Nothing else is delegated; the view still has no host
+      // API of its own.
+      allow="autoplay"
       src={viewUrl(session.id, session.entry)}
       onLoad={connect}
       aria-hidden={!visible}

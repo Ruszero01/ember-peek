@@ -1,3 +1,5 @@
+import {PluginBadge} from "./PluginBadge";
+import {sortPosition,moveSortItem} from "./plugin-sort";
 import React, {
   useState,
   useEffect,
@@ -11,6 +13,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { APP_VERSION, APP_VERSION_SHORT } from "./version";
 import {
   FolderOpen,
+  ExternalLink,
   Package,
   Palette,
   Info,
@@ -28,7 +31,6 @@ import {
   Maximize,
   ChevronUp,
   ChevronDown,
-  RotateCw,
   Download,
   Trash2,
   File,
@@ -50,10 +52,14 @@ import { PluginView } from "./PluginView";
 import { PluginStage } from "./PluginStage";
 import { PluginDetails } from "./PluginDetails";
 import { PluginConfirm, type PluginAction } from "./PluginConfirm";
+import { PluginDialog } from "./PluginDialog";
 import { Marketplace } from "./Marketplace";
+import { WorkshopPreview } from "./WorkshopPreview";
+import { ToolPage } from "./ToolPage";
 import { Welcome } from "./Welcome";
 import { call, desktop, windowAction } from "./bridge";
 import { Selection, isContributionCurrent } from "./protocol.mjs";
+import type { PluginDialogRequest } from "./protocol.mjs";
 import { pluginIcon } from "./pluginIcons";
 import {
   LOCALE_NAMES,
@@ -85,22 +91,7 @@ const initial: Snapshot = {
   // Nothing is shown until the host answers, and the chooser is the host's decision.
   onboarded: true,
 };
-const icons: Record<string, typeof Search> = {
-  search: Search,
-  check: Check,
-  copy: Copy,
-  plus: Plus,
-  minus: Minus,
-  fit: Maximize,
-  actual: Square,
-  up: ChevronUp,
-  down: ChevronDown,
-  "text-wrap": TextWrap,
-  save: Save,
-  "rotate-ccw": RotateCcw,
-  hash: Hash,
-  code: Code,
-};
+const originOrder: Record<string, number> = { official: 0, generated: 1, local: 2, market: 3, unknown: 4 };
 type Settings = {
   theme: "light" | "dark" | "system";
   immersive: boolean;
@@ -133,11 +124,15 @@ function SettingField({
   value,
   busy,
   onChange,
+  onPickFolder,
 }: {
   setting: PluginSetting;
   value: unknown;
   busy: boolean;
   onChange: (value: unknown) => void;
+  /** Choose a folder for a `folder` setting. The host owns the dialog; the plugin only
+   * ever sees the resulting path. */
+  onPickFolder?: () => void;
 }) {
   const t = useT();
   const current = value === undefined ? setting.default : value;
@@ -187,6 +182,39 @@ function SettingField({
             busy={busy}
             onChange={onChange}
           />
+        </div>
+      </div>
+    );
+  // A path is committed on blur, unlike free text: a half-typed path is not a value the
+  // plugin could use, and the host refuses anything that is neither empty nor absolute.
+  if (setting.type === "folder")
+    return (
+      <div className="setting-row">
+        <SettingLabel setting={setting} />
+        <div className="setting-control">
+          <span className="setting-input setting-folder">
+            <input
+              aria-label={setting.label}
+              disabled={busy}
+              spellCheck={false}
+              type="text"
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              onBlur={commit}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") event.currentTarget.blur();
+                else if (event.key === "Escape") setDraft(displayed);
+              }}
+            />
+            <button
+              type="button"
+              className="secondary-button"
+              disabled={busy}
+              onClick={() => onPickFolder?.()}
+            >
+              {t("settings.browse")}
+            </button>
+          </span>
         </div>
       </div>
     );
@@ -380,6 +408,9 @@ function PluginSettingsPane({ plugin }: { plugin: Plugin | undefined }) {
     );
   const Icon = pluginIcon(plugin.icon);
   const values = plugin.values ?? {};
+  // Hidden declarations are the plugin's own persisted values: the host keeps them and never
+  // draws a control, so a "last volume" never becomes an entry the user has to read.
+  const visibleSettings = plugin.settings.filter((setting) => !setting.hidden);
 
   async function change(key: string, value: unknown) {
     if (!plugin) return;
@@ -411,7 +442,7 @@ function PluginSettingsPane({ plugin }: { plugin: Plugin | undefined }) {
           <div>
             <h2>
               {plugin.name}
-              <span className="plugin-version">v{plugin.version}</span>
+              <span className="plugin-version">v{plugin.version}</span><PluginBadge beta={plugin.beta}/>
             </h2>
             <p>
               {plugin.enabled ? t("plugin.enabled") : t("plugin.disabledNote")}
@@ -419,9 +450,9 @@ function PluginSettingsPane({ plugin }: { plugin: Plugin | undefined }) {
           </div>
           <ActivationSettings key={plugin.id} plugin={plugin} />
         </div>
-        {plugin.settings.length ? (
+        {visibleSettings.length ? (
           <div className="setting-list">
-            {plugin.settings.map((setting) => (
+            {visibleSettings.map((setting) => (
               <SettingField
                 key={`${plugin.id}:${setting.key}`}
                 setting={setting}
@@ -432,6 +463,13 @@ function PluginSettingsPane({ plugin }: { plugin: Plugin | undefined }) {
                 }
                 busy={busy || !plugin.enabled}
                 onChange={(value) => void change(setting.key, value)}
+                onPickFolder={() =>
+                  void call<string | null>("pick_path", { kind: "folder" })
+                    .then((path) => {
+                      if (path) return change(setting.key, path);
+                    })
+                    .catch((problem) => setError(String(problem)))
+                }
               />
             ))}
           </div>
@@ -453,6 +491,14 @@ type DesktopStatus = {
   error: string | null;
   settingsPage: string;
   settingsRevision: number;
+};
+
+/** What the desktop layer reports on top of the runtime's snapshot. `file` is the file the
+ *  preview window is showing, which the host's own file-scoped actions are enabled from. */
+type DesktopReport = {
+  snapshot: Snapshot;
+  status: DesktopStatus;
+  file: string | null;
 };
 
 function DelayedLoading({ visible, name }: { visible: boolean; name: string }) {
@@ -494,13 +540,45 @@ function App() {
     settings.locale === "system" ? systemLanguage : settings.locale;
   const [theme, setTheme] = useState<Theme>({});
   const [reports, setReports] = useState<Record<string, ViewReport>>({});
+  type PendingDialog = {
+    request: PluginDialogRequest;
+    resolve: (result: string | null) => void;
+  };
+  const dialogQueue = useRef<PendingDialog[]>([]);
+  const activeDialog = useRef<PendingDialog | null>(null);
+  const [pluginDialog, setPluginDialog] = useState<PendingDialog | null>(null);
+  const requestPluginDialog = useCallback((request: PluginDialogRequest) =>
+    new Promise<string | null>((resolve) => {
+      const next = { request, resolve };
+      if (activeDialog.current) dialogQueue.current.push(next);
+      else {
+        activeDialog.current = next;
+        setPluginDialog(next);
+      }
+    }), []);
+  const resolvePluginDialog = useCallback((result: string | null) => {
+    const current = activeDialog.current;
+    if (!current) return;
+    current.resolve(result);
+    const next = dialogQueue.current.shift() ?? null;
+    activeDialog.current = next;
+    setPluginDialog(next);
+  }, []);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [filter, setFilter] = useState("");
-  const [pluginTab, setPluginTab] = useState<"market" | "installed">("market");
+  const [pluginTab, setPluginTab] = useState<string>("market");
+  // A package on its way in from outside the window. The list says where it would land,
+  // so the drop is not a guess about what the release would do.
+  const [packageDrag, setPackageDrag] = useState(false);
+  const [toolPageRevision, setToolPageRevision] = useState(0);
   const [hot, setHot] = useState("");
   const [scrubbingControl, setScrubbingControl] = useState(false);
   const [opening, setOpening] = useState(false);
+  // The file the window is showing, as the native side reports it. It is not the same
+  // question as "is there a session": a file no plugin can preview is still a file the
+  // host can hand to the application the user has for it.
+  const [previewedFile, setPreviewedFile] = useState<string | null>(null);
   const selection = useRef(new Selection());
   const senders = useRef(
     new Map<string, (id: string, value?: unknown) => void>(),
@@ -541,7 +619,8 @@ function App() {
    * chrome bars float above it; otherwise the plugin gets exactly the band the bars leave
    * between them, so neither bar can cover content or steal a pointer meant for the plugin.
    * The band comes from flex layout. Insets additionally reserve scrollable edge space,
-   * measured independently of the chrome reveal animation.
+   * measured independently of the chrome reveal animation — the host paints nothing of its own
+   * over the rectangle, so a bar's height and a small buffer are the whole of it.
    */
   const windowViewport = settings.immersive || !current;
   const [safeInsets, setSafeInsets] = useState({ top: 44, bottom: 44 });
@@ -552,30 +631,18 @@ function App() {
     const bottom = root?.querySelector<HTMLElement>(".preview-overlays");
     if (!root || !top || !bottom) return;
     const measure = () => {
-      const fade =
-        parseFloat(
-          getComputedStyle(
-            root.querySelector(".preview-canvas") || root,
-          ).getPropertyValue("--viewport-fade"),
-        ) || 0;
       // Use layout dimensions, never animated rectangles: revealing chrome must not reflow text.
       const next = {
         top: Math.ceil(
-          Math.max(
-            fade,
-            windowViewport
-              ? top.offsetHeight + (parseFloat(getComputedStyle(top).top) || 0)
-              : 0,
-          ) + (windowViewport ? 8 : 6),
+          (windowViewport
+            ? top.offsetHeight + (parseFloat(getComputedStyle(top).top) || 0)
+            : 0) + (windowViewport ? 8 : 6),
         ),
         bottom: Math.ceil(
-          Math.max(
-            fade,
-            windowViewport
-              ? bottom.offsetHeight +
-                  (parseFloat(getComputedStyle(bottom).bottom) || 0)
-              : 0,
-          ) + (windowViewport ? 8 : 6),
+          (windowViewport
+            ? bottom.offsetHeight +
+              (parseFloat(getComputedStyle(bottom).bottom) || 0)
+            : 0) + (windowViewport ? 8 : 6),
         ),
       };
       setSafeInsets((old) =>
@@ -594,10 +661,30 @@ function App() {
       ...theme,
       "safe-top": `${safeInsets.top}px`,
       "safe-bottom": `${safeInsets.bottom}px`,
+      "viewport-mode": windowViewport ? "window" : "content",
     }),
-    [theme, safeInsets],
+    [theme, safeInsets, windowViewport],
   );
   const chromeShown = scrubbingControl || !settings.immersive || hot !== "" || !current;
+  /**
+   * Reveal while the pointer is on one of the chrome's own bubbles, hide the moment it is
+   * not. Those bubbles are the whole reveal rule and the host owns it: a plugin never asks
+   * for the bars, because a plugin's floating panel is a document with its own edges and a
+   * panel would drag the chrome on and off for reasons the user cannot see. The target is the
+   * bubble's own box — no separately drawn zone — so the area that reveals the bars is the area
+   * the user can actually see, and it follows the bubble as it grows with a longer file name or
+   * an expanded control set. A leave that lands on another host surface keeps the bars up, so
+   * moving along the chrome never hides the thing being clicked.
+   */
+  const holdChrome = (event: React.PointerEvent) => {
+    if (!event.buttons) setHot("hover");
+  };
+  const dropChrome = (event: React.PointerEvent) => {
+    const held = document
+      .elementsFromPoint(event.clientX, event.clientY)
+      .some((element) => element.closest("[data-reveal]"));
+    if (!held) setHot("");
+  };
   const viewReport = active ? reports[active] : undefined;
   const contributors = snapshot.sessions
     .filter((s) => s.fileId === current?.fileId && s.available)
@@ -720,10 +807,8 @@ function App() {
       inFlight = true;
       let loading = false;
       try {
-        const { snapshot: next, status } = await call<{
-          snapshot: Snapshot;
-          status: DesktopStatus;
-        }>("desktop_snapshot");
+        const { snapshot: next, status, file } =
+          await call<DesktopReport>("desktop_snapshot");
         if (!disposed) {
           loading = next.sessions.some(
             (session) =>
@@ -734,6 +819,7 @@ function App() {
           );
           setSnapshot(next);
           setActive(next.active);
+          setPreviewedFile(file);
           if (status.revision !== seenRevision) {
             seenRevision = status.revision;
             if (!settingsWindow) {
@@ -745,8 +831,9 @@ function App() {
             status.settingsRevision !== seenSettingsRevision
           ) {
             seenSettingsRevision = status.settingsRevision;
+            if (status.settingsPage.startsWith("tool:")) { setPluginTab(status.settingsPage.slice(5)); setToolPageRevision(status.settingsRevision); }
             setPage(
-              status.settingsPage === "plugins"
+              status.settingsPage === "plugins" || status.settingsPage.startsWith("tool:")
                 ? "plugins"
                 : status.settingsPage === "about"
                   ? "about"
@@ -817,6 +904,10 @@ function App() {
             "faint",
             "accent",
             "accent-bg",
+            "info",
+            "success",
+            "warning",
+            "danger",
             "canvas",
             "color-scheme",
             "radius-control",
@@ -891,7 +982,7 @@ function App() {
   }
   async function pick() {
     await guard(async () => {
-      const path = await call<string | null>("pick_path", { folder: false });
+      const path = await call<string | null>("pick_path", { kind: "file" });
       if (path) await open(path);
     });
   }
@@ -915,6 +1006,17 @@ function App() {
     }
   };
   const shortcut = useCallback((key: string) => shortcutRef.current(key), []);
+  // A dropped package takes the path a picked one does, and the plugin list is the one
+  // page that takes it. The drag listener below is bound once while both of those move,
+  // so it reads them from refs — the shape the shortcuts above already use.
+  const acceptsPackage = useRef(false);
+  acceptsPackage.current =
+    page === "plugins" && (pluginTab === "market" || pluginTab === "installed");
+  const dropPackage = useRef<(path: string) => void>(() => {});
+  dropPackage.current = (path) =>
+    void manage(async () => {
+      await prepare(path);
+    });
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key === "o") {
@@ -943,11 +1045,37 @@ function App() {
     addEventListener("keydown", key);
     let cleanup: (() => void) | undefined;
     let disposed = false;
+    // A file dropped on a tool page belongs to that page as a path; dropping one anywhere
+    // else in the preview window opens it. The settings window has no other drop target,
+    // so a file dropped on its own chrome is ignored instead of previewed — except on the
+    // plugin list, where a package installs the way a picked one does.
     if (desktop)
       void getCurrentWindow()
         .onDragDropEvent((event) => {
-          if (event.payload.type === "drop" && event.payload.paths[0])
-            void open(event.payload.paths[0]);
+          const payload = event.payload;
+          const accepts = document.querySelector('.tool-page[data-tool-drop="enabled"]');
+          if (accepts) {
+            if (payload.type === "drop")
+              window.dispatchEvent(new CustomEvent("ember-tool-drop", { detail: payload.paths }));
+            else if (payload.type === "enter" || payload.type === "leave")
+              window.dispatchEvent(new CustomEvent("ember-tool-drag", { detail: payload.type }));
+            return;
+          }
+          // Only an archive is a package, wherever it lands. Everything else keeps its
+          // old answer: the preview window opens the file, the settings window says
+          // nothing at all.
+          const dropped =
+            payload.type === "enter" || payload.type === "drop"
+              ? payload.paths.find((path) => path.toLowerCase().endsWith(".zip"))
+              : undefined;
+          if (payload.type === "enter")
+            setPackageDrag(!!dropped && acceptsPackage.current);
+          else if (payload.type === "leave") setPackageDrag(false);
+          else if (payload.type === "drop") {
+            setPackageDrag(false);
+            if (dropped && acceptsPackage.current) dropPackage.current(dropped);
+            else if (!settingsWindow && payload.paths[0]) void open(payload.paths[0]);
+          }
         })
         .then((un) => {
           if (disposed) un();
@@ -968,12 +1096,20 @@ function App() {
     setBusy(false);
   }
   const [pluginAction, setPluginAction] = useState<PluginAction | null>(null);
+  /** Every way a package arrives — picked from the dialog or dropped on the list — lands
+   *  here: the preparer copies it into a snapshot of its own, and the confirm dialog
+   *  describes what it read from that copy, not from the file where it sits. */
+  async function prepare(path: string) {
+    const prepared = await call<{token: string; id: string; name: string; version: string; permissions: string[]}>("prepare_plugin", {path});
+    setPluginAction({ name: prepared.name, detail: `${prepared.id} · v${prepared.version} · ${prepared.permissions.join(", ") || "—"}\n${path}`, kind: "install", run: async progress => {
+      progress(t("progress.installLocal")); await call("install_plugin", { token: prepared.token }); progress(t("progress.refreshPlugins")); await refresh();
+    } });
+  }
+  /** The picker offers nothing but a `.zip`, so what reaches the preparer is an archive. */
   async function install() {
     await manage(async () => {
-      const path = await call<string | null>("pick_path", { folder: true });
-      if (path) setPluginAction({ name: t("plugins.localName"), detail: path, kind: "install", run: async progress => {
-        progress(t("progress.installLocal")); await call("install_plugin", { path }); progress(t("progress.refreshPlugins")); await refresh();
-      } });
+      const path = await call<string | null>("pick_path", { kind: "package" });
+      if (path) await prepare(path);
     });
   }
   const title = (
@@ -1033,10 +1169,6 @@ function App() {
     return map;
   }, [snapshot.plugins]);
   const [dragPlugin, setDragPlugin] = useState<string | null>(null);
-  const [dropPlugin, setDropPlugin] = useState<{
-    id: string;
-    after: boolean;
-  } | null>(null);
   const [sortingPlugins, setSortingPlugins] = useState(false);
   const [pendingOrder, setPendingOrder] = useState<string[] | null>(null);
   const orderedPlugins = [...snapshot.plugins].sort(
@@ -1046,7 +1178,7 @@ function App() {
   async function reorderPlugin(target: string, after: boolean, keyboardSource?: string) {
     const source = keyboardSource ?? dragPlugin;
     setDragPlugin(null);
-    setDropPlugin(null);
+
     if (!source || source === target || sortingPlugins) return;
     const ids = orderedPlugins.map((p) => p.id).filter((id) => id !== source);
     const targetIndex = ids.indexOf(target);
@@ -1064,6 +1196,17 @@ function App() {
       setSortingPlugins(false);
     }
   }
+  const pluginSort=useRef<{rows:HTMLElement[];preview:HTMLElement;ids:string[];from:number;to:number;offset:number;top:number;bottom:number;height:number;step:number}|null>(null);
+  async function finishPluginSort(commit:boolean){
+    const drag=pluginSort.current;if(!drag)return;pluginSort.current=null;
+    drag.preview.remove();drag.rows.forEach(row=>{row.style.transform="";});setDragPlugin(null);
+    if(!commit||drag.from===drag.to)return;
+    const ids=moveSortItem(drag.ids,drag.from,drag.to);
+    setPendingOrder(ids);setSortingPlugins(true);
+    try{await guard(async()=>{await call("reorder_plugins",{ids});await refresh();});}
+    finally{setPendingOrder(null);setSortingPlugins(false);}
+  }
+  useEffect(()=>()=>{const drag=pluginSort.current;if(drag){drag.preview.remove();drag.rows.forEach(row=>{row.style.transform="";});pluginSort.current=null;}},[]);
   const currentPlugin = useMemo(
     () => snapshot.plugins.find((plugin) => plugin.id === pluginPage),
     [snapshot.plugins, pluginPage],
@@ -1074,6 +1217,12 @@ function App() {
       data-viewport={windowViewport ? "window" : "band"}
     >
       {pluginAction && <PluginConfirm action={pluginAction} onClose={() => setPluginAction(null)} />}
+      {pluginDialog && (
+        <PluginDialog
+          request={pluginDialog.request}
+          onResolve={resolvePluginDialog}
+        />
+      )}
       {error && (
         <div className="error-toast" role="alert">
           <span>{error}</span>
@@ -1130,7 +1279,6 @@ function App() {
                   target(payload, role);
                   return true;
                 }}
-                edge={setHot}
                 shortcut={shortcut}
                 panel={(open) =>
                   setExpanded((old) =>
@@ -1142,6 +1290,7 @@ function App() {
                       : old.filter((id) => id !== session.pluginId),
                   )
                 }
+                confirm={requestPluginDialog}
               />
             ) : null;
           }}
@@ -1172,6 +1321,12 @@ function App() {
             </div>
           </div>
         )}
+        {current && !opening && !contributors.some(s => s.capabilities.includes("view")) && (
+          <div className="empty-state">
+            <p>{t("plugins.noViewer")}</p>
+            <button className="secondary-button" onClick={() => settingsPage("plugins")}>{t("empty.manage")}</button>
+          </div>
+        )}
         <DelayedLoading
           visible={
             opening ||
@@ -1189,6 +1344,7 @@ function App() {
             <Package size={30} />
             <strong>{t("preview.failed")}</strong>
             <p>{current?.error || viewReport?.error}</p>
+            <button className="secondary-button" onClick={() => settingsPage("plugins")}>{t("empty.manage")}</button>
             <button className="secondary-button" onClick={() => void pick()}>
               {t("preview.openOther")}
             </button>
@@ -1198,28 +1354,18 @@ function App() {
       {page === "preview" ? (
         <>
           <div
-            className="edge top"
-            onPointerEnter={(event) => {
-              if (!event.buttons) setHot("top");
-            }}
-          />
-          <div
-            className="edge bottom"
-            onPointerEnter={(event) => {
-              if (!event.buttons) setHot("bottom");
-            }}
-          />
-          <div
             className={`title-layer ${chromeShown ? "shown" : ""}`}
-            onPointerEnter={() => setHot("top")}
-            onPointerLeave={() => setHot("")}
+            data-reveal
+            onPointerEnter={holdChrome}
+            onPointerLeave={dropChrome}
           >
             {title}
           </div>
           <footer
             className={`preview-overlays ${chromeShown ? "shown" : ""}`}
-            onPointerEnter={() => setHot("bottom")}
-            onPointerLeave={() => setHot("")}
+            data-reveal
+            onPointerEnter={holdChrome}
+            onPointerLeave={dropChrome}
           >
             <div className="floating-file-info">
               <span className="file-icon">
@@ -1288,8 +1434,7 @@ function App() {
                       <div className="bubble-controls-inner">
                         {items.map((control) => {
                           if (control.kind === "scrub") return <ScrubControl key={control.id} control={control} active={isCurrent} onActiveChange={setScrubbingControl} onChange={value => sendControl(contributor.id, control.id, value)} />;
-                          const Icon =
-                            icons[control.icon || ""] || SlidersHorizontal;
+                          const Icon = pluginIcon(control.icon || "sliders-horizontal");
                           return (
                             <button
                               key={control.id}
@@ -1329,6 +1474,17 @@ function App() {
                 );
               })}
               <div className="toolbar-host-actions">
+                {/* The host's own entry out of a preview. It has nothing to open until a
+                    file has been shown, so it says so instead of failing on a click. */}
+                <button
+                  title={t("footer.openDefaultApp")}
+                  disabled={!previewedFile}
+                  onClick={() =>
+                    void guard(() => call("open_in_default_app"))
+                  }
+                >
+                  <ExternalLink size={16} />
+                </button>
                 <button title={t("footer.openFile")} onClick={() => void pick()}>
                   <FolderOpen size={16} />
                 </button>
@@ -1372,7 +1528,7 @@ function App() {
                 ))}
                 {snapshot.plugins.length > 0 && (
                   <div className="plugin-sidebar-section">
-                    <div className="plugin-sidebar-scroll">
+                    <div className="plugin-sidebar-scroll"><div className="plugin-sort-list">
                       <div className="plugin-sidebar-heading">
                         <h2>{t("nav.pluginSettings")}</h2>
                         <p>{t("nav.reorderHint")}</p>
@@ -1383,39 +1539,11 @@ function App() {
                         const Icon = pluginIcon(plugin.icon);
                         return (
                           <div
-                            className={`nav-item plugin-nav-item ${selected ? "active" : ""} ${dropPlugin?.id === plugin.id ? (dropPlugin.after ? "drop-after" : "drop-target") : ""} ${dragPlugin === plugin.id ? "is-dragging" : ""}`}
+                            data-enabled={plugin.enabled}
+                            className={`nav-item plugin-nav-item ${selected ? "active" : ""} ${dragPlugin === plugin.id ? "is-dragging" : ""}`}
                             onClick={() => {
                               setPluginPage(plugin.id);
                               setPage("plugin");
-                            }}
-                            onDragOver={(event) => {
-                              if (dragPlugin && dragPlugin !== plugin.id && !sortingPlugins) {
-                                event.preventDefault();
-                                event.dataTransfer.dropEffect = "move";
-                                const rect =
-                                  event.currentTarget.getBoundingClientRect();
-                                setDropPlugin({
-                                  id: plugin.id,
-                                  after:
-                                    event.clientY >= rect.top + rect.height / 2,
-                                });
-                              }
-                            }}
-                            onDragLeave={(event) => {
-                              if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDropPlugin(null);
-                            }}
-                            onDrop={(event) => {
-                              event.preventDefault();
-                              const rect =
-                                event.currentTarget.getBoundingClientRect();
-                              void reorderPlugin(
-                                plugin.id,
-                                event.clientY >= rect.top + rect.height / 2,
-                              );
-                            }}
-                            onDragEnd={() => {
-                              setDragPlugin(null);
-                              setDropPlugin(null);
                             }}
                             key={plugin.id}
                             title={
@@ -1427,26 +1555,37 @@ function App() {
                             <button type="button" className="plugin-drag-handle" title={t("plugin.dragHint")} aria-label={t("plugin.dragLabel", { name: plugin.name })} disabled={sortingPlugins}
                               onClick={e => e.stopPropagation()}
                               onKeyDown={e => { if (e.key === "ArrowUp" || e.key === "ArrowDown") { e.preventDefault(); e.stopPropagation(); const target = orderedPlugins[index + (e.key === "ArrowUp" ? -1 : 1)]; if (target) void reorderPlugin(target.id, e.key === "ArrowDown", plugin.id); } }}
-                            draggable={!sortingPlugins}
-                            onDragStart={(event) => {
-                              setDragPlugin(plugin.id);
-                              const row = event.currentTarget.closest(".plugin-nav-item");
-                              if (row) event.dataTransfer.setDragImage(row, 24, 20);
-                              event.dataTransfer.effectAllowed = "move";
-                              event.dataTransfer.setData(
-                                "text/plain",
-                                plugin.id,
-                              );
-                            }}
+                              onPointerDown={event => {
+                                if (event.button !== 0 || sortingPlugins) return;
+                                event.preventDefault();event.stopPropagation();
+                                const row=event.currentTarget.closest<HTMLElement>(".plugin-nav-item")!;
+                                const list=row.parentElement!;
+                                const rows=Array.from(list.querySelectorAll<HTMLElement>(":scope > .plugin-nav-item"));
+                                const rect=row.getBoundingClientRect(),bounds=list.getBoundingClientRect();
+                                const preview=row.cloneNode(true) as HTMLElement;
+                                preview.classList.remove("is-dragging");preview.classList.add("plugin-sort-preview");
+                                preview.style.width=`${rect.width}px`;preview.style.height=`${rect.height}px`;
+                                preview.style.left=`${rect.left}px`;preview.style.top=`${rect.top}px`;
+                                preview.setAttribute("aria-hidden","true");document.body.append(preview);
+                                pluginSort.current={rows,preview,ids:orderedPlugins.map(p=>p.id),from:index,to:index,offset:event.clientY-rect.top,top:rows[0].getBoundingClientRect().top,bottom:Math.min(bounds.bottom,rows[rows.length-1].getBoundingClientRect().bottom),height:rect.height,step:rows.length>1?rows[1].getBoundingClientRect().top-rows[0].getBoundingClientRect().top:rect.height};
+                                event.currentTarget.setPointerCapture(event.pointerId);setDragPlugin(plugin.id);
+                              }}
+                              onPointerMove={event => {
+                                const drag=pluginSort.current;if(!drag)return;
+                                const position=sortPosition(drag,event.clientY);
+                                drag.to=position.index;drag.preview.style.top=`${position.top}px`;
+                                drag.rows.forEach((row,i)=>{row.style.transform=`translateY(${i===drag.from?0:drag.from<drag.to&&i>drag.from&&i<=drag.to?-drag.step:drag.from>drag.to&&i>=drag.to&&i<drag.from?drag.step:0}px)`;});
+                              }}
+                              onPointerUp={() => {void finishPluginSort(true);}}
+                              onPointerCancel={() => {void finishPluginSort(false);}}
+                              onLostPointerCapture={() => {void finishPluginSort(false);}}
                             ><GripVertical size={14} /></button>
                             <button className="plugin-nav-link" aria-current={selected ? "page" : undefined}>
                             <Icon size={19} />
                             <strong>
                               {plugin.name}
-                              {!plugin.enabled && (
-                                <span className="nav-note">{t("plugin.disabledBadge")}</span>
-                              )}
                             </strong>
+                            {!plugin.enabled && <span className="plugin-disabled-badge">{t("plugin.disabledBadge")}</span>}
                             <span
                               className="plugin-order-number"
                               aria-label={t("plugin.order", { index: index + 1 })}
@@ -1457,6 +1596,7 @@ function App() {
                           </div>
                         );
                       })}
+                      </div>
                     </div>
                   </div>
                 )}
@@ -1465,7 +1605,12 @@ function App() {
                 <span className="version">v{APP_VERSION}</span>
               </div>
             </aside>
-            <main className="settings-main">
+            <main className={`settings-main${
+              (page === "plugins" && snapshot.plugins.some(p => p.id === pluginTab && p.tool && p.enabled)) ||
+              (page === "plugin" && currentPlugin?.tool && currentPlugin.origin === "official" && currentPlugin.enabled)
+                ? " tool-surface"
+                : ""
+            }`}>
               <div className="page-top">
                 <h1>
                   {page === "general"
@@ -1478,7 +1623,9 @@ function App() {
                 </h1>
               </div>
               {page === "plugin" && (
-                <PluginSettingsPane plugin={currentPlugin} />
+                currentPlugin?.tool && currentPlugin.origin === "official" && currentPlugin.enabled
+                  ? <ToolPage key={`settings:${currentPlugin.id}:${currentPlugin.revision}`} plugin={currentPlugin} theme={theme} locale={language} settings />
+                  : <PluginSettingsPane plugin={currentPlugin} />
               )}
               {page === "general" && (
                 <>
@@ -1596,40 +1743,58 @@ function App() {
               )}
               {page === "plugins" && (
                 <>
-                  <div className="plugin-tabs">
-                    <button
-                      className={pluginTab === "market" ? "selected" : ""}
-                      onClick={() => setPluginTab("market")}
-                    >
-                      {t("plugins.market")}
-                    </button>
+                  {/* A hint, not a target: it covers the page while a package is over the
+                      window and lets the drag through to whatever is underneath. */}
+                  {packageDrag && (
+                    <div className="package-drop">
+                      <div>
+                        <Package size={26} />
+                        <strong>{t("plugins.dropPackage.title")}</strong>
+                        <span>{t("plugins.dropPackage.note")}</span>
+                      </div>
+                    </div>
+                  )}
+                  <div className="plugin-tabs-row">
+                    <div className="plugin-tabs">
+                      <button
+                        className={pluginTab === "market" ? "selected" : ""}
+                        onClick={() => setPluginTab("market")}
+                      >
+                        {t("plugins.market")}
+                      </button>
                     <button
                       className={pluginTab === "installed" ? "selected" : ""}
                       onClick={() => setPluginTab("installed")}
                     >
                       {t("plugins.manage")}
                     </button>
+                    {snapshot.plugins.filter(p => p.tool && p.enabled && p.origin === "official").map(p => (
+                      <button key={p.id} className={pluginTab === p.id ? "selected" : ""} onClick={() => setPluginTab(p.id)}>{p.name}</button>
+                    ))}
+                    </div>
+                    {/* A tool's own page has no header of its own, so its settings entry sits
+                        here, on the row that already names the tool. */}
+                    {snapshot.plugins.some(p => p.id === pluginTab && p.tool && p.enabled) && (
+                      <button
+                        className="text-button tool-settings-link"
+                        onClick={() => { setPluginPage(pluginTab); setPage("plugin"); }}
+                      >
+                        {t("plugins.openToolSettings")}
+                      </button>
+                    )}
                   </div>
+                  {(pluginTab === "market" || pluginTab === "installed") && <>
                   <div className="list-toolbar">
                     <span>{t("plugins.installedCount", { count: snapshot.plugins.length })}</span>
                     <div>
-                      <button
-                        className="text-button"
-                        disabled={busy}
-                        onClick={() =>
-                          void manage(() => call("refresh_plugins"))
-                        }
-                      >
-                        <RotateCw size={14} />
-                        {t("plugins.refresh")}
-                      </button>
+
                       <button
                         className="secondary-button"
                         disabled={busy}
                         onClick={() => void install()}
                       >
                         <Download size={14} />
-                        {t("plugins.installFromFolder")}
+                        {t("plugins.installFromFile")}
                       </button>
                     </div>
                   </div>
@@ -1641,7 +1806,10 @@ function App() {
                       onChange={(e) => setFilter(e.target.value)}
                     />
                   </label>
-                  {pluginTab === "market" ? (
+                  </>}
+                  {snapshot.plugins.some(p => p.id === pluginTab && p.tool && p.enabled) ? (
+                    <ToolPage key={`${pluginTab}:${toolPageRevision}:${snapshot.plugins.find(p => p.id === pluginTab)?.revision}`} plugin={snapshot.plugins.find(p => p.id === pluginTab)!} theme={theme} locale={language} onOpenSettings={() => { setPluginPage(pluginTab); setPage("plugin"); }} />
+                  ) : pluginTab === "market" ? (
                     <Marketplace
                       filter={filter}
                       onInstalled={refresh}
@@ -1655,9 +1823,13 @@ function App() {
                             .toLowerCase()
                             .includes(filter.toLowerCase()),
                         )
-                        .map((plugin) => {
+                        .sort((a,b) => (originOrder[a.origin] ?? 4) - (originOrder[b.origin] ?? 4) || a.name.localeCompare(b.name))
+                        .map((plugin, index, plugins) => {
                           const Icon = pluginIcon(plugin.icon);
+                          const group = (origin: string) => origin === "official" ? "plugins.origin.official" : origin === "local" ? "plugins.origin.local" : origin === "generated" ? "plugins.origin.generated" : origin === "market" ? "plugins.origin.market" : "plugins.origin.unknown";
                           return (
+                            <React.Fragment key={plugin.id}>
+                            {(index === 0 || plugins[index-1].origin !== plugin.origin) && <div className="plugin-group-heading"><h2>{t(group(plugin.origin))}</h2><span>{plugins.filter(p => p.origin === plugin.origin).length}</span><div /></div>}
                             <section className="market-card" key={plugin.id}>
                               <span className="plugin-icon">
                                 <Icon size={23} />
@@ -1668,17 +1840,21 @@ function App() {
                                   <span className="plugin-version">
                                     v{plugin.version}
                                   </span>
+                                  <PluginBadge beta={plugin.beta}/>
+                                  {/* Only a plugin that is actually up says so: a badge that is
+                                      always there reads as part of the layout rather than as a
+                                      state, and "on demand" is the normal case for every card. */}
+                                  {plugin.processIds.length > 0 && (
+                                    <span
+                                      className="plugin-runtime-badge is-running"
+                                      title={t("plugin.pidRunning", { pids: plugin.processIds.join(", ") })}
+                                    >
+                                      <span className="runtime-status-dot" aria-hidden="true" />
+                                      {t("plugin.runtimeRunning")}
+                                    </span>
+                                  )}
                                 </h2>
-                                <span
-                                  className={`plugin-runtime-badge${plugin.processIds.length ? " is-running" : ""}`}
-                                  title={plugin.processIds.length
-                                    ? t("plugin.pidRunning", { pids: plugin.processIds.join(", ") })
-                                    : t("plugin.pidOnDemand")}
-                                >
-                                  <span className="runtime-status-dot" aria-hidden="true" />
-                                  {plugin.processIds.length ? t("plugin.runtimeRunning") : t("plugin.runtimeOnDemand")}
-                                </span>
-                                <PluginDetails extensions={plugin.extensions}><p>{plugin.id}</p></PluginDetails>
+                                <PluginDetails extensions={plugin.extensions}><p>{plugin.id}</p><p>{t(group(plugin.origin))}</p>{plugin.source && <p className="source-path">{plugin.source}</p>}</PluginDetails>
                               </div>
                               <div className="plugin-enable"><span className={`enabled-label ${plugin.enabled ? "enabled" : ""}`}>{plugin.enabled ? t("plugin.enabled") : t("plugin.disabled")}</span>
                                 <Toggle
@@ -1706,6 +1882,7 @@ function App() {
                                 </button>
                               </div>
                             </section>
+                            </React.Fragment>
                           );
                         })}
                       {!snapshot.plugins.length && (
@@ -1719,9 +1896,6 @@ function App() {
                       )}
                     </>
                   )}
-                  <p className="quiet-note">
-                    {t("plugins.trustWarning")}
-                  </p>
                   {snapshot.warnings.map((w) => (
                     <p className="warning" key={w}>
                       {w}
@@ -1756,4 +1930,6 @@ function App() {
 // Resolve the interface language before the first paint: a window that renders one frame
 // in the wrong language and then swaps is worse than one that starts in it.
 setLocale(resolveLocale(savedSettings().locale));
-createRoot(document.getElementById("root")!).render(<App />);
+const previewQuery = new URLSearchParams(location.search);
+const previewProject = previewQuery.get("workshopPreview");
+createRoot(document.getElementById("root")!).render(previewProject && previewQuery.get("tool") ? <WorkshopPreview project={previewProject} tool={previewQuery.get("tool")!} /> : <App />);

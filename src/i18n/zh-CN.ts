@@ -3,6 +3,17 @@
 import type { Catalog } from "./en";
 
 export const zhCN: Catalog = {
+  "plugins.createWithAI": "用 AI 创建预览插件",
+  "plugins.noViewer": "没有已启用的查看器匹配此文件，可以查找插件或在工坊中创建。",
+  "plugins.installFromFile": "安装插件包",
+  "plugins.dropPackage.title": "松开即可安装插件包",
+  "plugins.dropPackage.note": "只接受 .zip 插件包，安装前会显示清单与权限。",
+  "plugins.origin.local": "本地导入",
+  "plugins.origin.official": "官方插件",
+  "plugins.origin.custom": "自定义插件",
+  "plugins.origin.market": "第三方插件源",
+  "plugins.origin.generated": "AI 生成",
+  "plugins.origin.unknown": "已有插件 · 旧版安装",
   "window.minimize": "最小化",
   "window.maximize": "最大化 / 还原",
   "window.close": "关闭",
@@ -25,6 +36,7 @@ export const zhCN: Catalog = {
   "preview.openOther": "打开其他文件",
   "preview.tagline": "由插件提供每一种预览能力",
 
+  "footer.openDefaultApp": "在默认应用中打开",
   "footer.openFile": "打开文件",
   "footer.settings": "设置",
   "footer.openPlugin": "打开{label}",
@@ -52,12 +64,11 @@ export const zhCN: Catalog = {
   "plugin.settings.unavailable": "该插件已不可用，请刷新插件列表。",
   "plugin.settings.none": "此插件暂无额外设置。",
   "plugin.pidRunning": "后台进程 PID：{pids}",
-  "plugin.pidOnDemand": "尚未启动后台进程，使用插件时按需启动",
   "plugin.runtimeRunning": "运行中",
-  "plugin.runtimeOnDemand": "按需启动",
 
   "settings.increase": "增大{label}",
   "settings.decrease": "减小{label}",
+  "settings.browse": "浏览…",
 
   "appearance.title": "外观",
   "appearance.subtitle": "界面主题",
@@ -79,10 +90,10 @@ export const zhCN: Catalog = {
     "关闭时视口只占标题栏与功能栏之间；开启后视口铺满窗口，鼠标移到顶部或底部时浮出操作栏，栏间空隙不挡插件操作。",
 
   "plugins.market": "插件市场",
+  "plugins.openToolSettings": "前往设置 ↗",
   "plugins.manage": "插件管理",
   "plugins.installedCount": "{count} 个已安装插件",
   "plugins.refresh": "刷新",
-  "plugins.installFromFolder": "从目录安装",
   "plugins.searchPlaceholder": "搜索插件或扩展名",
   "plugins.uninstall": "卸载",
   "plugins.uninstallLabel": "卸载{name}",
@@ -126,7 +137,6 @@ export const zhCN: Catalog = {
   "market.progress.install": "正在安装插件…",
   "market.progress.refresh": "正在刷新插件列表…",
   "market.refreshSources": "刷新插件源",
-  "market.title": "插件市场",
   "market.sources": "{count} 个来源",
   "market.loading": "正在读取市场…",
   "market.group.available": "未安装",
@@ -170,6 +180,8 @@ export const zhCN: Catalog = {
   "view.tooManyRequests": "插件请求过多或请求 ID 无效",
   "view.panelNoSession": "浮层不能改动会话状态或文档，请交给插件视图",
   "view.onlyPrimaryNavigates": "只有主视图拥有导航状态",
+  "view.onlyPrimaryPrepares": "只有主视图能声明窗口尺寸",
+  "view.invalidPrepare": "窗口尺寸声明无效",
   "view.invalidPending": "未提交变更标志无效",
   "view.invalidMethod": "方法无效",
   "view.invalidReadRange": "文件读取范围无效",
@@ -178,12 +190,16 @@ export const zhCN: Catalog = {
   "view.invalidSettingKey": "设置项名称无效",
   "view.invalidPluginMethod": "插件方法无效",
   "view.clipboardTooLarge": "剪贴板内容超出限制",
+  "view.invalidLink": "链接无效",
   "view.unsupportedCapability": "不支持的宿主能力",
 
   "protocol.tooManyControls": "插件最多可提供 16 个控件",
   "protocol.invalidControlId": "插件控件 ID 无效",
   "protocol.invalidControl": "插件控件声明无效",
   "protocol.invalidScrubRange": "数值拖动控件范围无效",
+  "protocol.invalidDialog": "插件确认弹窗参数无效",
+  "protocol.workshopControlIcon": "生成插件的功能控件必须声明 Lucide 图标",
+  "protocol.workshopToggleState": "生成插件的切换控件必须声明当前状态",
 
   "bridge.desktopOnly": "文件与插件进程功能需要在桌面窗口中使用",
 };

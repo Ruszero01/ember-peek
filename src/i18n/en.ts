@@ -5,6 +5,18 @@
 // A value may be a string, or `{ one, other }` for a message whose wording depends on a
 // `count` parameter. `{name}` placeholders are filled from the parameters passed to `t`.
 export const en = {
+  "plugins.createWithAI": "Create with AI",
+  "plugins.noViewer": "No enabled viewer matches this file. Find a plugin or create one in Workshop.",
+  "plugins.installFromFile": "Install package",
+  "plugins.dropPackage.title": "Drop to install the plugin package",
+  "plugins.dropPackage.note":
+    "Only a .zip package; its manifest and permissions are shown before anything is installed.",
+  "plugins.origin.local": "Local imports",
+  "plugins.origin.official": "Official plugins",
+  "plugins.origin.custom": "Custom plugins",
+  "plugins.origin.market": "Third-party sources",
+  "plugins.origin.generated": "AI generated",
+  "plugins.origin.unknown": "Existing plugins · Legacy installation",
   "window.minimize": "Minimize",
   "window.maximize": "Maximize or restore",
   "window.close": "Close",
@@ -32,6 +44,7 @@ export const en = {
   "preview.openOther": "Open another file",
   "preview.tagline": "Every preview format comes from a plugin",
 
+  "footer.openDefaultApp": "Open in default app",
   "footer.openFile": "Open file",
   "footer.settings": "Settings",
   "footer.openPlugin": "Open {label}",
@@ -60,13 +73,11 @@ export const en = {
     "This plugin is no longer available; refresh the plugin list.",
   "plugin.settings.none": "This plugin declares no further settings.",
   "plugin.pidRunning": "Background process PID: {pids}",
-  "plugin.pidOnDemand":
-    "No background process yet; it starts on demand when the plugin is used",
   "plugin.runtimeRunning": "Running",
-  "plugin.runtimeOnDemand": "On demand",
 
   "settings.increase": "Increase {label}",
   "settings.decrease": "Decrease {label}",
+  "settings.browse": "Browse…",
 
   "appearance.title": "Appearance",
   "appearance.subtitle": "Interface theme",
@@ -88,13 +99,13 @@ export const en = {
     "Off, the viewport is the band between the title bar and the action bar. On, it fills the window: the bars appear when the pointer reaches the top or bottom edge, and the space they leave does not block the plugin.",
 
   "plugins.market": "Plugin marketplace",
+  "plugins.openToolSettings": "Open settings ↗",
   "plugins.manage": "Plugin manager",
   "plugins.installedCount": {
     one: "{count} installed plugin",
     other: "{count} installed plugins",
   },
   "plugins.refresh": "Refresh",
-  "plugins.installFromFolder": "Install from folder",
   "plugins.searchPlaceholder": "Search plugins or extensions",
   "plugins.uninstall": "Uninstall",
   "plugins.uninstallLabel": "Uninstall {name}",
@@ -141,7 +152,6 @@ export const en = {
   "market.progress.install": "Installing the plugin…",
   "market.progress.refresh": "Refreshing the plugin list…",
   "market.refreshSources": "Refresh plugin sources",
-  "market.title": "Plugin marketplace",
   "market.sources": {
     one: "{count} source",
     other: "{count} sources",
@@ -195,6 +205,8 @@ export const en = {
   "view.panelNoSession":
     "A panel cannot change session state or the document; leave that to the plugin view",
   "view.onlyPrimaryNavigates": "Only the primary view owns navigation state",
+  "view.onlyPrimaryPrepares": "Only the primary view can state a window size",
+  "view.invalidPrepare": "Invalid window size declaration",
   "view.invalidPending": "Invalid pending flag",
   "view.invalidMethod": "Invalid method",
   "view.invalidReadRange": "Invalid file read range",
@@ -203,12 +215,16 @@ export const en = {
   "view.invalidSettingKey": "Invalid setting key",
   "view.invalidPluginMethod": "Invalid plugin method",
   "view.clipboardTooLarge": "Clipboard content is over the limit",
+  "view.invalidLink": "Invalid link",
   "view.unsupportedCapability": "Unsupported host capability",
 
   "protocol.tooManyControls": "A plugin may declare at most 16 controls",
   "protocol.invalidControlId": "Invalid plugin control id",
   "protocol.invalidControl": "Invalid plugin control declaration",
   "protocol.invalidScrubRange": "Invalid numeric scrub range",
+  "protocol.invalidDialog": "Invalid plugin confirmation dialog",
+  "protocol.workshopControlIcon": "Generated plugin controls must declare a Lucide icon",
+  "protocol.workshopToggleState": "Generated plugin toggles must declare their current state",
 
   "bridge.desktopOnly": "Files and plugin processes need the desktop window",
 };
