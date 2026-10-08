@@ -6,7 +6,7 @@
   A fast, lightweight, plugin-driven file previewer for Windows 11.
 
   Select a file in File Explorer and press `Space` to preview text, source code,
-  Markdown, images, metadata, and formats supported by installed plugins.
+  Markdown, images, videos, metadata, and formats supported by installed plugins.
 
   [![Windows 11](https://img.shields.io/badge/Windows-11-2f6fed?style=flat-square&logo=windows11&logoColor=white)](https://github.com/Ruszero01/ember-peek/releases)
   [![Release](https://img.shields.io/github/v/release/Ruszero01/ember-peek?display_name=tag&style=flat-square&color=b7572f)](https://github.com/Ruszero01/ember-peek/releases/latest)
@@ -32,9 +32,10 @@ plugins, so the host stays small and users install only the capabilities they ne
 | Source-code preview | Common programming languages | Syntax highlighting, virtualized long documents |
 | Markdown preview | READMEs, notes, documentation | Render/source modes, outline, linked local and remote images |
 | Image preview | PNG, JPEG, GIF, WebP, BMP, AVIF, SVG | Zoom, pan, fit to window |
+| Video preview | Common video files | Playback, seeking, volume, frame export, codec compatibility |
 | Text editing | Writable text and source files | Search, save, external-change protection |
 | File information | Any local file | Path, size, and basic metadata |
-| Plugin Workshop | Custom file formats | AI-assisted generation, validation, trial preview, and installation |
+| Plugin Workshop (Beta) | Custom file formats | AI-assisted generation, validation, trial preview, and installation |
 
 ## Installation and use
 
@@ -69,12 +70,28 @@ permission, file, resource, and network transport APIs.
 - Browse, install, and update plugins in **Plugin Marketplace**.
 - Enable, order, or remove installed plugins in **Plugin Management**.
 - Use multiple viewers for one file and switch between them from the preview toolbar.
-- Generate a viewer for a custom format with **Plugin Workshop**.
+- Generate a viewer for a custom format with **Plugin Workshop (Beta)**.
 - Build third-party plugins with the [plugin development guide](docs/plugins.md).
 
 Plugin packages are checked against their declared SHA-256 and `buildId` before installation.
 Plugin signing is not implemented yet, so only configure sources you trust. Native plugins
 run with the current user's permissions.
+
+## Plugin Workshop (Beta)
+
+Install the Workshop from **Plugin Marketplace**, then configure an OpenAI Chat Completions
+compatible service with streaming and tool calling. Fetch models manually or add a model ID
+and display name; choose the active model in the chat composer. Valid configuration changes
+save automatically.
+
+Describe the preview you need and optionally attach a sample file. Workshop generates and
+validates a plugin, runs a trial preview, and lets you install or export the verified result.
+You can continue the conversation, cancel generation, or restore an earlier verified build.
+Network search is optional and configured separately.
+
+Workshop is experimental. Compatibility depends on the model, service, and file format.
+AI requests send your requirements, conversation, and generated code to the configured service;
+sample attachments are referenced by local path rather than uploaded as file contents.
 
 ## File safety and privacy
 
@@ -90,10 +107,23 @@ resources explicitly referenced by a document, but it does not upload the opened
 - Light, dark, and system themes.
 - English, Simplified Chinese, and system language selection.
 - Immersive preview mode.
-- Plugin-defined toggle, number, select, and text settings.
+- Plugin-defined toggle, number, select, text, and folder settings.
 
 Theme and language changes are propagated to settings, preview windows, tray menus, and open
 plugin views.
+
+## 0.1.0 release scope
+
+The first release targets **Windows 11 x64** and uses WebView2. The installer does not bundle
+plugins; installing recommended plugins initially requires internet access. WebView2 may also
+need an online installation if it is missing. Application and plugin versions are independent.
+
+Text previews truncate above 2 MiB and become read-only; image previews are limited to 32 MiB.
+There are no official PDF, PSD, or FBX viewers yet. Explorer multi-selection previews the first
+file. Unsaved text-editor drafts are not recovered after a crash. Video codec compatibility may
+require temporary transcoding. The Windows installer is not code-signed.
+
+See the [0.1.0 changelog](CHANGELOG.md) for the complete release baseline.
 
 ## Development
 

@@ -100,3 +100,37 @@ plugin libraries, never on the host runtime crate.
 
 See [the plugin guide](../docs/plugins.md) for manifests and examples, and
 [the capability specification](../docs/specs/plugin-capabilities.md) for the normative contract.
+
+## Workshop presentation
+
+Workshop reuses one composer for new and existing tasks. The welcome and sample drop area
+becomes the conversation after creation; background polling preserves input focus and unchanged
+model options. Start conversation creates and generates a text task immediately, while sample
+selection creates a task first. Independent requirement analysis is absent from the task menu.
+The menu dismisses on outside input, Escape, or action selection.
+
+Task status sits beside the title; preview and install actions occupy the lower right. At widths
+up to 900 CSS px the file rail is hidden, with generated files still available in the Files tab.
+Deletion keeps a fixed column. Tool pages reserve a 1 CSS px bottom inset for fractional WebView2
+viewport rounding. Automatic and manual Workshop previews share desktop environment arguments.
+
+Provider management and runtime model selection are separate. Models are fetched explicitly or
+added by ID and display name; legacy single-model configurations remain readable. Browsing
+settings does not select or save. Valid changed configurations autosave after 600 ms, ignoring
+stale completion feedback. Connection testing is explicit. AI service and optional global search
+have separate cards with one page scroll region; SearXNG authentication is optional and Tavily
+requires a key. Search feedback belongs in the card heading.
+
+## Plugin availability and release labels
+
+The host settings sidebar owns plugin ordering: captured pointer input keeps the row preview
+inside the list, neighboring rows yield space, release persists ordering, and cancellation leaves
+it unchanged. Arrow-key ordering remains available. Disabled items use dimmed names/icons and a
+separate badge; trailing metadata has reserved columns and long names truncate with a tooltip.
+Plugin-list installation, removal, and enablement update automatically without manual refresh.
+
+The optional manifest field `beta: true` marks an experimental plugin. It defaults to false and
+is copied into catalog entries. A shared Beta badge follows the version in catalog, recommended,
+installed, and settings titles. It does not alter permissions, installation, or version semantics.
+Preview empty, unsupported, and failure states link to plugin management rather than creating
+Workshop tasks directly.
