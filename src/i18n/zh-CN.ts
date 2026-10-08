@@ -21,7 +21,7 @@ export const zhCN: Catalog = {
 
   "browser.banner": "界面预览 · 文件和插件功能请使用桌面窗口",
 
-  "empty.title": "即刻一览",
+  "empty.title": "余光一瞥",
   "empty.note": "拖入文件，或选择一个文件开始预览",
   "empty.open": "打开文件",
   "empty.pluginsReady": "{count} 个预览插件已就绪",
@@ -34,7 +34,7 @@ export const zhCN: Catalog = {
 
   "preview.failed": "插件预览失败",
   "preview.openOther": "打开其他文件",
-  "preview.tagline": "由插件提供每一种预览能力",
+  "preview.tagline": "余光一瞥",
 
   "footer.openDefaultApp": "在默认应用中打开",
   "footer.openFile": "打开文件",
@@ -107,7 +107,7 @@ export const zhCN: Catalog = {
   "progress.installLocal": "正在校验并安装本地插件…",
   "progress.refreshPlugins": "正在刷新插件列表…",
 
-  "about.tagline": "轻量预览，一切皆插件。",
+  "about.tagline": "余光一瞥",
   "about.installed": "已安装插件",
   "about.directory": "插件目录",
   "about.desktopOnly": "桌面版中可用",

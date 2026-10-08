@@ -14,7 +14,7 @@ async function sdkPage(label) {
   documentElement:{lang:'',style:{setProperty(){},colorScheme:''}},
  };
  const sdk=await import(`../sdk/web/index.js?${label}=${Date.now()}-${Math.random()}`);
- return {sdk,browserListeners,parentWindow};
+ return {sdk,browserListeners,parentWindow,pageListeners};
 }
 
 test('file and related-resource helpers use the initialized session safely',async()=>{
@@ -134,4 +134,41 @@ test('a link leaves the page as the document wrote it',async()=>{
  } finally {
   port1.close();port2.close();
  }
+});
+
+
+test('declared shortcuts roundtrip through the host independently of toolbar actions',async()=>{
+ const {sdk,browserListeners,parentWindow,pageListeners}=await sdkPage('shortcuts');
+ const {port1,port2}=new MessageChannel();
+ const oldElement=globalThis.Element;
+ globalThis.Element=class {};
+ let resolveAction;
+ const ran=new Promise(resolve=>resolveAction=resolve);
+ const forwarded=[];
+ port1.onmessage=event=>{
+  const message=event.data;
+  if(message.type==='connected') port1.postMessage({type:'init',session:'keys',file:{},theme:{},locale:'en',settings:{}});
+  if(message.type==='request') port1.postMessage({type:'reply',id:message.id,value:message.params.items});
+  if(message.type==='shortcutKey') {
+   forwarded.push(message);
+   port1.postMessage({type:'shortcutAction',id:'save'});
+  }
+ };
+ port1.start();
+ try {
+  browserListeners.get('message')({source:parentWindow,data:{type:'ember:connect'},ports:[port2]});
+  await sdk.ready;
+  await sdk.shortcuts([{id:'save',key:'Ctrl+S',run:()=>resolveAction()}]);
+  sdk.controls([]);
+  let prevented=false;
+  const key={key:'s',ctrlKey:true,target:null,preventDefault(){prevented=true;}};
+  pageListeners.get('keydown')(key);
+  await ran;
+  assert.equal(prevented,true);
+  assert.equal(forwarded[0].key,'Ctrl+s');
+  await sdk.shortcuts([]);
+  prevented=false;
+  pageListeners.get('keydown')(key);
+  assert.equal(prevented,false);
+ } finally { globalThis.Element=oldElement;port1.close();port2.close(); }
 });

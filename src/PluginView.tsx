@@ -1,3 +1,4 @@
+import { validateShortcuts, matchShortcut, type ShortcutBinding } from "../sdk/web/shortcuts.js";
 import { useEffect, useRef } from "react";
 import { call, viewUrl } from "./bridge";
 import { validateControls, validateDialog, isSessionOwning, ROLES } from "./protocol.mjs";
@@ -61,6 +62,7 @@ export function PluginView({
   const instanceId = secondary ? `${session.id}#panel` : session.id;
   const frame = useRef<HTMLIFrameElement>(null);
   const channel = useRef<MessageChannel | null>(null);
+  const bindings = useRef<ShortcutBinding[]>([]);
   const latest = useRef({
     theme,
     locale,
@@ -118,7 +120,27 @@ export function PluginView({
     [instanceId, register, registerPeer, role, session.id],
   );
 
+  useEffect(() => {
+    const listener = (event: KeyboardEvent) => {
+      if (!latest.current.visible || !latest.current.interactive || !channel.current) return;
+      if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
+      const focused = document.activeElement;
+      if (focused instanceof HTMLIFrameElement && focused !== frame.current) return;
+      if (secondary && focused !== frame.current) return;
+      const inInput = event.target instanceof Element && !!event.target.closest(
+        "input,textarea,select,button,[contenteditable],[role=textbox]",
+      );
+      const binding = matchShortcut(bindings.current, event, inInput);
+      if (!binding) return;
+      event.preventDefault();
+      channel.current.port1.postMessage({type: "shortcutAction", id: binding.id});
+    };
+    addEventListener("keydown", listener);
+    return () => removeEventListener("keydown", listener);
+  }, [secondary]);
+
   function closeChannel(reason: string) {
+    bindings.current = [];
     const current = channel.current;
     if (!current) return;
     try {
@@ -202,6 +224,12 @@ export function PluginView({
           throw new Error(t("view.searchNotHost"));
         } else if (message?.type === "shortcut" && latest.current.visible)
           latest.current.shortcut(message.key);
+        else if (message?.type === "shortcutKey") {
+          if (!latest.current.visible || !latest.current.interactive || document.querySelector('[role="dialog"][aria-modal="true"]')) return;
+          const binding = bindings.current.find(item => item.key === message.key &&
+            (message.inInput === false || item.allowInInputs) && (message.repeat === false || item.repeat));
+          if (binding) connection.port1.postMessage({type: "shortcutAction", id: binding.id});
+        }
         else if (message?.type === "request") {
           if (!Number.isSafeInteger(message.id) || requests >= 8)
             throw new Error(t("view.tooManyRequests"));
@@ -211,7 +239,10 @@ export function PluginView({
             let value;
             if (secondary && isSessionOwning(message.method))
               throw new Error(t("view.panelNoSession"));
-            if (message.method === "icons") {
+            if (message.method === "shortcuts") {
+              bindings.current = validateShortcuts(params?.items);
+              value = bindings.current;
+            } else if (message.method === "icons") {
               value = await call("icon_data", {
                 name: typeof params?.name === "string" ? params.name.slice(0,40) : null,
                 query: typeof params?.query === "string" ? params.query.slice(0,40) : null,

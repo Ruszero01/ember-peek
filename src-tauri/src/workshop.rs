@@ -59,6 +59,7 @@ fn kit(tool: &Package) -> Result<(DevelopmentKit, String), String> {
 }
 
 const SDK: &str = include_str!("../../sdk/web/index.js");
+const SHORTCUTS: &str = include_str!("../../sdk/web/shortcuts.js");
 const UI: &str = include_str!("../../sdk/web/ui.css");
 /// The page's watchdog and error surface. A generated page is served under a CSP that allows
 /// no inline script, so this is the only way a page that fails to boot can say so.
@@ -1818,7 +1819,7 @@ impl Workshop {
             std::fs::copy(&source, &target)
                 .map_err(|e| format!("{name}: {e} (from {source:?} to {target:?})"))?;
         }
-        for (name, contents) in [("sdk.js", SDK), ("sdk-ui.css", UI), ("boot.js", BOOT), ("view.js", output.javascript.as_str()), ("style.css", output.css.as_str()), ("index.html", "<!doctype html><html><head><meta charset=\"utf-8\"><link rel=\"stylesheet\" href=\"sdk-ui.css\"><link rel=\"stylesheet\" href=\"style.css\"></head><body><main id=\"app\"></main><script src=\"boot.js\"></script><script type=\"module\" src=\"view.js\"></script></body></html>")] {
+        for (name, contents) in [("sdk.js", SDK), ("shortcuts.js", SHORTCUTS), ("sdk-ui.css", UI), ("boot.js", BOOT), ("view.js", output.javascript.as_str()), ("style.css", output.css.as_str()), ("index.html", "<!doctype html><html><head><meta charset=\"utf-8\"><link rel=\"stylesheet\" href=\"sdk-ui.css\"><link rel=\"stylesheet\" href=\"style.css\"></head><body><main id=\"app\"></main><script src=\"boot.js\"></script><script type=\"module\" src=\"view.js\"></script></body></html>")] {
             std::fs::write(directory.join("ui").join(name), contents).map_err(|e| e.to_string())?;
         }
         std::fs::write(directory.join("README.md"), &output.summary).map_err(|e| e.to_string())?;
@@ -2710,7 +2711,13 @@ fn validate_preview_chrome(javascript: &str, css: &str) -> Result<(), String> {
 }
 
 /// Files the host writes into every package, so an agent may neither write nor shadow them.
-const HOST_FILES: [&str; 4] = ["index.html", "sdk.js", "sdk-ui.css", "boot.js"];
+const HOST_FILES: [&str; 5] = [
+    "index.html",
+    "sdk.js",
+    "sdk-ui.css",
+    "boot.js",
+    "shortcuts.js",
+];
 /// A path the agent may write. `metadata.json` is the plugin's own record; everything else
 /// lives under `ui/`, including nested modules and assets. The host's own files are refused:
 /// they are already there.
@@ -3607,6 +3614,7 @@ mod tests {
             "ui/.hidden.js",
             "ui/index.html",
             "ui/sdk.js",
+            "ui/shortcuts.js",
             "ui/sdk-ui.css",
             "ui/boot.js",
             "C:/absolute.js",

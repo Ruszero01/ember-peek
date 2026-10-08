@@ -41,7 +41,7 @@ try{
  const files={...(init.files||{})};
  // What the agent may write: its own record, the page under ui/, and anything it brings
  // along under vendor/. The host refuses the rest, so this is a guard rail, not the rule.
- const hostFiles=['index.html','sdk.js','sdk-ui.css','boot.js'];
+ const hostFiles=['index.html','sdk.js','sdk-ui.css','boot.js','shortcuts.js'];
  const leaf=part=>/^[A-Za-z0-9._-]{1,64}$/.test(part)&&!part.startsWith('.');
  // The page lives under ui/, so anything it imports lives there too.
  const writable=path=>{

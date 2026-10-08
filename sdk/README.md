@@ -135,3 +135,25 @@ is copied into catalog entries. A shared Beta badge follows the version in catal
 installed, and settings titles. It does not alter permissions, installation, or version semantics.
 Preview empty, unsupported, and failure states link to plugin management rather than creating
 Workshop tasks directly.
+
+## Declared plugin shortcuts
+
+After `await ready`, call `await shortcuts([{id: "save", key: "Ctrl+S", allowInInputs: true, run: save}])`.
+The host validates and binds the list for that mount; a later call replaces it and `shortcuts([])`
+unregisters it. Toolbar controls and shortcuts keep separate callback maps. The host delivers only
+the opaque action ID; it never interprets the plugin operation.
+
+Keys use `KeyboardEvent.key` names (`ArrowLeft`, `Enter`, `F1`, a letter or digit), optionally
+prefixed by `Ctrl`, `Alt`, `Shift`, or `Meta` joined with `+`. Duplicate IDs or keys are rejected.
+Escape, Space and Ctrl/Meta+O are reserved for the host. Inputs and repeated presses are excluded
+unless `allowInInputs` or `repeat` is explicitly true. Composition and already handled keys are
+excluded. Bindings are active only on a visible, interactive mount; modal host dialogs suspend
+plugin shortcuts. A focused plugin iframe scopes dispatch to that mount. Reconnect republishes
+the declaration; closing the channel removes the bindings.
+
+Use this API for plugin commands such as saving or seeking. Text editing, search-field navigation
+and control-local keyboard behavior still belong to the focused widget.
+
+## License
+
+The SDK is licensed under [Apache License 2.0](../LICENSE). Redistributed SDK files must retain the applicable license and attribution notices. Plugins may choose their own license for their original code.

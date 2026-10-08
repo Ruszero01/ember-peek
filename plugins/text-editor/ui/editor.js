@@ -1,5 +1,6 @@
 import {
   ready,
+  shortcuts,
   controls,
   status,
   presented,
@@ -259,12 +260,7 @@ async function mountEditor(initial) {
       () => surface.position(),
       (position) => surface.reveal(position),
     );
-    addEventListener("keydown", (event) => {
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
-        event.preventDefault();
-        void save();
-      }
-    });
+    await shortcuts([{id: "save", key: "Ctrl+S", allowInInputs: true, run: () => save()}]);
     status(data.encoding);
     await presented();
   } catch (error) {

@@ -123,3 +123,7 @@ Ember Peek 宿主不包含任何特定格式的渲染器。文件解析、画面
 请通过 [GitHub Issues](https://github.com/Ruszero01/ember-peek/issues) 提交问题，并尽量提供
 Windows 与 Ember Peek 版本、文件类型和大小、相关插件版本以及复现步骤。请勿上传包含
 隐私或敏感内容的文件。
+
+## 许可证
+
+宿主、官方插件和 SDK 使用 [Apache License 2.0](LICENSE)。第三方组件保留各自许可证。独立维护的官网不包含在此授权范围内。
