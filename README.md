@@ -3,12 +3,12 @@
 
   # Ember Peek
 
-  A fast, lightweight, plugin-driven file previewer for Windows 11.
+  A fast, lightweight, plugin-driven file previewer for Windows.
 
   Select a file in File Explorer and press `Space` to preview text, source code,
   Markdown, images, videos, metadata, and formats supported by installed plugins.
 
-  [![Windows 11](https://img.shields.io/badge/Windows-11-2f6fed?style=flat-square&logo=windows11&logoColor=white)](https://github.com/Ruszero01/ember-peek/releases)
+  [![Windows](https://img.shields.io/badge/Windows-2f6fed?style=flat-square&logo=windows11&logoColor=white)](https://github.com/Ruszero01/ember-peek/releases)
   [![Release](https://img.shields.io/github/v/release/Ruszero01/ember-peek?display_name=tag&style=flat-square&color=b7572f)](https://github.com/Ruszero01/ember-peek/releases/latest)
   [![Downloads](https://img.shields.io/github/downloads/Ruszero01/ember-peek/total?style=flat-square&color=f4a477)](https://github.com/Ruszero01/ember-peek/releases)
   [![Tauri 2](https://img.shields.io/badge/Tauri-2-24c8d8?style=flat-square&logo=tauri&logoColor=white)](https://tauri.app/)
@@ -25,6 +25,7 @@
 Ember Peek runs in the Windows system tray and responds to the Space key only when the
 File Explorer file list has focus. Preview and editing features are supplied by independent
 plugins, so the host stays small and users install only the capabilities they need.
+More plugins will extend support to additional file formats in the future.
 
 | Capability | Typical files | Highlights |
 | --- | --- | --- |
@@ -114,12 +115,11 @@ plugin views.
 
 ## 0.1.0 release scope
 
-The first release targets **Windows 11 x64** and uses WebView2. The installer does not bundle
+The first release targets **Windows x64** and uses WebView2. The installer does not bundle
 plugins; installing recommended plugins initially requires internet access. WebView2 may also
 need an online installation if it is missing. Application and plugin versions are independent.
 
-Text previews truncate above 2 MiB and become read-only; image previews are limited to 32 MiB.
-There are no official PDF, PSD, or FBX viewers yet. Explorer multi-selection previews the first
+Explorer multi-selection previews the first
 file. Unsaved text-editor drafts are not recovered after a crash. Video codec compatibility may
 require temporary transcoding. The Windows installer is not code-signed.
 
