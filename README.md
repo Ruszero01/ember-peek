@@ -138,3 +138,7 @@ Start with [CONTRIBUTING.md](CONTRIBUTING.md), then use the focused references f
 Please use [GitHub Issues](https://github.com/Ruszero01/ember-peek/issues) and include the
 Windows and Ember Peek versions, file type and size, relevant plugin versions, and reproduction
 steps. Do not upload files containing private or sensitive information.
+
+## License
+
+The host, official plugins, and SDK are licensed under [Apache License 2.0](LICENSE). Third-party components retain their own licenses. The separately maintained official website is not included in this license grant.

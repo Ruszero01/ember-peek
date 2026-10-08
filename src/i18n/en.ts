@@ -25,7 +25,7 @@ export const en = {
   "browser.banner":
     "Interface preview · files and plugins need the desktop window",
 
-  "empty.title": "Everything at a glance",
+  "empty.title": "A fleeting glance",
   "empty.note": "Drop a file here, or choose one to start previewing",
   "empty.open": "Open file",
   "empty.pluginsReady": {
@@ -42,7 +42,7 @@ export const en = {
 
   "preview.failed": "Plugin preview failed",
   "preview.openOther": "Open another file",
-  "preview.tagline": "Every preview format comes from a plugin",
+  "preview.tagline": "A fleeting glance",
 
   "footer.openDefaultApp": "Open in default app",
   "footer.openFile": "Open file",
@@ -119,7 +119,7 @@ export const en = {
   "progress.installLocal": "Verifying and installing the local plugin…",
   "progress.refreshPlugins": "Refreshing the plugin list…",
 
-  "about.tagline": "Lightweight previews, everything a plugin.",
+  "about.tagline": "A fleeting glance",
   "about.installed": "Installed plugins",
   "about.directory": "Plugin directory",
   "about.desktopOnly": "available in the desktop app",

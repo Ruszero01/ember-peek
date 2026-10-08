@@ -1,5 +1,6 @@
 import {
   ready,
+  shortcuts,
   call,
   controls,
   status,
@@ -854,18 +855,17 @@ if (initial.role === "panel") {
   });
   video.addEventListener("pointercancel", (event) => endGesture(event.pointerId));
   video.addEventListener("lostpointercapture", () => endGesture());
-  addEventListener("keydown", (event) => {
-    // This view claims the keys that move the picture. The host's own shortcuts (Escape, Ctrl+O
-    // and Space) are forwarded by the SDK and leave the document exactly as they always did.
-    if (event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) return;
-    const direction = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
-    if (!direction) return;
-    event.preventDefault();
-    const to = stepTime(position(), direction, duration());
-    seek(to);
-    showHud(`${clock(to)} / ${clock(duration())}`);
-    clearHudSoon();
-  });
+  await shortcuts([-1, 1].map(direction => ({
+    id: direction < 0 ? "seekBack" : "seekForward",
+    key: direction < 0 ? "ArrowLeft" : "ArrowRight",
+    repeat: true,
+    run: () => {
+      const to = stepTime(position(), direction, duration());
+      seek(to);
+      showHud(`${clock(to)} / ${clock(duration())}`);
+      clearHudSoon();
+    },
+  })));
   onSettings(() => {
     // Either route reaches here — the toolbar button or the settings window — so the video and
     // the toggle both follow the stored value instead of each holding its own copy.

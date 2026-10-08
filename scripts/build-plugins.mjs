@@ -27,6 +27,7 @@ const webSdk = path.join(root, "sdk", "web", "index.js");
 // Shared plugin-side UI. Copied into every package next to sdk.js and folded into the
 // build hash, so changing a shared component republishes the packages that use it.
 const webSdkExtras = [
+  [path.join(root, "sdk", "web", "shortcuts.js"), "shortcuts.js"],
   // Loaded by a page before its own module: the CSP allows no inline script, so a page whose
   // module never boots would otherwise show nothing at all.
   [path.join(root, "sdk", "web", "boot.js"), "boot.js"],
@@ -446,7 +447,7 @@ async function publish(release, { dist = false } = {}) {
     const uiText = await treeText(path.join(directory, "ui"));
     const extras = webSdkExtras.filter(([source, name]) => {
       const base = path.basename(source);
-      return uiText.includes(name) || uiText.includes(base);
+      return name === "shortcuts.js" || uiText.includes(name) || uiText.includes(base);
     });
     const bundled = [];
     const agentFiles = [];
@@ -478,6 +479,7 @@ async function publish(release, { dist = false } = {}) {
     await verifyPackage({ directory, manifest, provided: ["sdk.js", ...extras.map(([, name]) => name), ...bundled.map((file) => path.basename(file.path))] });
     for (const file of bundled) hash.update(file.contents);
     hash.update(await readFile(native));
+    for (const name of ["LICENSE", "NOTICE"]) hash.update(await readFile(path.join(root, name)));
     hash.update(await readFile(webSdk));
     for (const [source] of extras) hash.update(await readFile(source));
     await digestTree(path.join(directory, "ui"), hash);
@@ -502,6 +504,7 @@ async function publish(release, { dist = false } = {}) {
       for (const [source, name] of extras)
         await cp(source, path.join(staging, "ui", name));
       await cp(native, path.join(staging, "bin", executable));
+      for (const name of ["LICENSE", "NOTICE"]) await cp(path.join(root, name), path.join(staging, name));
       for (const file of agentFiles) await writeFile(path.join(staging, "bin", file.name), file.contents);
       // The install-time revision is zeroed: the installer assigns it, and leaving the
       // build clock in here would make the same inputs produce different bytes, which

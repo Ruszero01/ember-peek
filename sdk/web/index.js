@@ -1,3 +1,4 @@
+import { validateShortcuts, matchShortcut } from "./shortcuts.js";
 // Optional view SDK. This module is copied into each plugin package, not linked into the host.
 let port;
 let sequence = 0;
@@ -8,6 +9,10 @@ let recordedWindow = { width: 0, height: 0 };
 let sourceFile = null;
 const awaiting = new Map();
 const actions = new Map();
+const shortcutActions = new Map();
+let shortcutBindings = [];
+let shortcutDeclarations = [];
+let shortcutRevision = 0;
 const visibilityListeners = new Set();
 const settingsListeners = new Set();
 const themeListeners = new Set();
@@ -36,6 +41,7 @@ function disconnect(message, expected = port) {
     expected.close();
   } catch {}
   port = undefined;
+  shortcutBindings = [];
   rejectAwaiting(message);
 }
 
@@ -194,6 +200,7 @@ window.addEventListener("message", (event) => {
       theme(message.theme);
       applySettings(message.settings);
       resolveReady(message);
+      if (shortcutDeclarations.length) void shortcuts(shortcutDeclarations).catch(error => status(String(error)));
     } else if (message.type === "theme") theme(message.theme);
     else if (message.type === "locale") applyLocale(message.locale);
     else if (message.type === "settings") applySettings(message.settings);
@@ -207,6 +214,9 @@ window.addEventListener("message", (event) => {
       });
     else if (message.type === "visible")
       visibilityListeners.forEach((fn) => fn(message.visible));
+    else if (message.type === "shortcutAction") {
+      Promise.resolve().then(() => shortcutActions.get(message.id)?.()).catch(error => status(String(error)));
+    }
     else if (message.type === "action") {
       Promise.resolve()
         .then(() => actions.get(message.id)?.(message.value))
@@ -261,6 +271,19 @@ export function controls(items) {
     type: "controls",
     items: items.map(({ run, ...item }) => item),
   });
+}
+/** Declare this mount's shortcuts. Replaces its previous list; [] unregisters all.
+ * The host accepts the bindings before the SDK intercepts keys in the iframe. */
+export async function shortcuts(items) {
+  const declarations = validateShortcuts(items);
+  if (items.some(item => typeof item.run !== "function")) throw new TypeError("Shortcut requires a callback");
+  const revision = ++shortcutRevision;
+  const accepted = await request("shortcuts", {items: declarations});
+  if (revision !== shortcutRevision) return;
+  shortcutDeclarations = items;
+  shortcutBindings = validateShortcuts(accepted);
+  shortcutActions.clear();
+  for (const item of items) shortcutActions.set(item.id, item.run);
 }
 /** Publish one concise line of parsed facts or viewer state in the host's file-information
  * area. The host already owns the file name and size; keep status/metadata chrome out of the
@@ -397,7 +420,7 @@ export async function fileBlob(size = sourceFile?.size, type = "") {
 
 /** A permission-checked URL for the session's source file, for the browser to load directly:
  * an image source, a fetch, or a library that takes a URL. The host answers with the whole
- * file and refuses anything over 32 MiB. Use `streamUrl()` for a range-aware large-file
+ * file and refuses anything over 128 MiB. Use `streamUrl()` for a range-aware large-file
  * consumer. */
 export function fileUrl() {
   if (!sessionId) throw new Error("Plugin session is not ready");
@@ -442,6 +465,16 @@ export async function resourceBlob(reference) {
 }
 
 addEventListener("keydown", (event) => {
+  if (event.isComposing || event.defaultPrevented) return;
+  const inInput = event.target instanceof Element && !!event.target.closest(
+    "input,textarea,select,button,[contenteditable],[role=textbox]",
+  );
+  const binding = matchShortcut(shortcutBindings, event, inInput);
+  if (binding) {
+    event.preventDefault();
+    port?.postMessage({type: "shortcutKey", key: binding.key, inInput, repeat: event.repeat === true});
+    return;
+  }
   const key =
     event.key === "Escape"
       ? "escape"
