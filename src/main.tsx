@@ -1,3 +1,5 @@
+import {PluginBadge} from "./PluginBadge";
+import {sortPosition,moveSortItem} from "./plugin-sort";
 import React, {
   useState,
   useEffect,
@@ -29,7 +31,6 @@ import {
   Maximize,
   ChevronUp,
   ChevronDown,
-  RotateCw,
   Download,
   Trash2,
   File,
@@ -441,7 +442,7 @@ function PluginSettingsPane({ plugin }: { plugin: Plugin | undefined }) {
           <div>
             <h2>
               {plugin.name}
-              <span className="plugin-version">v{plugin.version}</span>
+              <span className="plugin-version">v{plugin.version}</span><PluginBadge beta={plugin.beta}/>
             </h2>
             <p>
               {plugin.enabled ? t("plugin.enabled") : t("plugin.disabledNote")}
@@ -1168,10 +1169,6 @@ function App() {
     return map;
   }, [snapshot.plugins]);
   const [dragPlugin, setDragPlugin] = useState<string | null>(null);
-  const [dropPlugin, setDropPlugin] = useState<{
-    id: string;
-    after: boolean;
-  } | null>(null);
   const [sortingPlugins, setSortingPlugins] = useState(false);
   const [pendingOrder, setPendingOrder] = useState<string[] | null>(null);
   const orderedPlugins = [...snapshot.plugins].sort(
@@ -1181,7 +1178,7 @@ function App() {
   async function reorderPlugin(target: string, after: boolean, keyboardSource?: string) {
     const source = keyboardSource ?? dragPlugin;
     setDragPlugin(null);
-    setDropPlugin(null);
+
     if (!source || source === target || sortingPlugins) return;
     const ids = orderedPlugins.map((p) => p.id).filter((id) => id !== source);
     const targetIndex = ids.indexOf(target);
@@ -1199,6 +1196,17 @@ function App() {
       setSortingPlugins(false);
     }
   }
+  const pluginSort=useRef<{rows:HTMLElement[];preview:HTMLElement;ids:string[];from:number;to:number;offset:number;top:number;bottom:number;height:number;step:number}|null>(null);
+  async function finishPluginSort(commit:boolean){
+    const drag=pluginSort.current;if(!drag)return;pluginSort.current=null;
+    drag.preview.remove();drag.rows.forEach(row=>{row.style.transform="";});setDragPlugin(null);
+    if(!commit||drag.from===drag.to)return;
+    const ids=moveSortItem(drag.ids,drag.from,drag.to);
+    setPendingOrder(ids);setSortingPlugins(true);
+    try{await guard(async()=>{await call("reorder_plugins",{ids});await refresh();});}
+    finally{setPendingOrder(null);setSortingPlugins(false);}
+  }
+  useEffect(()=>()=>{const drag=pluginSort.current;if(drag){drag.preview.remove();drag.rows.forEach(row=>{row.style.transform="";});pluginSort.current=null;}},[]);
   const currentPlugin = useMemo(
     () => snapshot.plugins.find((plugin) => plugin.id === pluginPage),
     [snapshot.plugins, pluginPage],
@@ -1310,7 +1318,6 @@ function App() {
               >
                 {t("empty.manage")}
               </button>
-              <button className="text-button" onClick={() => void guard(() => call("open_workshop"))}>{t("plugins.createWithAI")}</button>
             </div>
           </div>
         )}
@@ -1318,7 +1325,6 @@ function App() {
           <div className="empty-state">
             <p>{t("plugins.noViewer")}</p>
             <button className="secondary-button" onClick={() => settingsPage("plugins")}>{t("empty.manage")}</button>
-            <button className="primary-button" onClick={() => void guard(() => call("open_workshop"))}>{t("plugins.createWithAI")}</button>
           </div>
         )}
         <DelayedLoading
@@ -1338,7 +1344,7 @@ function App() {
             <Package size={30} />
             <strong>{t("preview.failed")}</strong>
             <p>{current?.error || viewReport?.error}</p>
-            <button className="secondary-button" onClick={() => void guard(() => call("open_workshop"))}>{t("plugins.createWithAI")}</button>
+            <button className="secondary-button" onClick={() => settingsPage("plugins")}>{t("empty.manage")}</button>
             <button className="secondary-button" onClick={() => void pick()}>
               {t("preview.openOther")}
             </button>
@@ -1522,7 +1528,7 @@ function App() {
                 ))}
                 {snapshot.plugins.length > 0 && (
                   <div className="plugin-sidebar-section">
-                    <div className="plugin-sidebar-scroll">
+                    <div className="plugin-sidebar-scroll"><div className="plugin-sort-list">
                       <div className="plugin-sidebar-heading">
                         <h2>{t("nav.pluginSettings")}</h2>
                         <p>{t("nav.reorderHint")}</p>
@@ -1533,39 +1539,11 @@ function App() {
                         const Icon = pluginIcon(plugin.icon);
                         return (
                           <div
-                            className={`nav-item plugin-nav-item ${selected ? "active" : ""} ${dropPlugin?.id === plugin.id ? (dropPlugin.after ? "drop-after" : "drop-target") : ""} ${dragPlugin === plugin.id ? "is-dragging" : ""}`}
+                            data-enabled={plugin.enabled}
+                            className={`nav-item plugin-nav-item ${selected ? "active" : ""} ${dragPlugin === plugin.id ? "is-dragging" : ""}`}
                             onClick={() => {
                               setPluginPage(plugin.id);
                               setPage("plugin");
-                            }}
-                            onDragOver={(event) => {
-                              if (dragPlugin && dragPlugin !== plugin.id && !sortingPlugins) {
-                                event.preventDefault();
-                                event.dataTransfer.dropEffect = "move";
-                                const rect =
-                                  event.currentTarget.getBoundingClientRect();
-                                setDropPlugin({
-                                  id: plugin.id,
-                                  after:
-                                    event.clientY >= rect.top + rect.height / 2,
-                                });
-                              }
-                            }}
-                            onDragLeave={(event) => {
-                              if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDropPlugin(null);
-                            }}
-                            onDrop={(event) => {
-                              event.preventDefault();
-                              const rect =
-                                event.currentTarget.getBoundingClientRect();
-                              void reorderPlugin(
-                                plugin.id,
-                                event.clientY >= rect.top + rect.height / 2,
-                              );
-                            }}
-                            onDragEnd={() => {
-                              setDragPlugin(null);
-                              setDropPlugin(null);
                             }}
                             key={plugin.id}
                             title={
@@ -1577,26 +1555,37 @@ function App() {
                             <button type="button" className="plugin-drag-handle" title={t("plugin.dragHint")} aria-label={t("plugin.dragLabel", { name: plugin.name })} disabled={sortingPlugins}
                               onClick={e => e.stopPropagation()}
                               onKeyDown={e => { if (e.key === "ArrowUp" || e.key === "ArrowDown") { e.preventDefault(); e.stopPropagation(); const target = orderedPlugins[index + (e.key === "ArrowUp" ? -1 : 1)]; if (target) void reorderPlugin(target.id, e.key === "ArrowDown", plugin.id); } }}
-                            draggable={!sortingPlugins}
-                            onDragStart={(event) => {
-                              setDragPlugin(plugin.id);
-                              const row = event.currentTarget.closest(".plugin-nav-item");
-                              if (row) event.dataTransfer.setDragImage(row, 24, 20);
-                              event.dataTransfer.effectAllowed = "move";
-                              event.dataTransfer.setData(
-                                "text/plain",
-                                plugin.id,
-                              );
-                            }}
+                              onPointerDown={event => {
+                                if (event.button !== 0 || sortingPlugins) return;
+                                event.preventDefault();event.stopPropagation();
+                                const row=event.currentTarget.closest<HTMLElement>(".plugin-nav-item")!;
+                                const list=row.parentElement!;
+                                const rows=Array.from(list.querySelectorAll<HTMLElement>(":scope > .plugin-nav-item"));
+                                const rect=row.getBoundingClientRect(),bounds=list.getBoundingClientRect();
+                                const preview=row.cloneNode(true) as HTMLElement;
+                                preview.classList.remove("is-dragging");preview.classList.add("plugin-sort-preview");
+                                preview.style.width=`${rect.width}px`;preview.style.height=`${rect.height}px`;
+                                preview.style.left=`${rect.left}px`;preview.style.top=`${rect.top}px`;
+                                preview.setAttribute("aria-hidden","true");document.body.append(preview);
+                                pluginSort.current={rows,preview,ids:orderedPlugins.map(p=>p.id),from:index,to:index,offset:event.clientY-rect.top,top:rows[0].getBoundingClientRect().top,bottom:Math.min(bounds.bottom,rows[rows.length-1].getBoundingClientRect().bottom),height:rect.height,step:rows.length>1?rows[1].getBoundingClientRect().top-rows[0].getBoundingClientRect().top:rect.height};
+                                event.currentTarget.setPointerCapture(event.pointerId);setDragPlugin(plugin.id);
+                              }}
+                              onPointerMove={event => {
+                                const drag=pluginSort.current;if(!drag)return;
+                                const position=sortPosition(drag,event.clientY);
+                                drag.to=position.index;drag.preview.style.top=`${position.top}px`;
+                                drag.rows.forEach((row,i)=>{row.style.transform=`translateY(${i===drag.from?0:drag.from<drag.to&&i>drag.from&&i<=drag.to?-drag.step:drag.from>drag.to&&i>=drag.to&&i<drag.from?drag.step:0}px)`;});
+                              }}
+                              onPointerUp={() => {void finishPluginSort(true);}}
+                              onPointerCancel={() => {void finishPluginSort(false);}}
+                              onLostPointerCapture={() => {void finishPluginSort(false);}}
                             ><GripVertical size={14} /></button>
                             <button className="plugin-nav-link" aria-current={selected ? "page" : undefined}>
                             <Icon size={19} />
                             <strong>
                               {plugin.name}
-                              {!plugin.enabled && (
-                                <span className="nav-note">{t("plugin.disabledBadge")}</span>
-                              )}
                             </strong>
+                            {!plugin.enabled && <span className="plugin-disabled-badge">{t("plugin.disabledBadge")}</span>}
                             <span
                               className="plugin-order-number"
                               aria-label={t("plugin.order", { index: index + 1 })}
@@ -1607,6 +1596,7 @@ function App() {
                           </div>
                         );
                       })}
+                      </div>
                     </div>
                   </div>
                 )}
@@ -1797,16 +1787,7 @@ function App() {
                   <div className="list-toolbar">
                     <span>{t("plugins.installedCount", { count: snapshot.plugins.length })}</span>
                     <div>
-                      <button
-                        className="text-button"
-                        disabled={busy}
-                        onClick={() =>
-                          void manage(() => call("refresh_plugins"))
-                        }
-                      >
-                        <RotateCw size={14} />
-                        {t("plugins.refresh")}
-                      </button>
+
                       <button
                         className="secondary-button"
                         disabled={busy}
@@ -1859,6 +1840,7 @@ function App() {
                                   <span className="plugin-version">
                                     v{plugin.version}
                                   </span>
+                                  <PluginBadge beta={plugin.beta}/>
                                   {/* Only a plugin that is actually up says so: a badge that is
                                       always there reads as part of the layout rather than as a
                                       state, and "on demand" is the normal case for every card. */}

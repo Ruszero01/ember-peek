@@ -401,6 +401,9 @@ pub struct Manifest {
     /// catalogue can grow without invalidating already-published plugins.
     #[serde(default)]
     pub icon: Option<String>,
+    /// Optional release maturity marker, independent of the API version.
+    #[serde(default)]
+    pub beta: bool,
     pub executable: String,
     pub entry: String,
     pub capabilities: Vec<Capability>,
@@ -1077,6 +1080,17 @@ mod tests {
         }
         std::fs::write(directory.path().join("plugin.json"), value.to_string()).unwrap();
         Package::load(directory.path()).map(|package| package.manifest)
+    }
+
+    #[test]
+    fn beta_is_optional_and_serialized_for_installed_plugins() {
+        let manifest = load_with_icon(None).unwrap();
+        assert!(!manifest.beta);
+        let mut value = serde_json::to_value(manifest).unwrap();
+        value["beta"] = json!(true);
+        let beta: Manifest = serde_json::from_value(value).unwrap();
+        assert!(beta.beta);
+        assert_eq!(serde_json::to_value(beta).unwrap()["beta"], true);
     }
 
     #[test]

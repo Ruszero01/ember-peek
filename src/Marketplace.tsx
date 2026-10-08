@@ -1,3 +1,4 @@
+import {PluginBadge} from "./PluginBadge";
 import { useEffect, useState } from "react";
 import { Package, Download, RotateCw, LoaderCircle } from "lucide-react";
 import { call, desktop } from "./bridge";
@@ -48,7 +49,7 @@ function InstalledChip({
         {/* The version stays short so a real plugin name is never the part that gets
             truncated; what the update moves away from is in the button's tooltip, and the
             confirm dialog repeats it before anything is installed. */}
-        <span>v{entry.installedVersion}</span>
+        <span>v{entry.installedVersion}</span><PluginBadge beta={entry.beta}/>
       </span>
       {entry.updateAvailable && (
         <button
@@ -93,7 +94,7 @@ function AvailableCard({
       <div className="plugin-detail">
         <h2>
           {entry.name}
-          <span className="plugin-version">v{entry.version}</span>
+          <span className="plugin-version">v{entry.version}</span><PluginBadge beta={entry.beta}/>
         </h2>
         <p>{entry.summary}</p>
         <PluginDetails extensions={entry.extensions}>

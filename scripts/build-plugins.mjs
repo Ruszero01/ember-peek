@@ -527,6 +527,7 @@ async function publish(release, { dist = false } = {}) {
       name: manifest.name,
       extensions: manifest.extensions,
       ...(manifest.icon ? { icon: manifest.icon } : {}),
+      ...(manifest.beta ? { beta: true } : {}),
       targets: [target],
       summary: listing.summary,
       publisher: listing.publisher,

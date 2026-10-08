@@ -89,6 +89,7 @@ export type Plugin = {
   processIds: number[];
   /** Icon name to look up in the host set; unknown or absent falls back to a generic one. */
   icon?: string;
+  beta?: boolean;
   /** Declarations, used to render one control per setting. */
   settings: PluginSetting[];
   /** Current values, keyed by setting key: declared defaults plus user overrides. */
@@ -121,6 +122,7 @@ export type MarketEntry = {
   version: string;
   extensions: string[];
   icon?: string;
+  beta?: boolean;
   summary: string;
   publisher: string;
   /** The source suggests this one for a fresh installation. */
@@ -138,6 +140,7 @@ export type Control = {
   suffix?: string;
   label: string;
   icon?: string;
+  beta?: boolean;
   /** Toggle state: the host draws a pressed control. Ignored for other kinds. */
   active?: boolean;
 };

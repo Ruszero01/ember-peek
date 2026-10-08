@@ -1668,3 +1668,31 @@ kbd {
 .settings-main.tool-surface>.tool-page{display:flex;min-height:0;flex:1;flex-direction:column;margin:0;overflow:hidden}
 .settings-main.tool-surface>.tool-page iframe{display:block;width:100%;height:100%;min-height:0;flex:1;border:0}
 .workshop-preview-window{height:100vh;display:flex;flex-direction:column;overflow:hidden;background:var(--bg)}.workshop-preview-window>header{display:flex;align-items:center;gap:20px;padding:12px 18px;border-bottom:1px solid var(--border);font-size:12px}.workshop-preview-window>header>span{color:var(--muted);overflow-wrap:anywhere}.workshop-preview-canvas{flex:1;min-height:0}.workshop-preview-canvas iframe{width:100%;height:100%;border:0}.workshop-preview-window>.workshop-preview-controls{flex:none;justify-content:flex-start;border-top:1px solid var(--border);background:var(--card)}.workshop-preview-window>footer:empty{display:none}
+
+.plugin-sort-list{position:relative}
+.plugin-sort-list .plugin-nav-item{transition:transform .18s ease,background .18s}
+.plugin-sort-list .plugin-nav-item.is-dragging{opacity:0;transform:none;pointer-events:none}
+.plugin-drag-handle{touch-action:none}
+.plugin-sort-preview{position:fixed!important;margin:0!important;z-index:1000;pointer-events:none;background:var(--card);box-shadow:0 6px 20px #0004;border:1px solid var(--border);opacity:1!important;transition:none!important}
+.plugin-sort-preview.active{background:var(--accent-bg)}
+@media(prefers-reduced-motion:reduce){.plugin-sort-list .plugin-nav-item{transition:none}}
+
+/* Availability stays visible independently of the selected settings page. */
+.plugin-nav-item[data-enabled="true"] .plugin-nav-link>svg{color:var(--muted)}
+.plugin-nav-item[data-enabled="true"] .plugin-nav-link>strong{color:var(--muted)}
+.plugin-nav-item[data-enabled="true"].active .plugin-nav-link>svg,
+.plugin-nav-item[data-enabled="true"].active .plugin-nav-link>strong{color:var(--accent)}
+.plugin-nav-item[data-enabled="false"] .plugin-nav-link>svg,
+.plugin-nav-item[data-enabled="false"] .plugin-nav-link>strong{color:var(--faint)}
+.plugin-disabled-badge{flex:none;padding:2px 5px;border:1px solid var(--border);border-radius:5px;background:var(--raised);color:var(--muted);font-size:9px;font-weight:500;line-height:1.4;white-space:nowrap}
+
+/* Reserve the trailing metadata columns before sizing the plugin name. */
+.plugin-nav-link{display:grid;grid-template-columns:19px minmax(0,1fr) 25px;column-gap:12px;overflow:hidden}
+.plugin-nav-link:has(.plugin-disabled-badge){grid-template-columns:19px minmax(0,1fr) auto 25px;column-gap:8px}
+.plugin-nav-link>strong{display:block;max-width:100%}
+.plugin-nav-link>.plugin-order-number{width:25px;min-width:25px;margin:0}
+
+.plugin-beta-badge{display:inline-flex;flex:none;align-items:center;padding:2px 6px;border:1px solid color-mix(in srgb,var(--accent) 30%,transparent);border-radius:6px;background:var(--accent-bg);color:var(--accent);font-size:9px;font-weight:500;line-height:1.4;vertical-align:middle;margin-left:8px;white-space:nowrap}
+
+.plugin-detail h2{gap:6px}
+.plugin-detail h2>.plugin-beta-badge,.installed-chip-text>.plugin-beta-badge{margin-left:0}

@@ -1,5 +1,6 @@
 {
   "api": 1,
+  "beta": true,
   "id": "ember.workshop",
   "name": "插件工坊",
   "version": "0.1.0",

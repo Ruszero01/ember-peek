@@ -156,6 +156,8 @@ struct Listing {
     extensions: Option<Vec<String>>,
     #[serde(default)]
     icon: Option<String>,
+    #[serde(default)]
+    beta: bool,
 }
 
 /// The display text one language replaces in a catalog entry.
@@ -175,6 +177,7 @@ struct Offering {
     version: String,
     extensions: Vec<String>,
     icon: Option<String>,
+    beta: bool,
     summary: String,
     publisher: String,
     targets: Vec<String>,
@@ -214,6 +217,7 @@ pub struct Entry {
     pub extensions: Vec<String>,
     /// Declared icon name, so the market card matches the installed card.
     pub icon: Option<String>,
+    pub beta: bool,
     pub summary: String,
     pub publisher: String,
     /// Suggested for a fresh installation.
@@ -368,6 +372,7 @@ impl Market {
                 version: offering.version.clone(),
                 extensions: offering.extensions.clone(),
                 icon: offering.icon.clone(),
+                beta: offering.beta,
                 summary: offering.summary.clone(),
                 publisher: offering.publisher.clone(),
                 recommended: offering.recommended,
@@ -807,6 +812,7 @@ fn resolve(listing: &Listing, source: &Source, label: &str) -> Result<Offering, 
         version: listing.version.clone(),
         extensions: listing.extensions.clone().unwrap_or_default(),
         icon: listing.icon.clone(),
+        beta: listing.beta,
         summary,
         publisher: listing.publisher.clone(),
         targets: listing.targets.clone(),
@@ -937,6 +943,14 @@ mod tests {
 
     fn catalog(source: Source, entries: Vec<Listing>) -> RemoteCatalog {
         RemoteCatalog { source, entries }
+    }
+
+    #[test]
+    fn beta_defaults_off_and_survives_catalog_resolution() {
+        let mut entry = listing("test.beta", "beta.zip");
+        assert!(!entry.beta);
+        entry.beta = true;
+        assert!(resolve(&entry, &source(), "Tests").unwrap().beta);
     }
 
     #[test]
