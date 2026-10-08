@@ -107,6 +107,13 @@ export const zhCN: Catalog = {
   "progress.installLocal": "正在校验并安装本地插件…",
   "progress.refreshPlugins": "正在刷新插件列表…",
 
+  "about.checkUpdate": "检查更新",
+  "about.updateChecking": "正在检查…",
+  "about.downloadUpdate": "下载 v{version}",
+  "about.currentVersion": "当前版本：v{version}",
+  "about.updateAvailable": "发现新版本 v{version}",
+  "about.upToDate": "当前已是最新版本",
+  "about.updateFailed": "检查失败，请稍后重试",
   "about.tagline": "余光一瞥",
   "about.installed": "已安装插件",
   "about.directory": "插件目录",

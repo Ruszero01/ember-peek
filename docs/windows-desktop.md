@@ -5,10 +5,20 @@
 `npm run build:desktop -- --bundles nsis --ci -- --locked` 构建 Windows x64 NSIS 安装程序，输出到 `target/release/bundle/nsis/*-setup.exe`。按当前用户安装，提供简体中文和英文界面；缺少 WebView2 时使用 Tauri 默认的联网引导安装方式。安装包包含官方插件源配置，插件独立从 OSS 下载，不包含发布凭据。
 
 - 普通分支推送和 PR 不触发远程构建；`Manual baseline checks` 仅供维护者显式运行，统一执行版本与发布日志校验、Rust 格式与 Clippy、前端构建、插件构建和全部自动化测试。
-- 只有推送与应用版本一致的标签（例如 `v0.1.0`）才触发 `Release Windows desktop`。该任务先执行完整 CI，再构建一次安装包并创建 GitHub Release 草稿，附安装包和 `SHA256SUMS.txt`，由维护者验收后发布。产物保留 30 天，Release 附件不受此期限影响。
+- 只有推送与应用版本一致的标签（例如 `v0.1.0`）才触发 `Release Windows desktop`。该任务先执行完整 CI，再构建一次安装包并先创建 GitHub Release 草稿，附安装包和 `SHA256SUMS.txt` 后自动发布为预发布（不设为 Latest），供维护者下载验收。产物保留 30 天，Release 附件不受此期限影响。
 - 本体发布使用 GitHub 自带的 `GITHUB_TOKEN`，不需要 OSS 密钥。工作流必须先提交推送；手动入口需要工作流进入默认分支。
-- Release 正文来自根目录 `CHANGELOG.md` 的 `## [版本号]` 章节，自动按 `package.json` 版本提取，缺失、重复或为空时构建失败；重跑草稿发布会同步更新正文。发版前先写日志，再更新版本和推送标签。`npm run release:notes` 可本地预览正文。
+- Release 正文来自根目录 `CHANGELOG.md` 的 `## [版本号]` 章节，自动按 `package.json` 版本提取，缺失、重复或为空时构建失败；重跑尚未公开的草稿会同步更新正文，已公开的预发布或正式发布不会被覆盖。发版前先写日志，再更新版本和推送标签。`npm run release:notes` 可本地预览正文。
 - 当前未配置 Windows 代码签名证书，安装包未签名。CI 的构建成功不等于安装、卸载和 Explorer 集成验收通过；请在 Windows 测试机验证。
+
+## 宿主检查更新与正式发布
+
+关于页在信息列表中显示当前版本与检查更新按钮，仅在检查后显示结果，不显示源选择提示。手动检查更新优先读取官方 OSS 源下的 `channels/stable/desktop/windows-x86_64/latest.json`，OSS 请求失败或元数据无效时回退到 GitHub `/releases/latest`。只接受正式 SemVer 版本，按版本号比较；忽略预发布，下载地址限定官方 OSS 安装包目录或本项目 GitHub Release 附件。检查不会下载或执行安装包，也不会自动替换应用；用户点击下载后由浏览器打开安装包地址。
+
+推送版本标签后，`Release Windows desktop` 完成完整 CI 和安装包构建，将完整附件发布为 GitHub 预发布。测试通过后，维护者在 GitHub Release 编辑页面取消预发布选项并保存。`release: released` 事件触发 `Mirror stable desktop release to OSS`，使用 `plugin-production` 环境的 OSS 配置下载并校验该 Release 已测试的安装包，不重新构建。安装包上传到 `desktop/windows-x86_64/<version>/`，最后更新稳定版本元数据。重复运行允许相同字节，拒绝替换相同版本的不同安装包或把稳定指针降级。
+
+OSS 需允许匿名读取 `channels/*` 和 `desktop/*`；发布身份需能读取、写入这两类对象。工作流进入默认分支后才可用于正式发布流程。插件仍通过独立的 `Publish official plugins` 工作流发布。宿主暂不提供后台更新、自动安装或签名更新；Windows 原生交互与真实发布晋级流程须按测试矩阵手动验收。
+
+参考：[GitHub Release 事件](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#release)。
 
 参考：[Tauri Windows 安装程序](https://v2.tauri.app/distribute/windows-installer/)。
 

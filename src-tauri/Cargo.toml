@@ -10,6 +10,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = ["tray-icon"] }
 rfd = "0.15"
+semver = "1"
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true

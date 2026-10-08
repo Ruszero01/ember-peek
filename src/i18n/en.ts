@@ -119,6 +119,13 @@ export const en = {
   "progress.installLocal": "Verifying and installing the local plugin…",
   "progress.refreshPlugins": "Refreshing the plugin list…",
 
+  "about.checkUpdate": "Check for updates",
+  "about.updateChecking": "Checking…",
+  "about.downloadUpdate": "Download v{version}",
+  "about.currentVersion": "Current version: v{version}",
+  "about.updateAvailable": "Version {version} is available",
+  "about.upToDate": "You are up to date",
+  "about.updateFailed": "Could not check for updates. Please try again.",
   "about.tagline": "A fleeting glance",
   "about.installed": "Installed plugins",
   "about.directory": "Plugin directory",

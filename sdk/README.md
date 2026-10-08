@@ -157,3 +157,5 @@ and control-local keyboard behavior still belong to the focused widget.
 ## License
 
 The SDK is licensed under [Apache License 2.0](../LICENSE). Redistributed SDK files must retain the applicable license and attribution notices. Plugins may choose their own license for their original code.
+
+Host application update checks are provided by the About page and are separate from plugin installation and SDK messaging. Plugins do not need an update-check capability.

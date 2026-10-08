@@ -758,7 +758,7 @@ h2 {
 }
 .about {
   text-align: center;
-  padding: 42px;
+  padding: 42px 42px 24px;
 }
 .about > h1 {
   margin: 20px 0 12px;
@@ -1696,3 +1696,8 @@ kbd {
 
 .plugin-detail h2{gap:6px}
 .plugin-detail h2>.plugin-beta-badge,.installed-chip-text>.plugin-beta-badge{margin-left:0}
+
+.about-details > span:last-child { padding-bottom: 0; }
+.about-update-row { border-top: 1px solid var(--border); padding: 16px 0; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; color: var(--muted); font-size: 11px; }
+.about-update-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.about-updates p { color: var(--muted); font-size: 12px; margin: 0 0 12px; }
