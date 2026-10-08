@@ -134,7 +134,7 @@ mod platform {
             }
             // The capture is opaque; alpha from a composited frame is not meaningful.
             let mut rgba = Vec::with_capacity(pixels * 4);
-            for pixel in buffer.chunks_exact(4) {
+            for pixel in buffer.as_chunks::<4>().0 {
                 rgba.extend_from_slice(&[pixel[2], pixel[1], pixel[0], 255]);
             }
             encode(width, height, &rgba)
@@ -147,7 +147,9 @@ mod platform {
         };
         let first: &[u8] = first;
         buffer
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .step_by(37)
             .all(|pixel| pixel == first)
     }
