@@ -192,6 +192,12 @@ mod platform {
             assert!(!uniform(&pixels));
             assert!(uniform(&[]));
         }
+
+        #[test]
+        fn incomplete_pixels_do_not_change_the_uniform_frame_check() {
+            assert!(uniform(&[1, 2, 3]));
+            assert!(uniform(&[1, 2, 3, 255, 9, 8, 7]));
+        }
     }
 }
 
