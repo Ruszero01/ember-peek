@@ -1,3 +1,5 @@
+@import "./sdk-scrollbars.css";
+
 /* Shared plugin UI kit, copied into each package next to sdk.js.
  *
  * Rules of the kit:
@@ -427,24 +429,13 @@
   translate: 0;
 }
 
-/* --- scrollbars ----------------------------------------------------------- */
-/* One treatment for every plugin document: the platform default is light, arrowed and
-   theme-blind, which is glaring inside a dark panel. */
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-::-webkit-scrollbar-track,
-::-webkit-scrollbar-corner {
-  background: transparent;
-}
-::-webkit-scrollbar-thumb {
-  background: var(--border, #303137);
-  border: 2px solid transparent;
-  background-clip: padding-box;
-  border-radius: 8px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: var(--muted, #9a9aa2);
-  background-clip: padding-box;
-}
+/* Reusable compact plugin forms. Behaviour remains owned by the plugin. */
+.ui-form { display:flex; flex-direction:column; gap:var(--space-3,12px); padding:var(--space-3,12px); box-sizing:border-box; }
+.ui-form-heading { margin:0; font-size:13px; font-weight:600; }
+.ui-form-help { margin:0; color:var(--muted,#9a9aa2); font-size:11px; line-height:1.6; overflow-wrap:anywhere; }
+.ui-form-group { display:flex; flex-direction:column; gap:var(--space-2,8px); }
+.ui-form-actions { display:flex; gap:var(--space-2,8px); padding-top:var(--space-3,12px); border-top:1px solid var(--border,#303137); }
+.ui-form-actions > .ui-button { flex:1; }
+.ui-file { display:flex; align-items:center; gap:var(--space-2,8px); min-width:0; padding:var(--space-2,8px); border:1px dashed var(--border,#303137); border-radius:var(--radius-control,7px); background:var(--panel,#1d1e22); }
+.ui-file-name { min-width:0; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--muted,#9a9aa2); font-size:11px; }
+.ui-button:focus-visible { outline:2px solid var(--accent,#f4a477); outline-offset:2px; }

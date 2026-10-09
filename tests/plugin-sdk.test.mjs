@@ -172,3 +172,34 @@ test('declared shortcuts roundtrip through the host independently of toolbar act
   assert.equal(prevented,false);
  } finally { globalThis.Element=oldElement;port1.close();port2.close(); }
 });
+
+test('shared state SDK restores and writes opaque groups over the existing channel', async () => {
+ const {sdk,browserListeners,parentWindow}=await sdkPage('shared-state');
+ const {port1,port2}=new MessageChannel();
+ let stored={page:2,y:0.4,expanded:true}, local={page:1}, writes=0;
+ port1.onmessage=event=>{
+  const message=event.data;
+  if(message.type==='connected'){
+   port1.postMessage({type:'init',session:'test',file:{name:'sample.pdf'},visible:true,theme:{},locale:'en',settings:{}});
+  }else if(message.type==='request'&&message.method==='viewState'){
+   if(message.params.value!==null){ stored=message.params.value; writes++; }
+   port1.postMessage({type:'reply',id:message.id,value:stored});
+  }
+ };
+ port1.start();
+ browserListeners.get('message')({source:parentWindow,data:{type:'ember:connect'},ports:[port2]});
+ let sync;
+ try {
+  sync=await sdk.synchronizeState(()=>local,async state=>{local=state;});
+  assert.deepEqual(local,{page:2,y:0.4,expanded:true});
+  await sync.changed();
+  assert.equal(writes,0);
+  local={page:4,y:0.6};
+  await sync.changed();
+  assert.deepEqual(stored,local);
+  assert.equal(writes,1);
+ }finally{
+  sync?.dispose();
+  port1.close(); port2.close();
+ }
+});

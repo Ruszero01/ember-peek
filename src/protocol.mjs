@@ -31,6 +31,8 @@ export function validateControls(value, say = (key) => key) {
       !Number.isFinite(item.value) || !Number.isFinite(item.min) || !Number.isFinite(item.max) ||
       item.min <= 0 || item.max <= item.min || item.value < item.min || item.value > item.max
     )) throw new Error(say("protocol.invalidScrubRange"));
+    if (item.kind === "scrub" && item.direction !== undefined && !["up", "down"].includes(item.direction))
+      throw new Error(say("protocol.invalidScrubRange"));
     ids.add(item.id);
     return {
       id: item.id,
@@ -40,9 +42,19 @@ export function validateControls(value, say = (key) => key) {
       // Only meaningful for a toggle; the host uses it to draw the pressed state.
       active: item.active === true,
       ...(item.kind === "scrub" ? { value: item.value, min: item.min, max: item.max,
-        suffix: typeof item.suffix === "string" ? item.suffix.slice(0, 8) : "" } : {}),
+        suffix: typeof item.suffix === "string" ? item.suffix.slice(0, 8) : "",
+        direction: item.direction ?? "up" } : {}),
     };
   });
+}
+
+export function scrubPosition(value, min, max, direction = "up") {
+  const position = Math.max(0, Math.min(1, (value - min) / (max - min)));
+  return direction === "down" ? 1 - position : position;
+}
+
+export function scrubDragValue(value, deltaY, direction = "up") {
+  return value * Math.exp((direction === "down" ? deltaY : -deltaY) / 40);
 }
 
 /** Generated plugins are created against the current SDK and therefore use its full

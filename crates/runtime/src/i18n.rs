@@ -188,7 +188,7 @@ text! {
     source_failed: "解析源失败：{error}", "The data source failed: {error}";
     no_source: "没有可用的解析源", "No data source available";
     source_expired: "解析源已过期", "The data source expired";
-    no_contract: "该插件没有共享数据契约", "This plugin has no shared data contract";
+    no_contract: "该插件没有声明共享契约", "This plugin has no declared shared contract";
     plugin_disabled: "插件已停用", "The plugin is disabled";
 
     // The host's own toolbar actions. They belong to no plugin, so their text lives here.

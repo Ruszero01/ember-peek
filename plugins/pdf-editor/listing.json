@@ -1,0 +1,5 @@
+{
+  "summary": "编辑 PDF 原有文字片段、替换图片、增删页面，支持撤销和保存冲突检查。",
+  "i18n": { "en": { "summary": "Edit existing PDF text, replace images, add or delete pages, with undo and protected saving." } },
+  "publisher": "Ember Peek"
+}

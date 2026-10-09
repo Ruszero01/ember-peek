@@ -1,0 +1,8 @@
+html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; }
+body { background: var(--bg, #202020); }
+#viewport { height: 100%; box-sizing: border-box; overflow: auto; scrollbar-gutter: stable; padding: calc(var(--safe-top, 0px) + 8px) 8px calc(var(--safe-bottom, 0px) + 8px); }
+canvas { display: block; margin: auto; background: white; box-shadow: 0 2px 16px #0003; }
+canvas[hidden] { display: none; }
+.pdf-page { position: relative; margin: 0 auto 16px; background: white; box-shadow: 0 2px 16px #0003; }
+.pdf-page:last-child { margin-bottom: 0; }
+.pdf-page canvas { margin: 0; box-shadow: none; }

@@ -17,6 +17,26 @@ does not dynamically link against host source files.
 
 ## Web view SDK
 
+Numeric `scrub` controls accept optional `direction: "up" | "down"` (default `up`).
+`down` puts the minimum at the top and reverses vertical dragging and Up/Down keys.
+Left/Right and Home/End retain their numeric meaning. This is an additive `api:1` field;
+PDF page navigation uses `down`, while zoom keeps the default direction.
+
+The official PDF baseline uses `read()` with a PDF.js range transport and a packaged blob worker.
+The worker is bundled as a classic IIFE because sandboxed opaque iframe origins cannot start
+blob module workers in WebView2. Worker startup errors are reported through the presentation lifecycle.
+It renders one page at a time, publishes navigation/zoom/rotation through `controls()`, and reports
+page information through `status()`. No PDF-specific host API or shared source contract is added.
+Its `viewMode` select setting switches immediately between single-page (default) and continuous
+reading, preserving the current page. Continuous reading renders visible and neighboring pages
+and releases distant canvases; scroll position updates the host page controls and status.
+Both modes default to filling the window using the larger width/height scale ratio, with an
+8px margin plus host safe insets. Overflow remains scrollable. The `fitWindow` boolean setting
+defaults to true; false fits the entire page using the smaller scale ratio. Changes apply immediately.
+The Fill window toggle reflects fill mode and switches between fill and entire-page sizing for
+the current view without changing the default. Manual zoom clears the toggle's active state.
+Password input, text selection, search, and editing are outside this first baseline.
+
 Every view imports `./sdk.js` and awaits `ready` before using session-bound APIs.
 
 | Area | Exports |
@@ -30,6 +50,7 @@ Every view imports `./sdk.js` and awaits `ready` before using session-bound APIs
 | Settings | `configuration`, `onSettings`, `setSetting` |
 | Language/theme | `locale`, `onLocale`, `translate`, `onTheme` |
 | View/panel coordination | `postTo`, `onMessage`, `viewState` |
+| Shared state lifecycle | `synchronizeState` |
 | Diagnostics and clipboard | `diagnosticsOf`, `clipboard` |
 | Leaving the preview | `openExternal` (requires `openLink`) |
 
@@ -138,6 +159,11 @@ Workshop tasks directly.
 
 ## Declared plugin shortcuts
 
+The PDF plugin declares Left/Right page navigation and Up/Down scrolling with repeat enabled,
+plus Home/End. The host binds and dispatches opaque IDs; PDF callbacks implement scrolling and
+the 220ms continuous-mode page transition. Single-page navigation switches pages immediately.
+Wheel/pointer input or vertical navigation interrupts a transition; reduced motion skips it.
+
 After `await ready`, call `await shortcuts([{id: "save", key: "Ctrl+S", allowInInputs: true, run: save}])`.
 The host validates and binds the list for that mount; a later call replaces it and `shortcuts([])`
 unregisters it. Toolbar controls and shortcuts keep separate callback maps. The host delivers only
@@ -159,3 +185,33 @@ and control-local keyboard behavior still belong to the focused widget.
 The SDK is licensed under [Apache License 2.0](../LICENSE). Redistributed SDK files must retain the applicable license and attribution notices. Plugins may choose their own license for their original code.
 
 Host application update checks are provided by the About page and are separate from plugin installation and SDK messaging. Plugins do not need an update-check capability.
+
+### Shared state independent of parsing
+
+Declare `"viewStateContract": "example.position/1"` in the manifest to share an opaque state group between plugins for the same file. This does not require `provides` or `consumes`. Without the new field, `viewState` still uses the existing data contract. Contract identifiers are at most 100 bytes and contain only ASCII letters, digits, or `.-/@`.
+
+`await viewState()` reads the group (null when absent); `await viewState(value)` replaces the entire JSON group. Multiple related fields belong in one object. The host isolates groups by canonical file path and contract, accepts at most 4096 encoded bytes per group, retains at most 128 groups in memory, and evicts the least recently written group. State survives session recreation after saving or updating a plugin, but ends when the host exits. Plugins own the schema, validation, and versioning; draft document contents stay in the editor.
+
+`await synchronizeState(get, restore)` restores on initial visibility and every later activation, waits for asynchronous restoration, flushes before hiding, and suppresses writes from hidden or restoring views. Its result provides `changed()`, `flush()`, and `dispose()`. Return undefined from `get()` until the view is ready. Restore errors reject initial setup; callers should handle them. The host treats the state as opaque.
+
+```js
+const sync = await synchronizeState(
+  () => ({ page, x, y }),
+  async value => { await restoreValidatedPosition(value); },
+);
+viewport.addEventListener("scroll", () => void sync.changed());
+window.addEventListener("pagehide", () => { void sync.flush(); sync.dispose(); });
+```
+The official PDF preview and independent PDF editor use `ember.pdf-position/1` for page-relative reading state. The editor uses native draft RPCs through `call` and commits through `mutate` with `writeFile`; form inputs stay in the overlay. See the [PDF plugin contract](../docs/specs/pdf-plugins.md).
+
+Plugin UI kit forms reuse `.ui-form`, `.ui-form-heading`, `.ui-form-help`, `.ui-form-group`, and `.ui-form-actions`. File pickers use `.ui-file` with an existing `.ui-button` and `.ui-file-name`; the plugin owns a hidden native file input and updates the name. Use `.ui-button.primary` for the primary action. These styles use host theme tokens, including focus and disabled states, without adding host business logic. PDF image corner handles remain document interaction owned by the editor; resizing commits one native draft operation on pointer release.
+
+The host tracks initial view presentation separately from idle collection. Its 120-second presentation deadline starts only while the owning mount is visible, clears on hide/unmount, and ends with `presented()`. Inactive or never-mounted views do not time out while another plugin handles the current file; secondary panels cannot alter this timer. Plugins continue using the existing SDK lifecycle without a new declaration or heartbeat.
+
+Host action pills use compact shadows with padding inside their horizontal scroll clip. This chrome spacing does not expand the reveal hit target: transparent gaps still belong to the plugin viewport. Plugin UI kit button styles are unchanged.
+
+Scrollbar styling has one source in `web/scrollbars.css`, imported by host chrome and copied as `sdk-scrollbars.css` into plugin packages. Link `sdk-ui.css` to include it automatically, or link `sdk-scrollbars.css` for scrollbar styling alone. Both axes use an 8px transparent track, a rounded theme-token thumb with hover/active states, and no arrow buttons. Immersive host chrome leaves space outside this edge track, so floating controls do not cover scrollbar dragging.
+
+Every official plugin entry links the shared UI stylesheet, including PDF and image views. Text surfaces do not override it with standard scrollbar properties that would suppress WebView2 pseudo-element styling.
+
+Stateful editors must refresh native draft metadata when their view remounts instead of reusing opening metadata. Serialize renders with mutations and keep rejected selections recoverable. The PDF editor supports independent image width/height changes, with Shift preserving aspect ratio.

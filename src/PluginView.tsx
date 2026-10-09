@@ -1,10 +1,13 @@
 import { validateShortcuts, matchShortcut, type ShortcutBinding } from "../sdk/web/shortcuts.js";
 import { useEffect, useRef } from "react";
+import { createViewVisibilityReporter } from "./viewLifecycle";
 import { call, viewUrl } from "./bridge";
 import { validateControls, validateDialog, isSessionOwning, ROLES } from "./protocol.mjs";
 import { useT } from "./i18n";
 import type { PluginDialogRequest } from "./protocol.mjs";
 import type { Control, Session, Theme, ViewReport } from "./types";
+
+const reportVisibility = createViewVisibilityReporter((id, visible) => call("set_view_visibility", {id, visible}));
 
 export function PluginView({
   session,
@@ -108,6 +111,11 @@ export function PluginView({
   useEffect(() => {
     channel.current?.port1.postMessage({ type: "visible", visible });
   }, [visible]);
+  useEffect(() => {
+    if (secondary) return;
+    void reportVisibility(session.id, visible).catch(() => {});
+    return () => { void reportVisibility(session.id, false).catch(() => {}); };
+  }, [session.id, secondary, visible]);
   useEffect(
     () => () => {
       generation.current++;

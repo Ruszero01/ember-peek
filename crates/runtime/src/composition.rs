@@ -222,6 +222,7 @@ impl Runtime {
                     package: package.clone(),
                     data: json!({"cacheKey":cache_key}),
                     touched: Instant::now(),
+                    view_initialization: Default::default(),
                     last_used: Instant::now(),
                     calls: usize::from(error.is_none()),
                     source: source.clone(),

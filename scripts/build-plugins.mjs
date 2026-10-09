@@ -15,6 +15,7 @@ import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { readTree, createZip } from "./zip.mjs";
+import { selectSdkAssets } from "./sdk-assets.mjs";
 import { packageTable } from "./cargo-manifest.mjs";
 import { hashInput, hashInputTree } from "./release-inputs.mjs";
 
@@ -27,6 +28,7 @@ const webSdk = path.join(root, "sdk", "web", "index.js");
 // Shared plugin-side UI. Copied into every package next to sdk.js and folded into the
 // build hash, so changing a shared component republishes the packages that use it.
 const webSdkExtras = [
+  [path.join(root, "sdk", "web", "state.js"), "state.js"],
   [path.join(root, "sdk", "web", "shortcuts.js"), "shortcuts.js"],
   // Loaded by a page before its own module: the CSP allows no inline script, so a page whose
   // module never boots would otherwise show nothing at all.
@@ -35,6 +37,7 @@ const webSdkExtras = [
   [path.join(root, "sdk", "web", "search.js"), "sdk-search.js"],
   [path.join(root, "sdk", "web", "text", "surface.css"), "sdk-text.css"],
   [path.join(root, "sdk", "web", "ui.css"), "sdk-ui.css"],
+  [path.join(root, "sdk", "web", "scrollbars.css"), "sdk-scrollbars.css"],
 ];
 /** Shared modules esbuild bundles into a package as `sdk-<name>.js`, next to the copied ones. */
 const bundledSdk = ["view", "navigation", "markdown"];
@@ -445,10 +448,10 @@ async function publish(release, { dist = false } = {}) {
     // Both the published name (`./sdk-search.js`) and the source file name (`search.js`)
     // count, so a plugin written against either spelling still gets the file it imports.
     const uiText = await treeText(path.join(directory, "ui"));
-    const extras = webSdkExtras.filter(([source, name]) => {
-      const base = path.basename(source);
-      return name === "shortcuts.js" || uiText.includes(name) || uiText.includes(base);
-    });
+    const assets = await Promise.all(webSdkExtras.map(async ([source, name]) => ({
+      source, name, contents: await readFile(source, "utf8"),
+    })));
+    const extras = selectSdkAssets(uiText, assets).map(({ source, name }) => [source, name]);
     const bundled = [];
     const agentFiles = [];
     if (manifest.id === "ember.workshop") {

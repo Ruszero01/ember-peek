@@ -1,0 +1,17 @@
+[package]
+name = "ember-pdf-editor-plugin"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+ember-plugin-sdk = { path = "../../../sdk/native" }
+ember-file-store = { path = "../../../crates/file-store" }
+serde_json.workspace = true
+pdfium-render = { version = "=0.9.4", default-features = false, features = ["pdfium_7881", "thread_safe", "image_025"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+sha2 = "0.10"
+base64 = "0.22"
+
+[dev-dependencies]
+tempfile = "3"

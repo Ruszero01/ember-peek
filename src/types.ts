@@ -138,6 +138,7 @@ export type Control = {
   min?: number;
   max?: number;
   suffix?: string;
+  direction?: "up" | "down";
   label: string;
   icon?: string;
   beta?: boolean;

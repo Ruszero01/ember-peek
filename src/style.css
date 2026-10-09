@@ -1,3 +1,5 @@
+@import "../sdk/web/scrollbars.css";
+
 :root {
   font-family:
     Inter, "Segoe UI Variable", "Segoe UI", "Microsoft YaHei", sans-serif;
@@ -918,6 +920,10 @@ kbd {
   box-shadow: 0 2px 8px #00000026;
   backdrop-filter: blur(18px) saturate(130%);
 }
+.toolbar-actions,
+.toolbar-host-actions {
+  box-shadow: 0 1px 3px -1px #00000018;
+}
 .preview-app .brand {
   height: 38px;
   margin: 9px 0 9px 11px;
@@ -966,6 +972,9 @@ kbd {
    be able to land on one to call the bars back, and entering it shows them in the same moment,
    so what gets clicked is a pill that is already on screen. The box that reveals the chrome is
    then the box the user can see, instead of a second, invisible one drawn beside it. */
+.preview-app[data-viewport="window"] {
+  --chrome-pad: calc(var(--scrollbar-size, 8px) + 10px);
+}
 .preview-app[data-viewport="window"] .title-layer,
 .preview-app[data-viewport="window"] .preview-overlays {
   pointer-events: none;
@@ -1023,6 +1032,9 @@ kbd {
   left: 0;
   right: 0;
 }
+.preview-app[data-viewport="window"] .window-buttons {
+  margin-right: var(--chrome-pad);
+}
 .preview-app[data-viewport="window"] .preview-overlays {
   bottom: var(--chrome-pad);
   /* The row keeps its own padding as the gap, so the reveal animation no longer has to
@@ -1074,6 +1086,9 @@ kbd {
   text-overflow: ellipsis;
 }
 .preview-action-groups {
+  /* Keep the compact pill shadows inside the scrolling clip without moving the row. */
+  padding: 4px;
+  margin: -4px;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -1143,18 +1158,6 @@ kbd {
   to {
     transform: rotate(360deg);
   }
-}
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-::-webkit-scrollbar-thumb {
-  background: var(--border);
-  border-radius: 6px;
-  border: 2px solid var(--canvas);
-}
-::-webkit-scrollbar-corner {
-  background: var(--canvas);
 }
 @media (max-width: 800px) {
   .sidebar {
