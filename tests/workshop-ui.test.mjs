@@ -641,3 +641,46 @@ test('background polling preserves model options when the provider list is uncha
  const options=f.elements['project-chat-model'].children;
  await f.poll();assert.equal(f.elements['project-chat-model'].children,options);
 });
+
+
+test('model selection captures the clicked IDs before busy rendering restores the saved selection',async()=>{
+ const f=fixture();
+ f.state.providers=[{id:'provider',name:'Service',models:[{id:'old',name:'Old'},{id:'new',name:'New'}]}];
+ f.state.config={id:'provider',endpoint:'https://example.invalid',model:'old'};
+ f.connect();await f.settle();
+ f.elements['project-chat-model'].value=JSON.stringify(['provider','new']);
+ await f.elements['project-chat-model'].onchange();
+ assert.deepEqual(JSON.parse(JSON.stringify(f.calls.find(c=>c.method==='selectModel').params)),{providerId:'provider',model:'new'});
+ assert.equal(f.elements['model-picker-label'].textContent,'Service · Old');
+});
+
+test('searchable model menu submits the clicked model and handles unmatched configuration',async()=>{
+ const f=fixture();
+ f.state.providers=[{id:'provider',name:'Service',models:[{id:'alpha',name:'Alpha'},{id:'beta',name:'Beta'}]}];
+ f.connect();await f.settle();
+ assert.equal(f.elements['model-picker-label'].textContent,'选择模型');
+ assert.equal(f.elements['project-chat-model'].value,'');
+ f.elements['model-picker-search'].value='beta';f.elements['model-picker-search'].oninput();
+ const buttons=f.elements['model-picker-options'].children;assert.equal(buttons.length,1);
+ assert.equal(buttons[0].children[0].textContent,'Beta');
+ await buttons[0].onclick();
+ assert.deepEqual(JSON.parse(JSON.stringify(f.calls.find(c=>c.method==='selectModel').params)),{providerId:'provider',model:'beta'});
+ assert.equal(f.elements['model-picker'].open,false);
+});
+
+
+test('polling preserves open model menu nodes, search and scroll while updating availability',async()=>{
+ const f=fixture();f.state.providers=[{id:'one',name:'Service',models:[{id:'m',name:'Model'}]}];
+ f.connect();await f.settle();
+ const menu=f.elements['model-picker-options'];f.elements['model-picker'].open=true;
+ f.elements['model-picker-search'].value='model';f.elements['model-picker-search'].oninput();
+ const nodes=menu.children,button=nodes[0];menu.scrollTop=80;
+ await f.poll();await f.poll();
+ assert.equal(menu.children,nodes);assert.equal(menu.children[0],button);
+ assert.equal(menu.scrollTop,80);assert.equal(f.elements['model-picker-search'].value,'model');
+ assert.equal(f.elements['model-picker'].open,true);
+ f.state.projects=[project({status:'generating',busy:true})];await f.poll();
+ assert.equal(menu.children[0],button);assert.equal(button.disabled,true);
+ f.state.projects=[];f.state.providers[0].models.push({id:'other',name:'Other Model'});await f.poll();
+ assert.notEqual(menu.children,nodes);assert.equal(menu.children.length,2);
+});
