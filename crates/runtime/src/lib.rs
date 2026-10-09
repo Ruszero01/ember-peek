@@ -67,10 +67,31 @@ struct Session {
     package: Package,
     data: Value,
     touched: Instant,
+    view_initialization: ViewInitialization,
     /// Last open or selection, independent of when an asynchronous parse happened to finish.
     last_used: Instant,
     calls: usize,
     source: Option<String>,
+}
+
+/// Only a mounted, visible owner is expected to finish its first presentation.
+#[derive(Default)]
+struct ViewInitialization {
+    started: Option<Instant>,
+}
+impl ViewInitialization {
+    fn set_visible(&mut self, visible: bool, now: Instant) {
+        if visible {
+            self.started.get_or_insert(now);
+        } else {
+            self.started = None;
+        }
+    }
+    fn timed_out(&self, now: Instant) -> bool {
+        self.started.is_some_and(|started| {
+            now.saturating_duration_since(started) >= Duration::from_secs(120)
+        })
+    }
 }
 
 /// Where the user left the preview window, in CSS pixels: the window is theirs to size, so the
@@ -409,7 +430,7 @@ impl Runtime {
         self.persist(&inner)
     }
 
-    /// Opaque, bounded navigation state shared only by the same file and data contract.
+    /// Opaque, bounded state shared only by the same file and declared contract.
     pub async fn view_state(&self, id: &str, value: Option<Value>) -> Result<Value, String> {
         let mut inner = self.inner.lock().await;
         let session = inner
@@ -419,8 +440,9 @@ impl Runtime {
         let contract = session
             .package
             .manifest
-            .provides
+            .view_state_contract
             .as_ref()
+            .or(session.package.manifest.provides.as_ref())
             .or(session.package.manifest.consumes.as_ref())
             .ok_or_else(|| msg!(text().no_contract))?;
         let key = (session.path.clone(), contract.clone());
@@ -758,6 +780,20 @@ impl Runtime {
         Ok(session.data["result"].clone())
     }
 
+    /// Host-owned visibility; secondary panel mounts must not change the owner's timer.
+    pub async fn set_view_visibility(&self, id: &str, visible: bool) -> Result<(), String> {
+        let mut inner = self.inner.lock().await;
+        let session = inner
+            .sessions
+            .get_mut(id)
+            .ok_or_else(|| msg!(text().session_expired))?;
+        session.view_initialization.set_visible(
+            visible && session.info.status == "ready" && !session.info.view_ready,
+            Instant::now(),
+        );
+        Ok(())
+    }
+
     pub async fn complete_view(&self, id: &str, error: Option<String>) -> Result<(), String> {
         let mut inner = self.inner.lock().await;
         let session = inner
@@ -765,6 +801,7 @@ impl Runtime {
             .get_mut(id)
             .ok_or_else(|| msg!(text().session_expired))?;
         session.info.view_ready = true;
+        session.view_initialization.started = None;
         session.touched = Instant::now();
         if let Some(error) = error {
             session.info.status = "error".into();
@@ -1559,10 +1596,11 @@ impl Runtime {
         for session in inner.sessions.values_mut() {
             if session.info.status == "ready"
                 && !session.info.view_ready
-                && session.touched.elapsed() >= Duration::from_secs(120)
+                && session.view_initialization.timed_out(Instant::now())
             {
                 session.info.status = "error".into();
                 session.info.error = Some(msg!(text().view_timeout));
+                session.view_initialization.started = None;
                 session.touched = Instant::now();
             }
         }
@@ -1572,7 +1610,9 @@ impl Runtime {
             .filter(|(_, s)| {
                 !pinned.contains(&s.info.file_id)
                     && s.calls == 0
-                    && (s.info.status != "ready" || s.info.view_ready)
+                    && (s.info.status != "ready"
+                        || s.info.view_ready
+                        || s.view_initialization.started.is_none())
                     && s.touched.elapsed() >= self.ttl
             })
             .map(|(id, _)| id.clone())
@@ -1778,6 +1818,113 @@ fn copy_package(source: &Path, target: &Path, depth: usize) -> Result<(), String
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn presentation_deadline_counts_only_visible_initialization() {
+        let now = Instant::now();
+        let mut view = ViewInitialization::default();
+        assert!(!view.timed_out(now + Duration::from_secs(1000)));
+        view.set_visible(true, now);
+        assert!(!view.timed_out(now + Duration::from_secs(119)));
+        view.set_visible(true, now + Duration::from_secs(119));
+        assert!(view.timed_out(now + Duration::from_secs(120)));
+        view.set_visible(false, now + Duration::from_secs(121));
+        assert!(!view.timed_out(now + Duration::from_secs(1000)));
+        view.set_visible(true, now + Duration::from_secs(1000));
+        assert!(!view.timed_out(now + Duration::from_secs(1119)));
+        assert!(view.timed_out(now + Duration::from_secs(1120)));
+    }
+
+    #[tokio::test]
+    async fn inactive_views_survive_another_owner_but_visible_hangs_still_time_out() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("installed");
+        let package_path = root.join("test");
+        std::fs::create_dir_all(package_path.join("ui")).unwrap();
+        std::fs::write(package_path.join("ui/index.html"), "<canvas></canvas>").unwrap();
+        std::fs::write(package_path.join("worker.exe"), "stub").unwrap();
+        std::fs::write(package_path.join("plugin.json"),json!({"api":1,"id":"test.view","name":"test","version":"0.1.0","executable":"worker.exe","entry":"ui/index.html","capabilities":["view"]}).to_string()).unwrap();
+        let package = Package::load(&package_path).unwrap();
+        let runtime = Runtime::new(root).unwrap();
+        runtime.scan().await.unwrap();
+        {
+            let mut inner = runtime.inner.lock().await;
+            for (id, ready) in [("preview", false), ("editor", true)] {
+                inner.sessions.insert(
+                    id.into(),
+                    Session {
+                        info: SessionInfo {
+                            id: id.into(),
+                            plugin_id: package.manifest.id.clone(),
+                            revision: 0,
+                            entry: "ui/index.html".into(),
+                            file_id: "file".into(),
+                            label: id.into(),
+                            capabilities: vec![Capability::View],
+                            overlay: None,
+                            prepare: false,
+                            available: true,
+                            pending: false,
+                            pending_reason: None,
+                            name: "test.pdf".into(),
+                            size: 1,
+                            status: "ready".into(),
+                            view_ready: ready,
+                            error: None,
+                        },
+                        path: temp.path().join("test.pdf"),
+                        package: package.clone(),
+                        data: json!({"result":{}}),
+                        touched: Instant::now() - Duration::from_secs(121),
+                        last_used: Instant::now(),
+                        calls: 0,
+                        source: None,
+                        view_initialization: Default::default(),
+                    },
+                );
+            }
+            inner.active = Some("editor".into());
+        }
+        runtime.reap().await;
+        assert!(runtime
+            .snapshot()
+            .await
+            .sessions
+            .iter()
+            .all(|s| s.status == "ready"));
+        runtime.set_view_visibility("preview", true).await.unwrap();
+        runtime.set_view_visibility("preview", false).await.unwrap();
+        runtime.reap().await;
+        assert_eq!(runtime.session_data("preview").await.unwrap(), json!({}));
+        runtime.activate(Some("preview".into())).await.unwrap();
+        runtime.set_view_visibility("preview", true).await.unwrap();
+        {
+            let mut inner = runtime.inner.lock().await;
+            let view = inner.sessions.get_mut("preview").unwrap();
+            view.view_initialization.started = Some(Instant::now() - Duration::from_secs(121));
+            // A recent native call must not extend a hung presentation's deadline.
+            view.touched = Instant::now();
+        }
+        runtime.reap().await;
+        let snapshot = runtime.snapshot().await;
+        let preview = snapshot
+            .sessions
+            .iter()
+            .find(|s| s.id == "preview")
+            .unwrap();
+        assert_eq!(preview.status, "error");
+        assert_eq!(preview.error, Some(msg!(text().view_timeout)));
+        assert_eq!(
+            snapshot
+                .sessions
+                .iter()
+                .find(|s| s.id == "editor")
+                .unwrap()
+                .status,
+            "ready"
+        );
+        runtime.shutdown().await;
+    }
 
     fn staged(root: &Path) -> PathBuf {
         let staging = root.join("staging");

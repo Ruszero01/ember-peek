@@ -199,6 +199,7 @@ export const en = {
   "stage.loading": "Loading…",
 
   "scrub.hint": "{label} · drag up to enlarge, down to shrink",
+  "scrub.hintDown": "{label} · drag down to increase, up to decrease",
 
   "view.disconnected":
     "The plugin view never connected; check its entry page and scripts",

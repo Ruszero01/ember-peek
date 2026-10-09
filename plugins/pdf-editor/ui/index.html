@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="./sdk-ui.css" />
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <main id="viewport"><div id="page"><img id="image" alt="" /><div id="objects"></div></div></main>
+    <section id="editor" class="ui-form" hidden>
+      <p id="selection" class="ui-form-heading"></p>
+      <p id="hint" class="ui-form-help"></p>
+      <div id="text-fields" class="ui-form-group" hidden>
+        <label for="text" id="text-label"></label>
+        <textarea id="text" class="ui-input" maxlength="4096" spellcheck="false"></textarea>
+        <label for="font" id="font-label"></label>
+        <span class="ui-select"><select id="font"><option value="original"></option><option value="arial">Arial</option><option value="simhei"></option></select></span>
+        <button id="apply" class="ui-button"></button>
+      </div>
+      <div id="image-fields" class="ui-form-group" hidden>
+        <label for="replacement" id="image-label"></label>
+        <div class="ui-file"><button id="choose" class="ui-button" type="button"></button><span id="file-name" class="ui-file-name"></span><input id="replacement" type="file" accept="image/png,image/jpeg" hidden /></div>
+        <button id="replace" class="ui-button"></button>
+      </div>
+      <p id="note" class="ui-form-help" role="status" aria-live="polite"></p>
+      <div id="actions" class="ui-form-actions"><button id="undo" class="ui-button"></button><button id="save" class="ui-button primary"></button></div>
+    </section>
+    <script src="./boot.js"></script>
+    <script type="module" src="./editor.js"></script>
+  </body>
+</html>

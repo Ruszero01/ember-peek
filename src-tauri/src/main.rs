@@ -552,6 +552,11 @@ async fn file_changed(
 }
 
 #[tauri::command]
+async fn set_view_visibility(host: Host<'_>, id: String, visible: bool) -> Result<(), String> {
+    host.set_view_visibility(&id, visible).await
+}
+
+#[tauri::command]
 async fn complete_view(
     app: tauri::AppHandle,
     host: Host<'_>,
@@ -1035,7 +1040,7 @@ fn main() {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![updates::check_update, updates::open_update, open_workshop, icon_data, tool_call, view_state, market_list, market_refresh, market_prepare, market_install, snapshot, refresh_plugins, open_file, desktop::select_preview, desktop::return_view, desktop::desktop_snapshot, desktop::show_settings, desktop::open_in_default_app, desktop::window_basis, prepare_view, session_data, source_data, source_call, set_pending, plugin_mutate, authorize_clipboard, open_link, file_changed, complete_view, complete_onboarding, plugin_call, read_file, set_enabled, set_activation, reorder_plugins, uninstall_plugin, plugin_settings, set_plugin_setting, pick_path, prepare_plugin, install_plugin, set_locale])
+        .invoke_handler(tauri::generate_handler![updates::check_update, updates::open_update, open_workshop, icon_data, tool_call, view_state, market_list, market_refresh, market_prepare, market_install, snapshot, refresh_plugins, open_file, desktop::select_preview, desktop::return_view, desktop::desktop_snapshot, desktop::show_settings, desktop::open_in_default_app, desktop::window_basis, prepare_view, session_data, source_data, source_call, set_pending, plugin_mutate, authorize_clipboard, open_link, file_changed, set_view_visibility, complete_view, complete_onboarding, plugin_call, read_file, set_enabled, set_activation, reorder_plugins, uninstall_plugin, plugin_settings, set_plugin_setting, pick_path, prepare_plugin, install_plugin, set_locale])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();

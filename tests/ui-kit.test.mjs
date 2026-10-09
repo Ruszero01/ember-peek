@@ -53,3 +53,29 @@ test("the host draws every dropdown through the one component", () => {
     .map(([name]) => name);
   assert.deepEqual(rendering, ["Select.tsx"]);
 });
+
+
+test("host and plugin scrollbars use one packaged source with both axes and no arrows",()=>{
+  const shared=readFileSync(join(root,"sdk/web/scrollbars.css"),"utf8");
+  const host=readFileSync(join(root,"src/style.css"),"utf8");
+  assert.match(host,/@import\s+["']\.\.\/sdk\/web\/scrollbars\.css["']/);
+  assert.match(kit,/@import\s+["']\.\/sdk-scrollbars\.css["']/);
+  assert.match(shared,/::-webkit-scrollbar-button\s*\{[^}]*display:\s*none/);
+  assert.match(shared,/width:\s*var\(--scrollbar-size\)/);
+  assert.match(shared,/height:\s*var\(--scrollbar-size\)/);
+  assert.match(shared,/::-webkit-scrollbar-thumb:hover/);
+  assert.match(shared,/::-webkit-scrollbar-thumb:active/);
+  const build=readFileSync(join(root,"scripts/build-plugins.mjs"),"utf8");
+  assert.match(build,/"scrollbars\.css"\), "sdk-scrollbars\.css"/);
+});
+
+
+test("every official plugin opts into shared scrollbars without a competing text override",()=>{
+ for(const name of readdirSync(join(root,"plugins"),{withFileTypes:true}).filter(entry=>entry.isDirectory()).map(entry=>entry.name)){
+   const manifest=JSON.parse(readFileSync(join(root,"plugins",name,"plugin.json"),"utf8"));
+   const html=readFileSync(join(root,"plugins",name,manifest.entry),"utf8");
+   assert.match(html,/href=["'](?:\.\/)?sdk-(?:ui|scrollbars)\.css["']/,name+" must opt into the shared style");
+ }
+ const text=readFileSync(join(root,"sdk/web/text/surface.css"),"utf8");
+ assert.doesNotMatch(text,/scrollbar-(?:color|width):/,"text plugins must not override the shared WebView2 scrollbar");
+});

@@ -1,0 +1,13 @@
+{
+  "dependencies": [
+    {
+      "name": "PDFium",
+      "version": "156.0.8076.0",
+      "source": "https://github.com/bblanchon/pdfium-binaries/releases/download/chromium%2F8076/pdfium-win-x64.tgz",
+      "files": ["vendor/pdfium.dll"],
+      "sha256": "69f1e860f6742fbaafcc4db80e785eec9a4ee0da36ea6d1dc0867ea0f18baea6",
+      "license": "vendor/LICENSE.pdfium",
+      "notices": "vendor/licenses"
+    }
+  ]
+}

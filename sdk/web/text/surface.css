@@ -29,12 +29,6 @@ body {
   min-height: 0;
   overflow: hidden;
 }
-.cm-scroller,
-#rendered,
-#outline {
-  scrollbar-width: thin;
-  scrollbar-color: var(--border) var(--canvas);
-}
 body.panel {
   padding: 0;
 }

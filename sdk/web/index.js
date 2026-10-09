@@ -527,7 +527,13 @@ export function returnView() {
   return request("returnView", {});
 }
 
-/** Opaque navigation data, scoped to this file and its shared data contract. */
+/** Opaque state scoped to this file and viewStateContract (or its data contract). */
 export function viewState(value = null) {
   return request("viewState", { value });
+}
+
+/** Restore shared state before allowing this visible view to publish changes. */
+export async function synchronizeState(get, restore) {
+  const { createStateSynchronizer } = await import("./state.js");
+  return createStateSynchronizer({ ready, viewState, onVisibility }, get, restore);
 }

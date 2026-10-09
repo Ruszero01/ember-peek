@@ -1,0 +1,6 @@
+{
+  "summary": "PDF 逐页预览，支持翻页、缩放、适配窗口与旋转。",
+  "i18n": { "en": { "summary": "Preview PDF pages with navigation, zoom, fit, and rotation controls." } },
+  "publisher": "Ember Peek",
+  "recommended": true
+}

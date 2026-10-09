@@ -395,6 +395,10 @@ async fn a_view_still_initializing_is_not_idle() {
     })
     .await
     .unwrap();
+    runtime
+        .set_view_visibility(&session.id, true)
+        .await
+        .unwrap();
     tokio::time::sleep(Duration::from_millis(40)).await;
     runtime.reap().await;
     assert_eq!(runtime.snapshot().await.sessions.len(), 1);
@@ -1022,6 +1026,73 @@ async fn shared_navigation_survives_revision_but_isolates_files() {
     assert_eq!(
         runtime.view_state(&revised.id, None).await.unwrap(),
         position
+    );
+    runtime.shutdown().await;
+}
+
+#[tokio::test]
+async fn view_state_contract_is_independent_of_parsing_and_isolates_state_groups() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("installed");
+    for (name, contract, source) in [
+        ("preview", "test.position/1", Some("test.source/1")),
+        ("editor", "test.position/1", None),
+        ("other", "test.position/2", None),
+        ("legacy", "test.source/1", Some("test.source/1")),
+    ] {
+        let directory = root.join(name);
+        package(&directory, &format!("test.{name}"), "pdf");
+        let path = directory.join("plugin.json");
+        let mut manifest: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        if name != "legacy" {
+            manifest["viewStateContract"] = json!(contract);
+        }
+        if let Some(source) = source {
+            manifest["provides"] = json!(source);
+        }
+        std::fs::write(path, manifest.to_string()).unwrap();
+    }
+    let runtime = Runtime::new(root).unwrap();
+    runtime.scan().await.unwrap();
+    let file = temp.path().join("one.pdf");
+    std::fs::write(&file, "sample").unwrap();
+    runtime.open(file).await.unwrap();
+    let sessions = runtime.snapshot().await.sessions;
+    let id = |plugin: &str| {
+        sessions
+            .iter()
+            .find(|s| s.plugin_id == plugin)
+            .unwrap()
+            .id
+            .clone()
+    };
+    let value = json!({"page": 2, "offset": {"x": 0.1, "y": 0.6}, "state": {"expanded": true}});
+    runtime
+        .view_state(&id("test.preview"), Some(value.clone()))
+        .await
+        .unwrap();
+    assert_eq!(
+        runtime.view_state(&id("test.editor"), None).await.unwrap(),
+        value
+    );
+    assert!(runtime
+        .view_state(&id("test.other"), None)
+        .await
+        .unwrap()
+        .is_null());
+    assert!(runtime
+        .view_state(&id("test.legacy"), None)
+        .await
+        .unwrap()
+        .is_null());
+    assert!(runtime
+        .view_state(&id("test.editor"), Some(json!("x".repeat(5000))))
+        .await
+        .is_err());
+    assert_eq!(
+        runtime.view_state(&id("test.preview"), None).await.unwrap(),
+        value
     );
     runtime.shutdown().await;
 }

@@ -2,6 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   validateControls,
+  scrubPosition,
+  scrubDragValue,
   validateWorkshopControls,
   validateDialog,
   isSessionOwning,
@@ -127,6 +129,18 @@ test("scrub controls retain numeric bounds and reject invalid ranges", () => {
   for (const patch of [{ value: NaN }, { min: 0 }, { max: Infinity }, { max: 2 }, { value: 3000 }]) {
     assert.throws(() => validateControls([{ ...control, ...patch }]));
   }
+});
+
+test("downward scrub direction reverses the thumb and pointer mapping", () => {
+  const base = { id: "page", kind: "scrub", label: "Page", value: 1, min: 1, max: 4 };
+  assert.equal(validateControls([base])[0].direction, "up");
+  assert.equal(validateControls([{ ...base, direction: "down" }])[0].direction, "down");
+  assert.throws(() => validateControls([{ ...base, direction: "left" }]));
+  assert.equal(scrubPosition(1, 1, 4, "down"), 1);
+  assert.equal(scrubPosition(4, 1, 4, "down"), 0);
+  assert.ok(scrubDragValue(2, 10, "down") > 2);
+  assert.ok(scrubDragValue(2, -10, "down") < 2);
+  assert.ok(scrubDragValue(2, 10) < 2);
 });
 
 test("plugin dialogs preserve opaque action results without host business semantics", () => {

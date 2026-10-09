@@ -33,6 +33,8 @@ More plugins will extend support to additional file formats in the future.
 | Source-code preview | Common programming languages | Syntax highlighting, virtualized long documents |
 | Markdown preview | READMEs, notes, documentation | Render/source modes, outline, linked local and remote images |
 | Image preview | PNG, JPEG, GIF, WebP, BMP, AVIF, SVG | Zoom, pan, fit to window |
+| PDF preview | PDF documents | Page navigation, zoom, fill window, rotation |
+| PDF editor | PDF documents | Edit text fragments, replace images, add/delete pages, undo, save |
 | Video preview | Common video files | Playback, seeking, volume, frame export, codec compatibility |
 | Text editing | Writable text and source files | Search, save, external-change protection |
 | File information | Any local file | Path, size, and basic metadata |

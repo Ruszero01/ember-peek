@@ -1,0 +1,18 @@
+{
+  "api": 1,
+  "viewStateContract": "ember.pdf-position/1",
+  "id": "ember.pdf-editor",
+  "name": "PDF 编辑",
+  "i18n": { "en": { "name": "PDF Editor" } },
+  "version": "0.1.0",
+  "beta": true,
+  "extensions": ["pdf"],
+  "icon": "file-pen",
+  "targets": ["windows-x86_64"],
+  "executable": "bin/ember-pdf-editor-plugin.exe",
+  "entry": "ui/index.html",
+  "capabilities": ["view", "controls", "overlay"],
+  "overlay": { "width": 340, "height": 320, "anchor": "topRight" },
+  "permissions": ["readFile", "writeFile"],
+  "activation": { "mode": "manual", "priority": 0 }
+}

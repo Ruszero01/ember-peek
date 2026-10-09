@@ -145,3 +145,28 @@ test("a frame that renders a plugin document hands it the autoplay permission", 
   }
   assert.deepEqual(offenders, [], `these frames render a plugin document without autoplay: ${offenders.join(", ")}`);
 });
+
+
+test("action pill shadows fit inside their horizontal scrolling clip",()=>{
+  const declarations=selector=>{
+    const values={};
+    for(const rule of css.replace(/\/\*[\s\S]*?\*\//g,"").match(/[^{}]+\{[^{}]*\}/g)||[]){
+      const index=rule.indexOf("{");
+      if(!rule.slice(0,index).split(",").map(s=>s.trim()).includes(selector))continue;
+      for(const declaration of rule.slice(index+1,-1).split(";")){const colon=declaration.indexOf(":");if(colon>=0)values[declaration.slice(0,colon).trim()]=declaration.slice(colon+1).trim();}
+    }
+    return values;
+  };
+  const group=declarations(".preview-action-groups");
+  assert.equal(group["overflow-x"],"auto");
+  const padding=parseFloat(group.padding);
+  assert.ok(padding>0);
+  assert.equal(parseFloat(group.margin),-padding,"shadow allowance must preserve alignment");
+  for(const selector of [".toolbar-actions",".toolbar-host-actions"]){
+    const values=declarations(selector)["box-shadow"].match(/^-?\d+(?:px)?\s+(-?\d+)px\s+(\d+)px\s+(-?\d+)px/);
+    assert.ok(values,selector+" must declare a compact shadow");
+    const [,offset,blur,spread]=values.map(Number);
+    assert.ok(blur<=4,"action shadows should stay compact");
+    assert.ok(Math.abs(offset)+blur+spread<=padding,"the shadow must fit inside its scroll clip");
+  }
+});

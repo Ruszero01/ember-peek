@@ -178,6 +178,7 @@ export const zhCN: Catalog = {
   "stage.loading": "加载中…",
 
   "scrub.hint": "{label} · 按住向上放大、向下缩小",
+  "scrub.hintDown": "{label} · 按住向下增大、向上减小",
 
   "view.disconnected": "插件视图未建立连接，请检查插件入口和脚本",
   "view.panelNoControls": "浮层不能声明工具栏控件，控件属于插件视图",

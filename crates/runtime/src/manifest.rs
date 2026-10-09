@@ -424,6 +424,9 @@ pub struct Manifest {
     pub source_methods: Vec<String>,
     #[serde(default)]
     pub consumes: Option<String>,
+    /// Opaque per-file state shared independently of parsing or source RPCs.
+    #[serde(default)]
+    pub view_state_contract: Option<String>,
     #[serde(default)]
     pub permissions: Vec<Permission>,
     #[serde(default)]
@@ -694,9 +697,13 @@ impl Package {
         {
             return Err("Invalid source RPC exports".into());
         }
-        for contract in [&manifest.provides, &manifest.consumes]
-            .into_iter()
-            .flatten()
+        for contract in [
+            &manifest.provides,
+            &manifest.consumes,
+            &manifest.view_state_contract,
+        ]
+        .into_iter()
+        .flatten()
         {
             if contract.is_empty()
                 || contract.len() > 100
@@ -735,6 +742,36 @@ mod tests {
             "settings": settings,
         }))
         .unwrap()
+    }
+
+    #[test]
+    fn shared_view_state_contract_is_optional_and_validated_independently() {
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::write(directory.path().join("worker.exe"), "").unwrap();
+        std::fs::create_dir_all(directory.path().join("ui")).unwrap();
+        std::fs::write(directory.path().join("ui/index.html"), "").unwrap();
+        let path = directory.path().join("plugin.json");
+        let mut value = serde_json::to_value(manifest_with(json!([]))).unwrap();
+        for contract in [
+            json!(null),
+            json!("example.position/1"),
+            json!("example.state@2"),
+        ] {
+            value["viewStateContract"] = contract;
+            std::fs::write(&path, value.to_string()).unwrap();
+            assert!(Package::load(directory.path()).is_ok());
+        }
+        for contract in [
+            json!(""),
+            json!("two groups"),
+            json!("中文"),
+            json!("x".repeat(101)),
+            json!(["a", "b"]),
+        ] {
+            value["viewStateContract"] = contract;
+            std::fs::write(&path, value.to_string()).unwrap();
+            assert!(Package::load(directory.path()).is_err());
+        }
     }
 
     #[test]
