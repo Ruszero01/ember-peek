@@ -20,7 +20,14 @@ export async function publishDesktop({store, config, release, files, apply = fal
   if (installers.length !== 1 || !files.has("SHA256SUMS.txt")) throw new Error("Expected exactly one Windows installer and checksums");
   const name = installers[0], bytes = files.get(name), sha256 = hash(bytes);
   const checksums = files.get("SHA256SUMS.txt").toString("utf8").replace(/^\uFEFF/, "");
-  if (!bytes.length || !checksums.split(/\r?\n/).some(line => line.trim() === `${sha256}  ${name}`)) throw new Error("Installer checksum mismatch");
+  // GitHub replaces spaces in uploaded asset names with dots; checksums retain
+  // the original Tauri filename. Only that filename normalization is accepted.
+  const checksumMatches = checksums.split(/\r?\n/).some(line => {
+    const entry = /^([a-f0-9]{64})  (.+)$/i.exec(line.trim());
+    return entry && entry[1].toLowerCase() === sha256 &&
+      (entry[2] === name || entry[2].replaceAll(" ", ".") === name);
+  });
+  if (!bytes.length || !checksumMatches) throw new Error("Installer checksum mismatch");
   if (!release.assets?.some(asset => asset.name === name && asset.size === bytes.length)) throw new Error("Installer does not match release asset");
   const previous = await get(store, config.key(updateKey));
   if (previous && semver.gt(JSON.parse(previous).version, version)) throw new Error("Refusing to replace a newer stable release");

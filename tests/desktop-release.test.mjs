@@ -36,3 +36,21 @@ test("Tauri installer names with spaces retain their checksum and have encoded d
   assert.ok(manifest.url.endsWith("Ember%20Peek_0.1.0_x64-setup.exe"));
   assert.ok(s.writes[0].endsWith(name));
 });
+
+test("GitHub-normalized filenames retain strict installer checksum verification",async()=>{
+  for (const invalid of [null, "wrong-name", "wrong-hash"]) {
+    const s=setup(), name="Ember.Peek_0.1.0_x64-setup.exe", original="Ember Peek_0.1.0_x64-setup.exe";
+    const bytes=s.files.get("Ember-Peek-setup.exe");
+    s.files.delete("Ember-Peek-setup.exe");s.files.set(name,bytes);s.release.assets[0].name=name;
+    const sha=createHash("sha256").update(bytes).digest("hex");
+    s.files.set("SHA256SUMS.txt",Buffer.from(`${invalid === "wrong-hash" ? "0".repeat(64) : sha}  ${invalid === "wrong-name" ? "Other-setup.exe" : original}\r\n`));
+    if (invalid) {
+      await assert.rejects(publishDesktop({...s,apply:true}),/checksum mismatch/);
+      assert.equal(s.writes.length,0);
+    } else {
+      const manifest=await publishDesktop({...s,apply:true});
+      assert.ok(manifest.url.endsWith(name));
+      assert.equal(manifest.sha256,sha);
+    }
+  }
+});

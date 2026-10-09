@@ -14,7 +14,7 @@
 
 关于页在信息列表中显示当前版本与检查更新按钮，仅在检查后显示结果，不显示源选择提示。手动检查更新优先读取官方 OSS 源下的 `channels/stable/desktop/windows-x86_64/latest.json`，OSS 请求失败或元数据无效时回退到 GitHub `/releases/latest`。只接受正式 SemVer 版本，按版本号比较；忽略预发布，下载地址限定官方 OSS 安装包目录或本项目 GitHub Release 附件。检查不会下载或执行安装包，也不会自动替换应用；用户点击下载后由浏览器打开安装包地址。
 
-推送版本标签后，`Release Windows desktop` 完成完整 CI 和安装包构建，将完整附件发布为 GitHub 预发布。测试通过后，维护者在 GitHub Release 编辑页面取消预发布选项并保存。`release: released` 事件触发 `Mirror stable desktop release to OSS`，使用 `plugin-production` 环境的 OSS 配置下载并校验该 Release 已测试的安装包，不重新构建。安装包上传到 `desktop/windows-x86_64/<version>/`，最后更新稳定版本元数据。重复运行允许相同字节，拒绝替换相同版本的不同安装包或把稳定指针降级。
+推送版本标签后，`Release Windows desktop` 完成完整 CI 和安装包构建，将完整附件发布为 GitHub 预发布。测试通过后，维护者在 GitHub Release 编辑页面取消预发布选项并保存。`release: released` 事件触发 `Mirror stable desktop release to OSS`，使用 `plugin-production` 环境的 OSS 配置下载并校验该 Release 已测试的安装包，不重新构建。校验兼容 GitHub 将附件名称中的空格转换为点号，SHA-256 仍须严格一致。安装包上传到 `desktop/windows-x86_64/<version>/`，最后更新稳定版本元数据。重复运行允许相同字节，拒绝替换相同版本的不同安装包或把稳定指针降级。
 
 OSS 需允许匿名读取 `channels/*` 和 `desktop/*`；发布身份需能读取、写入这两类对象。工作流进入默认分支后才可用于正式发布流程。插件仍通过独立的 `Publish official plugins` 工作流发布。宿主暂不提供后台更新、自动安装或签名更新；Windows 原生交互与真实发布晋级流程须按测试矩阵手动验收。
 
