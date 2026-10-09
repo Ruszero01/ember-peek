@@ -215,3 +215,7 @@ Scrollbar styling has one source in `web/scrollbars.css`, imported by host chrom
 Every official plugin entry links the shared UI stylesheet, including PDF and image views. Text surfaces do not override it with standard scrollbar properties that would suppress WebView2 pseudo-element styling.
 
 Stateful editors must refresh native draft metadata when their view remounts instead of reusing opening metadata. Serialize renders with mutations and keep rejected selections recoverable. The PDF editor supports independent image width/height changes, with Shift preserving aspect ratio.
+
+Workshop model selection captures the provider and model IDs before updating busy UI state. Its searchable picker is plugin-owned and does not change the Tool API.
+
+Workshop polling preserves model-menu DOM nodes when the catalog and search query are unchanged; selection and availability update in place.

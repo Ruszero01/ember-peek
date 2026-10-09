@@ -598,19 +598,60 @@ function renderModelPickers(){
     }
     const signature=JSON.stringify(options.map(option=>[option.text,option.value]));
     if(picker.modelSignature!==signature){picker.replaceChildren(new Option(options.length?'选择模型':'请先配置模型',''),...options);picker.modelSignature=signature;}
-    picker.value=JSON.stringify([state.config?.id,state.config?.model]);picker.disabled=busy||state.projects?.some(p=>running(p));
+    const value=JSON.stringify([state.config?.id,state.config?.model]);
+    picker.value=options.some(option=>option.value===value)?value:'';picker.disabled=busy||state.projects?.some(p=>running(p));
+    $('model-picker-label').textContent=options.find(option=>option.value===value)?.text||'选择模型';
+    $('model-picker-trigger').disabled=picker.disabled||!options.length;
+    $('model-picker-trigger').setAttribute('aria-disabled',String(picker.disabled||!options.length));
+    if(picker.disabled)$('model-picker').open=false;
+    renderModelMenu();
   }
 }
-for(const id of ['project-chat-model'])$(id).onchange=()=>action(async()=>{
-  if(!$(id).value)return;const [providerId,model]=JSON.parse($(id).value);
-  await call('selectModel',{providerId,model});
-});
+function chooseModel(value){
+  if(!value)return;
+  const [providerId,model]=JSON.parse(value);
+  $('model-picker').open=false;
+  return action(()=>call('selectModel',{providerId,model}));
+}
+$('project-chat-model').onchange=()=>chooseModel($('project-chat-model').value);
+function renderModelMenu(){
+  const query=$('model-picker-search').value.trim().toLowerCase();
+  const list=$('model-picker-options');
+  const signature=JSON.stringify([query,(state?.providers||[]).map(provider=>[provider.id,providerLabel(provider),provider.models,provider.model])]);
+  if(list.modelSignature===signature){
+    for(const button of list.children){
+      if(!button.modelChoice)continue;
+      const [providerId,modelId]=button.modelChoice;
+      button.setAttribute('aria-pressed',String(providerId===state.config?.id&&modelId===state.config?.model));
+      button.disabled=$('project-chat-model').disabled;
+    }
+    return;
+  }
+  list.modelSignature=signature;list.replaceChildren();
+  for(const provider of state?.providers||[]){
+    const models=provider.models?.length?provider.models:provider.model?[{id:provider.model,name:provider.model}]:[];
+    for(const model of models){
+      if(!`${providerLabel(provider)} ${model.name} ${model.id}`.toLowerCase().includes(query))continue;
+      const button=document.createElement('button');button.type='button';button.className='model-option';
+      button.modelChoice=[provider.id,model.id];
+      const active=provider.id===state.config?.id&&model.id===state.config?.model;
+      button.setAttribute('aria-pressed',String(active));button.disabled=$('project-chat-model').disabled;
+      const name=document.createElement('strong');name.textContent=model.name||model.id;
+      const detail=document.createElement('small');detail.textContent=providerLabel(provider);
+      button.append(name,detail);button.onclick=()=>chooseModel(JSON.stringify([provider.id,model.id]));list.append(button);
+    }
+  }
+  if(!list.children.length){const empty=document.createElement('p');empty.textContent='没有匹配的模型';list.append(empty);}
+}
+$('model-picker-search').oninput=renderModelMenu;
+$('model-picker').ontoggle=()=>{if($('model-picker').open){if($('model-picker-trigger').disabled){$('model-picker').open=false;return;}$('model-picker-search').value='';renderModelMenu();$('model-picker-search').focus?.();}};
 document.addEventListener('pointerdown',event=>{
+  const picker=$('model-picker');if(picker.open&&!picker.contains(event.target))picker.open=false;
   const menu=$('more-actions');
   if(menu.open&&!menu.contains(event.target))menu.open=false;
 });
 document.addEventListener('keydown',event=>{
-  if(event.key==='Escape')$('more-actions').open=false;
+  if(event.key==='Escape'){$('more-actions').open=false;$('model-picker').open=false;}
 });
 $('more-actions').onclick=event=>{
   if(event.target.closest('button'))$('more-actions').open=false;

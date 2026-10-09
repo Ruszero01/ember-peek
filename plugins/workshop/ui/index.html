@@ -62,7 +62,7 @@
 <div class="chat-composer-actions"><button id="message-attach" class="composer-attach" type="button" title="追加文件或图片" aria-label="追加文件或图片">＋</button><span class="creator-hint">可随时补充需求</span><div class="actions conversation-send"><button id="generate" class="primary">生成插件</button><button id="cancel">停止</button></div></div>
 <footer class="project-footer"><div class="actions project-actions"><button id="preview">打开试预览 ↗</button><button id="install" class="primary">安装插件</button></div>
 </footer>
-<div id="project-provider-hint" class="provider-hint"><span class="ui-select"><select id="project-chat-model" aria-label="当前模型"></select></span></div>
+<div id="project-provider-hint" class="provider-hint"><select id="project-chat-model" aria-label="当前模型" hidden></select><details id="model-picker" class="model-picker"><summary id="model-picker-trigger"><span id="model-picker-label">选择模型</span><span aria-hidden="true">⌄</span></summary><div class="model-picker-menu"><input id="model-picker-search" type="search" placeholder="搜索模型…" aria-label="搜索模型"><div id="model-picker-options" class="model-picker-options"></div></div></details></div>
 </div>
 </div>
 <aside id="file-rail" class="file-rail">
