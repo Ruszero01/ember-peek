@@ -38,6 +38,20 @@ fn drafts() -> &'static Mutex<HashMap<String, Draft>> {
 fn error(value: impl std::fmt::Display) -> String {
     value.to_string()
 }
+fn replacement_font_path(font: &str) -> Result<PathBuf, String> {
+    #[cfg(test)]
+    if font == "simhei" {
+        return Ok(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/test-cjk.ttf"));
+    }
+    let windows = std::env::var_os("WINDIR").ok_or("Windows fonts are unavailable")?;
+    Ok(PathBuf::from(windows)
+        .join("Fonts")
+        .join(if font == "arial" {
+            "arial.ttf"
+        } else {
+            "simhei.ttf"
+        }))
+}
 fn initialize_engine() -> Result<Pdfium, String> {
     let executable = std::env::current_exe().map_err(error)?;
     let packaged = executable
@@ -251,15 +265,7 @@ fn edited_bytes(
             let loaded_font = match font {
                 "original" => None,
                 "arial" | "simhei" => {
-                    let windows =
-                        std::env::var_os("WINDIR").ok_or("Windows fonts are unavailable")?;
-                    let path = PathBuf::from(windows)
-                        .join("Fonts")
-                        .join(if font == "arial" {
-                            "arial.ttf"
-                        } else {
-                            "simhei.ttf"
-                        });
+                    let path = replacement_font_path(font)?;
                     Some(
                         document
                             .fonts_mut()
