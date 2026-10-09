@@ -17,6 +17,7 @@
   },
   "bundle": {
     "active": true,
+    "publisher": "AILURUS",
     "targets": ["nsis"],
     "icon": ["icons/icon.ico"],
     "windows": {
