@@ -42,8 +42,8 @@ More plugins will extend support to additional file formats in the future.
 
 ## Installation and use
 
-Ember Peek runs on Windows x64 with WebView2. Plugin installation requires internet access;
-the installer can download WebView2 if it is missing.
+Ember Peek runs on Windows 11 x64. The installer takes care of the components needed to run it.
+Install plugins from the online marketplace, then preview and edit files locally.
 
 1. Download the latest Windows installer from [GitHub Releases](https://github.com/Ruszero01/ember-peek/releases/latest).
 2. Install and launch Ember Peek.
@@ -63,15 +63,13 @@ other applications.
 | Open settings | Tray icon → **Settings** |
 | Exit completely | Tray icon → **Exit** |
 
-Closing the preview window hides it rather than exiting the app. After 120 seconds hidden,
-its WebView is released; the tray process and Explorer listener remain active and recreate
-the window on demand.
+Closing the preview window hides it while Ember Peek stays available in the tray.
+Hidden windows release resources automatically and reopen when you need them.
 
 ## Plugins
 
-The Ember Peek host contains no format-specific renderer. Plugins own parsing and rendering,
-including linked resources required by a document. The host provides generic lifecycle,
-permission, file, resource, and network transport APIs.
+Each plugin adds its own preview or editing experience. Install the viewers you need,
+and choose between them when a file supports more than one.
 
 - Browse, install, and update plugins in **Plugin Marketplace**.
 - Enable, order, or remove installed plugins in **Plugin Management**.
@@ -79,25 +77,21 @@ permission, file, resource, and network transport APIs.
 - Generate a viewer for a custom format with **Plugin Workshop (Beta)**.
 - Build third-party plugins with the [plugin development guide](docs/plugins.md).
 
-Plugin packages are checked against their declared SHA-256 and `buildId` before installation.
-Plugin signing is not implemented yet, so only configure sources you trust. Native plugins
-run with the current user's permissions.
+Plugin packages are verified automatically before installation.
 
 ## Plugin Workshop (Beta)
 
 Install the Workshop from **Plugin Marketplace**, then configure an OpenAI Chat Completions
-compatible service with streaming and tool calling. Fetch models manually or add a model ID
-and display name; search and choose the active model in the chat composer. Valid configuration changes
-save automatically.
+compatible AI service. Fetch the available models or add your own, then search and choose a
+model in the chat composer. Configuration changes save automatically.
 
 Describe the preview you need and optionally attach a sample file. Workshop generates and
 validates a plugin, runs a trial preview, and lets you install or export the verified result.
 You can continue the conversation, cancel generation, or restore an earlier verified build.
 Network search is optional and configured separately.
 
-Workshop is experimental. Compatibility depends on the model, service, and file format.
-AI requests send your requirements, conversation, and generated code to the configured service;
-sample attachments are referenced by local path rather than uploaded as file contents.
+Workshop uses the AI service you configure. Requests include your requirements, conversation,
+and generated code; sample files stay on your computer.
 
 ## PDF preview and editing
 
@@ -105,12 +99,10 @@ Install PDF Preview for single-page or continuous reading, page navigation, zoom
 and a choice of filling the window or showing the entire page. PDF Preview and PDF Editor
 share the reading position when you switch between them.
 
-PDF Editor (Beta) is a separate viewer you activate manually. It edits individual text and
-image objects, supports image resizing, inserts or deletes pages, and keeps changes in a
-draft until you save. It protects against external file changes and supports undo. It does
-not provide paragraph reflow, OCR, form or annotation editing; signed or restricted PDFs
-are read-only, and password-protected PDFs cannot be edited. Editing is limited to 32 MiB
-and 1,000 pages. Keep a copy of important documents before trying the beta editor.
+Switch to PDF Editor (Beta) to select and edit text fragments, replace or resize images,
+and insert or delete pages. Changes stay in a draft until you save, with undo and protection
+against external file changes. Drag an image corner to resize it, or hold Shift to preserve
+its proportions.
 
 ## File safety and privacy
 
