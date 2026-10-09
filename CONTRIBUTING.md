@@ -62,7 +62,9 @@ the manual Windows matrix in [docs/testing.md](docs/testing.md).
 - Application and workspace versions are synchronized with `npm run version:set -- <version>` and
   verified with `npm run version:check`. Plugin versions are independent, but every package stays
   at the `0.1.0` baseline until the first public release: a changed package is bumped when it is
-  published, not with each change.
+  published, not with each change. Rebuilding the unfrozen `0.1.0` prerelease baseline requires
+  the explicit `--replace-baseline` publication flag; never use it after the first public baseline
+  is frozen. See [OSS distribution](docs/oss-distribution.md).
 
 ## Commits
 

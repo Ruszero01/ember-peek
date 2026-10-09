@@ -151,3 +151,35 @@ test("duplicate IDs, path traversal, and missing published packages are refused"
   f.values.delete(config.key(`${packagesKey}/${entry().artifact}`));
   await assert.rejects(planRelease(f), /包丢失/);
 });
+
+
+test("explicit 0.1.0 baseline replacement validates new packages before switching and cleaning", async () => {
+  const f = fixture(); await publishRelease({ ...f, apply: true });
+  const oldPackage = config.key(`${packagesKey}/${entry().artifact}`);
+  f.catalog.entries[0] = { ...entry(), artifact: "baseline-rebuilt.zip", buildId: "c".repeat(64) };
+  f.inputs.inputs["ember.text"] = "e".repeat(64);
+  await assert.rejects(planRelease(f), /升级/);
+  const writes = f.writes.length;
+  const plan = await publishRelease({ ...f, replaceBaseline: true });
+  assert.equal(f.writes.length, writes);assert.equal(plan.records[0].replace, true);
+  assert.equal(plan.catalog.entries[0].artifact, "baseline-rebuilt.zip");
+  await assert.rejects(publishRelease({ ...f, apply: true, replaceBaseline: true, publicGet: async () => { throw new Error("HTTP 403"); } }), /403/);
+  assert.equal(JSON.parse(f.values.get(config.key(catalogKey))).entries[0].artifact, entry().artifact);
+  assert.ok(f.values.has(oldPackage));
+  await publishRelease({ ...f, apply: true, replaceBaseline: true });
+  assert.equal(JSON.parse(f.values.get(config.key(catalogKey))).entries[0].artifact, "baseline-rebuilt.zip");
+  assert.equal(JSON.parse(f.values.get(config.key(`registry/${target}/ember.text/0.1.0.json`))).sourceDigest, "e".repeat(64));
+  assert.ok(!f.values.has(oldPackage));assert.ok(!f.values.has(config.key("publish.lock")));
+  assert.equal((await planRelease(f)).packages.length, 0);
+});
+
+test("baseline replacement cannot downgrade or overwrite versions beyond 0.1.0", async () => {
+  for (const version of ["0.1.1", "0.2.0"]) {
+    const f = fixture(version);
+    await assert.rejects(publishRelease({ ...f, apply: true, replaceBaseline: true }), /0\.1\.0/);
+    assert.ok(!f.values.has(config.key(catalogKey)));assert.ok(!f.values.has(config.key("publish.lock")));
+    await publishRelease({ ...f, apply: true });
+    f.catalog.entries[0] = entry();
+    await assert.rejects(planRelease({ ...f, replaceBaseline: true }), /0\.1\.0/);
+  }
+});

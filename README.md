@@ -6,7 +6,7 @@
   A fast, lightweight, plugin-driven file previewer for Windows.
 
   Select a file in File Explorer and press `Space` to preview text, source code,
-  Markdown, images, videos, metadata, and formats supported by installed plugins.
+  Markdown, images, PDFs, videos, metadata, and formats supported by installed plugins.
 
   [![Windows](https://img.shields.io/badge/Windows-2f6fed?style=flat-square&logo=windows11&logoColor=white)](https://github.com/Ruszero01/ember-peek/releases)
   [![Release](https://img.shields.io/github/v/release/Ruszero01/ember-peek?display_name=tag&style=flat-square&color=b7572f)](https://github.com/Ruszero01/ember-peek/releases/latest)
@@ -34,7 +34,7 @@ More plugins will extend support to additional file formats in the future.
 | Markdown preview | READMEs, notes, documentation | Render/source modes, outline, linked local and remote images |
 | Image preview | PNG, JPEG, GIF, WebP, BMP, AVIF, SVG | Zoom, pan, fit to window |
 | PDF preview | PDF documents | Page navigation, zoom, fill window, rotation |
-| PDF editor | PDF documents | Edit text fragments, replace images, add/delete pages, undo, save |
+| PDF editor (Beta) | PDF documents | Edit text fragments, replace/resize images, add/delete pages, undo, save |
 | Video preview | Common video files | Playback, seeking, volume, frame export, codec compatibility |
 | Text editing | Writable text and source files | Search, save, external-change protection |
 | File information | Any local file | Path, size, and basic metadata |
@@ -87,7 +87,7 @@ run with the current user's permissions.
 
 Install the Workshop from **Plugin Marketplace**, then configure an OpenAI Chat Completions
 compatible service with streaming and tool calling. Fetch models manually or add a model ID
-and display name; choose the active model in the chat composer. Valid configuration changes
+and display name; search and choose the active model in the chat composer. Valid configuration changes
 save automatically.
 
 Describe the preview you need and optionally attach a sample file. Workshop generates and
@@ -98,6 +98,19 @@ Network search is optional and configured separately.
 Workshop is experimental. Compatibility depends on the model, service, and file format.
 AI requests send your requirements, conversation, and generated code to the configured service;
 sample attachments are referenced by local path rather than uploaded as file contents.
+
+## PDF preview and editing
+
+Install PDF Preview for single-page or continuous reading, page navigation, zoom, rotation,
+and a choice of filling the window or showing the entire page. PDF Preview and PDF Editor
+share the reading position when you switch between them.
+
+PDF Editor (Beta) is a separate viewer you activate manually. It edits individual text and
+image objects, supports image resizing, inserts or deletes pages, and keeps changes in a
+draft until you save. It protects against external file changes and supports undo. It does
+not provide paragraph reflow, OCR, form or annotation editing; signed or restricted PDFs
+are read-only, and password-protected PDFs cannot be edited. Editing is limited to 32 MiB
+and 1,000 pages. Keep a copy of important documents before trying the beta editor.
 
 ## File safety and privacy
 

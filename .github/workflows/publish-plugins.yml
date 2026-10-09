@@ -6,6 +6,10 @@ on:
         description: Write packages and switch the stable catalog (false = read-only plan)
         type: boolean
         default: false
+      replace_baseline:
+        description: Replace the unfrozen 0.1.0 baseline (all plugins must remain 0.1.0)
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
@@ -63,7 +67,7 @@ jobs:
           path: .release/
       - name: Read-only publication plan
         if: ${{ !inputs.publish }}
-        run: npm run plugins:plan
+        run: npm run plugins:plan -- ${{ inputs.replace_baseline && '--replace-baseline' || '' }}
       - name: Publish to OSS
         if: ${{ inputs.publish }}
-        run: npm run plugins:publish
+        run: npm run plugins:publish -- ${{ inputs.replace_baseline && '--replace-baseline' || '' }}
