@@ -1,6 +1,7 @@
 import { ready, read, controls, status, presented, shortcuts, translate, onLocale } from './sdk.js';
 import { readDocument, pageIndex, zoomFactor, lockDocumentLinks } from './sdk-document.js';
-import { renderAsync } from './vendor/docx.js';
+import { restorePageBackgrounds, restoreDefaultParagraphStyle } from './page-background.js';
+import { parseAsync, renderDocument } from './vendor/docx.js';
 const { data } = await ready;
 const viewport = document.querySelector('#viewport'), content = document.querySelector('#content');
 const say = translate({
@@ -28,9 +29,13 @@ function fit() {
 }
 try {
   status(say('loading'));
-  await renderAsync(await readDocument(read,data.size),content,content,{inWrapper:true,breakPages:true,ignoreLastRenderedPageBreak:false,
-    renderAltChunks:false,renderComments:false,renderChanges:false,useBase64URL:true});
+  const options={inWrapper:true,breakPages:true,ignoreLastRenderedPageBreak:true,keepOrigin:true,
+    renderAltChunks:false,renderComments:false,renderChanges:false,useBase64URL:true};
+  const model=await parseAsync(await readDocument(read,data.size),options);
+  restoreDefaultParagraphStyle(model);
+  content.replaceChildren(...await renderDocument(model,options));
   pages=[...content.querySelectorAll('section.docx')];
+  await restorePageBackgrounds(model,pages);
   if(!pages.length)throw new Error('Document contains no renderable pages');
   fit();onLocale(publish);
   addEventListener('resize',()=>{if(fitting)fit();});

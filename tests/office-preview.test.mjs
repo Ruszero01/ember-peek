@@ -42,3 +42,33 @@ test('slide fit preserves the whole image in a wide short window',()=>{assert.eq
 test('uncached formulas remain visible even with an empty formatted value',()=>{const book={SheetNames:['A'],Sheets:{A:{'!ref':'A1',A1:{t:'n',f:'1+2',w:''}}}};assert.equal(readRows(book,0,0,1,XLSX)[0][0].text,'=1+2');});
 
 test('actual XLSX parsing retains formulas without saved results',()=>{const original={SheetNames:['A'],Sheets:{A:{'!ref':'A1',A1:{t:'n',f:'1+2'}}}};const bytes=XLSX.write(original,{type:'array',bookType:'xlsx'});const book=parseWorkbook(bytes,XLSX);assert.equal(readRows(book,0,0,1,XLSX)[0][0].text,'=1+2');});
+
+ test('Word backgrounds accept only page-sized decorations and safe colors',async()=>{
+ const {pageBackgroundCandidate:c}=await import('../plugins/word/ui/page-background.js');
+ assert.deepEqual(c(612,792,612,792,true,'#102857','rId8'),{color:'#102857',imageId:'rId8'});
+ assert.equal(c(100,100,612,792,true,'#102857','rId8'),null);
+ assert.equal(c(612,792,612,792,false,'#102857','rId8'),null);
+ assert.equal(c(NaN,792,612,792,true,'#102857','rId8'),null);
+ assert.equal(c(612,792,612,792,true,'url(https://example.com)',null),null);
+ });
+
+test('Word background restoration maps explicit pages and uses only embedded bitmap data',async()=>{
+ const {restorePageBackgrounds}=await import('../plugins/word/ui/page-background.js');
+ const W='http://schemas.openxmlformats.org/wordprocessingml/2006/main',WP='http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing';
+ const leaf=attrs=>({getAttribute:k=>attrs[k]??null,getAttributeNS:(_,k)=>attrs[k]??null});
+ const group={getElementsByTagNameNS:(_,name)=>[leaf(name==='rect'?{fillcolor:'#102857 [3215]'}:{id:'rId8'})]};
+ const anchor={...leaf({behindDoc:'1'}),namespaceURI:WP,localName:'anchor',parentElement:{parentElement:{parentElement:{getElementsByTagNameNS:()=>[group]}}},getElementsByTagNameNS:()=>[leaf({cx:'7772400',cy:'10058400'})]};
+ const br={...leaf({type:'page'}),namespaceURI:W,localName:'br'};
+ const part={_xmlDocument:{getElementsByTagNameNS:()=>[leaf({w:'12240',h:'15840'})],getElementsByTagName:()=>[anchor,br,anchor]}};
+ const pages=[{style:{}},{style:{}}];let calls=0;
+ await restorePageBackgrounds({documentPart:part,loadDocumentImage:async(id,source)=>{assert.equal(id,'rId8');assert.equal(source,part);return ++calls===1?'data:image/png;base64,AA==':'https://example.com/image.png';}},pages);
+ assert.equal(pages[0].style.backgroundColor,'#102857');assert.equal(pages[0].style.backgroundSize,'100% 100%');assert.equal(pages[1].style.backgroundColor,'#102857');assert.equal(pages[1].style.backgroundImage,undefined);
+});
+
+test('Word applies default paragraph styles without replacing explicit styles',async()=>{
+ const {restoreDefaultParagraphStyle}=await import('../plugins/word/ui/page-background.js');
+ const plain={type:'paragraph',children:[]}, explicit={type:'paragraph',styleName:'Title',children:[]};
+ const body={children:[plain,explicit]};
+ restoreDefaultParagraphStyle({stylesPart:{styles:[{isDefault:true,target:'p',id:'Normal'}]},parts:[{body}]});
+ assert.equal(plain.styleName,'Normal');assert.equal(explicit.styleName,'Title');
+});

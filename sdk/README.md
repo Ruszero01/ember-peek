@@ -229,7 +229,7 @@ The official PSD/PSB plugin uses existing native calls without extending the SDK
 
 ## Read-only document helpers
 
-`web/document.js` and `web/document.css` are optional plugin-side assets copied as `sdk-document.js` and `sdk-document.css`. `readDocument(read, size)` reads a validated document in 1 MiB chunks with a 64 MiB cap; `pageIndex`, `zoomFactor`, `fitDocument`, `rowWindow` and `lockDocumentLinks` support navigation, bounded virtual rows and read-only links. These helpers do not introduce a host command or protocol change. Native office plugins statically link `ember-office-document` for bounded OOXML validation; shared library updates ship with rebuilt plugins. See [office preview contract](../docs/specs/office-plugins.md).
+`web/document.js` and `web/document.css` are optional plugin-side assets copied as `sdk-document.js` and `sdk-document.css`. `readDocument(read, size)` reads a validated document in 1 MiB chunks with a 64 MiB cap; `pageIndex`, `zoomFactor`, `fitDocument`, `rowWindow` and `lockDocumentLinks` support navigation, bounded virtual rows and read-only links. These helpers do not introduce a host command or protocol change. Native office plugins statically link `ember-office-document` for bounded OOXML validation; shared library updates ship with rebuilt plugins. Word page-background compatibility stays inside the Word plugin and does not add SDK exports or host commands. See [office preview contract](../docs/specs/office-plugins.md).
 
 ## Plugin discovery categories
 
