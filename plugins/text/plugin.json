@@ -1,5 +1,6 @@
 {
   "api": 1,
+  "category": "text",
   "id": "ember.text",
   "name": "文本预览",
   "i18n": {

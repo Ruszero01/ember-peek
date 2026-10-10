@@ -8,7 +8,7 @@ test('video declares the optional preparation phase and a saved framing setting'
   assert.equal(manifest.prepare, true);
   const setting = manifest.settings.find(({ key }) => key === 'frameWindow');
   assert.equal(setting?.type, 'bool');
-  assert.equal(setting?.default, true);
+  assert.equal(setting?.default, false);
 });
 
 test('the frame export destination is a folder the host chooses', () => {

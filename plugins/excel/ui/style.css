@@ -1,0 +1,9 @@
+#viewport { inset: var(--safe-top, 0px) 0 var(--safe-bottom, 0px); padding: 0; overflow-anchor: none; }
+#content { width: max-content; min-width: 100%; }
+table { border-collapse: separate; border-spacing: 0; table-layout: fixed; background: var(--panel, #1c1d22); }
+th, td { box-sizing: border-box; height: 28px; min-width: 112px; max-width: 240px; padding: 0 8px; border-right: 1px solid var(--border, #303137); border-bottom: 1px solid var(--border, #303137); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+thead th { position: sticky; top: 0; z-index: 2; background: var(--canvas, #141519); font-weight: 500; text-align: center; }
+th:first-child { position: sticky; left: 0; min-width: 52px; width: 52px; background: var(--canvas, #141519); z-index: 1; font-weight: 500; color: var(--muted, #8e909b); }
+thead th:first-child { z-index: 3; }
+td.numeric { text-align: right; }
+td.spacer { min-width: 0; padding: 0; border: 0; }

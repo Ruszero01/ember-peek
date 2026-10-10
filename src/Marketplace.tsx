@@ -1,3 +1,5 @@
+import { PluginCategories } from './PluginCategories';
+import { groupPlugins, matchesCategory, pluginCategory, type CategoryFilter } from './plugin-categories';
 import {PluginBadge} from "./PluginBadge";
 import { useEffect, useState } from "react";
 import { Package, Download, RotateCw, LoaderCircle } from "lucide-react";
@@ -121,10 +123,14 @@ function AvailableCard({
 
 export function Marketplace({
   filter,
+  category,
+  onCategoryChange,
   onInstalled,
   onManage,
 }: {
   filter: string;
+  category: CategoryFilter;
+  onCategoryChange: (category: CategoryFilter) => void;
   onInstalled: () => Promise<unknown>;
   onManage?: () => void;
 }) {
@@ -199,11 +205,12 @@ export function Marketplace({
       setBusy("");
     }
   }
-  const visible = entries.filter((entry) =>
-    `${entry.name} ${entry.summary} ${entry.extensions.join(" ")}`
+  const searched = entries.filter((entry) =>
+    `${entry.name} ${entry.summary} ${entry.extensions.join(" ")} ${t(`plugins.category.${pluginCategory(entry)}`)}`
       .toLowerCase()
       .includes(filter.toLowerCase()),
   );
+  const visible = searched.filter(entry => matchesCategory(entry, category));
   // Every plugin comes from a source; naming the one in use is more useful than saying
   // that it is remote.
   const sourceNames = [...new Set(entries.map((entry) => entry.source.name))];
@@ -244,6 +251,7 @@ export function Marketplace({
           {warning}
         </p>
       ))}
+      <PluginCategories entries={searched} value={category} onChange={onCategoryChange} />
       {loading && (
         <p className="quiet-note">
           <LoaderCircle size={16} className="spinner" /> {t("market.loading")}
@@ -286,9 +294,12 @@ export function Marketplace({
                 </button>
               )}
             </h2>
+            {groupPlugins(group.entries).map(categoryGroup => (
+              <div key={categoryGroup.category}>
+              <h3 className="plugin-category-title">{t(`plugins.category.${categoryGroup.category}`)}<span>{categoryGroup.entries.length}</span></h3>
             {group.installed ? (
               <div className="installed-chips">
-                {group.entries.map((entry) => (
+                {categoryGroup.entries.map((entry) => (
                   <InstalledChip
                     key={entry.id}
                     entry={entry}
@@ -305,7 +316,7 @@ export function Marketplace({
                 ))}
               </div>
             ) : (
-              group.entries.map((entry) => (
+              categoryGroup.entries.map((entry) => (
                 <AvailableCard
                   key={entry.id}
                   entry={entry}
@@ -321,6 +332,8 @@ export function Marketplace({
                 />
               ))
             )}
+              </div>
+            ))}
           </section>
         ))}
       {!loading && !error && !loadError && !visible.length && (
@@ -329,7 +342,7 @@ export function Marketplace({
           <p>
             {!desktop
               ? t("market.desktopOnly")
-              : filter
+              : filter || category !== "all"
                 ? t("market.noMatch")
                 : t("market.empty")}
           </p>

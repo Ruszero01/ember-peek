@@ -223,3 +223,39 @@ Workshop polling preserves model-menu DOM nodes when the catalog and search quer
 ## PSD composite preview
 
 The official PSD/PSB plugin uses existing native calls without extending the SDK. Open returns only header metadata; render caches a bounded RGBA composite and pixels transfers at most 512 KiB per call. Release removes the session cache. The view uses existing controls for zoom percentage, fit and actual size, with wheel zoom and pointer panning. Zoom is relative to document dimensions and reuses the sampled bitmap without further native reads; enlarging it does not add detail. The view background matches the image preview dot pattern. Pointer dragging uses bounded elastic overflow and a 280 ms return to the pan bounds; reduced-motion users return immediately. See [the PSD preview contract](../docs/specs/psd-preview.md) for supported formats and display limits.
+
+## Read-only document helpers
+
+`web/document.js` and `web/document.css` are optional plugin-side assets copied as `sdk-document.js` and `sdk-document.css`. `readDocument(read, size)` reads a validated document in 1 MiB chunks with a 64 MiB cap; `pageIndex`, `zoomFactor`, `fitDocument`, `rowWindow` and `lockDocumentLinks` support navigation, bounded virtual rows and read-only links. These helpers do not introduce a host command or protocol change. Native office plugins statically link `ember-office-document` for bounded OOXML validation; shared library updates ship with rebuilt plugins. See [office preview contract](../docs/specs/office-plugins.md).
+
+## Plugin discovery categories
+
+The optional manifest `category` field is copied into catalog entries. It is a lowercase ASCII token (letters, digits and hyphens), up to 40 bytes. The host displays `media`, `office`, `design`, `text`, `tools` and `other`; unknown or absent values appear under Other. Categories affect browsing only, never matching, activation, permissions or view priority. Existing uncategorized packages remain valid; packages declaring this field require a host that understands it because older hosts reject unknown manifest fields. See [plugin categories](../docs/plugins.md#插件分类).
+
+The settings sidebar search indexes plugin display names, IDs and visible setting labels, help and option labels from existing manifest metadata. Chinese display metadata also supports toneless pinyin and initials (for example, shipin / spyl), alongside case-insensitive literal search. Content-keyed indexes are bounded and reused across runtime polls. Hidden settings, stored values and plugin-owned tool page content are excluded; no SDK API or manifest change is required.
+
+The settings sidebar keeps a compact divider and search field; its placeholder explains search and drag ordering without an additional heading or hint row.
+
+PSD previews use the existing `configuration()` / `onSettings()` channel for `fitWindow` and `frameWindow`, matching image plugin settings. Disabled framing sends an empty preparation; framing changes affect the next open, and manual pan/zoom takes precedence over live setting changes.
+
+The host aligns bottom information and action pills at 40 CSS pixels. Preview minimum width follows the measured action row, including every plugin pill, host actions, gaps, and the measured information width (at least 120px), bounded to 320–800px and 80% of available screen width (the 320px baseline wins on smaller screens). Long rows remain horizontally scrollable with wheel/trackpad input and keyboard focus; below 480px, file information collapses to an icon with its full tooltip. Plugins keep publishing the same controls.
+
+When an existing preview is narrower than the computed toolbar minimum, the host also enlarges its width while retaining height; setting the native minimum alone does not resize an existing Windows window. Wider windows remain unchanged.
+
+Minimum-width changes may enlarge a preview once. Subsequent edge dragging is constrained natively without JavaScript resize correction. Information width uses intrinsic text measurements bounded to 120–200px, independent of the clipped current window.
+
+Host actions occupy a non-shrinking sibling outside the plugin action scroller. Only plugin pills scroll when space is insufficient; host buttons remain fully visible and still count toward minimum-width measurement.
+
+The measured toolbar minimum includes 12px of extra slack, subject to the overall cap.
+
+Auto alignment margins are excluded from minimum-width measurements: unused space in a wider window never raises the minimum.
+
+Bottom chrome pills have a 10px pointer tolerance to bridge small adjacent gaps. Large transparent spaces between groups still belong to the plugin; the whole footer never becomes a reveal target.
+
+The narrow strip beneath the bottom pills through the window bottom also holds chrome visible, with scrollbar-side margins retained. It never extends upward into the large gap between information and actions.
+
+Hosts may opt into passive bottom-edge pointer transitions with init.trackPointer; the SDK sends viewportPointer coordinates only on region changes. The host validates active-view bounds and decides chrome visibility. No input is captured or canceled; bottom scrollbar pixels remain owned by the view.
+
+Immersive viewport layout and host chrome auto-hide are independent preferences. Auto-hide defaults on for existing users and appears only when immersive mode is enabled; turning immersive mode off preserves the preference. Disabling auto-hide keeps both floating bars visible without changing viewport geometry.
+
+Image, PSD, and video frameWindow settings default to false; missing configuration also preserves the host window size. Explicit saved choices remain respected, and fitWindow defaults are unchanged.

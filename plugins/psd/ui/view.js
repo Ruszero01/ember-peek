@@ -1,5 +1,5 @@
-import { ready, call, controls, status, presented, prepare, hostWindow, translate, onLocale, onTheme } from "./sdk.js";
-import { fitGeometry, constrainPan, elasticPan, reboundPosition } from "./geometry.js";
+import { ready, call, controls, status, presented, prepare, hostWindow, translate, onLocale, onTheme, configuration, onSettings } from "./sdk.js";
+import { fitGeometry, constrainPan, elasticPan, reboundPosition, defaultView, preparedWindow } from "./geometry.js";
 const { data } = await ready;
 const canvas = document.querySelector("canvas");
 const context = canvas.getContext("2d", { alpha: true });
@@ -11,7 +11,7 @@ const say = translate({
 });
 const dimensions = data.dimensions;
 const chrome = { width: Math.max(0, hostWindow().currentWidth - innerWidth), height: Math.max(0, hostWindow().currentHeight - innerHeight) };
-let bitmap, zoom = 1, x = 0, y = 0, fitting = true, drag, publishedZoom, frame, settling;
+let bitmap, zoom = 1, x = 0, y = 0, fitting = true, touched = false, drag, publishedZoom, frame, settling;
 function viewport() { return { width: innerWidth, height: innerHeight }; }
 function presentation() {
   const css = getComputedStyle(document.documentElement);
@@ -34,9 +34,9 @@ function publishControls() {
     { id: "zoom", kind: "scrub", label: say("zoom"), value: zoom * 100,
       min: Math.min(2, zoom * 100), max: 2000, suffix: "%",
       run: value => { if (typeof value === "number" && Number.isFinite(value)) scaleTo(value / 100); } },
-    { id: "fit", kind: "button", label: say("fit"), icon: "maximize-2", run: fit },
+    { id: "fit", kind: "button", label: say("fit"), icon: "maximize-2", run() { touched = true; fit(); } },
     { id: "actual", kind: "button", label: say("actual"), icon: "scan", run() {
-      settling = undefined; fitting = false; zoom = 1; x = y = 0; requestPaint();
+      settling = undefined; touched = true; fitting = false; zoom = 1; x = y = 0; requestPaint();
     } },
   ]);
 }
@@ -70,15 +70,22 @@ function fit() {
   ({ zoom, x, y } = fitGeometry(viewport(), dimensions, insets, windowViewport));
   fitting = true; requestPaint();
 }
+function applyDefaultView() {
+  const { insets, windowViewport } = presentation();
+  const state = defaultView(configuration(), touched, viewport(), dimensions, insets, windowViewport);
+  if (!state) return;
+  settling = undefined; ({ zoom, x, y, fitting } = state); requestPaint();
+}
 function scaleTo(value) {
+  touched = true;
   fitting = false; zoom = Math.max(0.00001, Math.min(20, value));
   clampPan(); requestPaint();
 }
 try {
   status(say("loading"));
   const baseline = hostWindow();
-  const scale = Math.min(baseline.width / dimensions.width, baseline.height / dimensions.height);
-  await prepare({ window: { width: dimensions.width * scale, height: dimensions.height * scale } });
+  const windowSize = preparedWindow(configuration(), baseline, dimensions, chrome);
+  await prepare(windowSize ? { window: windowSize } : undefined);
   const result = await call("render");
   if (!Number.isSafeInteger(result.size) || result.size !== result.width * result.height * 4 || result.size > 2560 * 2560 * 4) throw new Error("Invalid preview dimensions");
   const pixels = new Uint8ClampedArray(result.size);
@@ -89,16 +96,17 @@ try {
     for (let i = 0; i < length; i++) pixels[offset + i] = chunk.charCodeAt(i);
   }
   bitmap = await createImageBitmap(new ImageData(pixels, result.width, result.height));
-  fit();
+  applyDefaultView();
+  onSettings(applyDefaultView);
   onLocale(() => { publishedZoom = undefined; requestPaint(); });
   onTheme(() => { if (fitting) fit(); else { clampPan(); requestPaint(); } });
-  addEventListener("resize", () => { if (fitting) fit(); else { clampPan(); requestPaint(); } });
+  addEventListener("resize", () => { if (!touched) applyDefaultView(); else if (fitting) fit(); else { clampPan(); requestPaint(); } });
   canvas.addEventListener("wheel", event => {
     event.preventDefault(); scaleTo(zoom * (event.deltaY < 0 ? 1.1 : 1 / 1.1));
   }, { passive: false });
   canvas.addEventListener("pointerdown", event => {
     if (event.button !== 0) return;
-    settling = undefined; fitting = false;
+    settling = undefined; touched = true; fitting = false;
     drag = { id: event.pointerId, clientX: event.clientX, clientY: event.clientY, x, y };
     canvas.setPointerCapture(event.pointerId);
     canvas.classList.add("dragging");

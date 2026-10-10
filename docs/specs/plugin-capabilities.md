@@ -38,6 +38,7 @@
 | `executable` | 必填，包内原生程序路径（如 `bin/ember-text-plugin.exe`） |
 | `extensions` | 可选，≤256 项、每项为纯字母数字；不区分大小写；省略、空数组、含 `all` 或 `*` 匹配全部文件，包括无扩展名文件 |
 | `fileNames` | 可选，≤128 项、每项 ≤128 字节且不含路径分隔符；精确文件名匹配（忽略大小写），用于 `Dockerfile`、`LICENSE` 这类没有扩展名或扩展名与实际内容无关的文件 |
+| `category` | 可选，≤40 字节，只用小写字母、数字和 `-`；插件声明的浏览分类，不参与文件匹配、激活、权限或排序优先级。宿主识别 `media`、`office`、`design`、`text`、`tools`、`other`；未知或省略在界面归入其他。市场目录复制该字段 |
 | `icon` | 可选，宿主图标集里的名字，≤40 字节；未知名字退回通用图标而不是失败 |
 | `capabilities` | 必填、不重复；`view` 分配可切换主视口，`overlay` 分配宿主浮层，`controls` 分配功能气泡；`view` 与 `overlay` 可同时声明（同一 entry 挂载两次，用 `role` 区分） |
 | `overlay` | 声明 `overlay` 能力时必填，且只在该能力下合法：`{width, height, anchor?}`，宽高是插件内容区的 CSS 像素（不含宿主 12px 拖动条），宽 120–1600、高 24–1200；`anchor` 取 `topRight`（默认）/`topLeft`/`bottomRight`/`bottomLeft`，只决定首次出现的位置 |
@@ -203,3 +204,4 @@ Escape、Space、Ctrl/Meta+O 保留给宿主，不可由插件覆盖。同一挂
 `synchronizeState(get, restore)` 在首次显形和每次再次显形时读取状态，等待异步 `restore` 完成后才允许写入；隐藏前提交一次，隐藏期间忽略 `changed()`。插件在位置或状态改变时调用返回的 `changed()`，销毁前调用 `flush()` 与 `dispose()`。`get()` 返回 undefined 表示当前尚未就绪，不能覆盖已有状态。插件须对读取结果校验并按实际内容范围裁剪，宿主不保证来自其他插件的字段有效。
 
 PDF 预览与编辑声明 `ember.pdf-position/1`，约定 `{page, x, y}`：page 为从 1 开始的页码，x/y 为视口起点相对当前页尺寸的比例，范围 0–1；接收端按页数裁剪。缩放和单页/连续布局变化不改变位置的单位；编辑草稿不包含在此组状态中。
+宿主可在主视口 init 中声明可选 trackPointer。SDK 被动报告进入／离开底部 8px 区域的 viewportPointer 坐标；宿主仅接受当前可交互主视口中的有限、范围内坐标并决定显隐。此消息不取消或捕获鼠标输入，不允许浮层或后台视口驱动显隐。

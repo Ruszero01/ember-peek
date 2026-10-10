@@ -170,3 +170,44 @@ test("action pill shadows fit inside their horizontal scrolling clip",()=>{
     assert.ok(Math.abs(offset)+blur+spread<=padding,"the shadow must fit inside its scroll clip");
   }
 });
+
+
+test("host action buttons never shrink or live inside the plugin scrolling clip", async () => {
+  const ts = (await import("typescript")).default;
+  const source = await readFile(join(root, "src", "main.tsx"), "utf8");
+  const tree = ts.createSourceFile("main.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const classOf = node => ts.isJsxElement(node) ? node.openingElement.attributes.properties.find(p => ts.isJsxAttribute(p) && p.name.text === "className")?.initializer?.text : undefined;
+  let found = false;
+  const visit = node => {
+    if (classOf(node) === "toolbar-host-actions") {
+      found = true;
+      for (let ancestor = node.parent; ancestor; ancestor = ancestor.parent) {
+        assert.notEqual(classOf(ancestor), "preview-action-groups", "host actions must remain outside the horizontal clip");
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(tree);
+  assert.ok(found, "host actions must be present");
+  assert.match(css, /\.toolbar-host-actions\s*\{[^}]*flex-shrink:\s*0/, "host buttons reserve their full width");
+});
+
+test("bottom pills bridge nearby gaps without making the whole footer a pointer target", () => {
+  for (const pill of [".floating-file-info", ".toolbar-actions", ".toolbar-host-actions"]) {
+    const body = ruleBodyOf('.preview-app[data-viewport="window"] '+pill+'::before');
+    assert.match(body || "", /inset:\s*-10px/);
+    assert.match(body || "", /pointer-events:\s*auto/);
+  }
+  assert.match(ruleBodyOf('.preview-app[data-viewport="window"] .preview-overlays') || "", /pointer-events:\s*none/);
+});
+
+test("the lower blank strip holds chrome without covering the large gap at button height", () => {
+ const strip=ruleBodyOf('.preview-app[data-viewport="window"] .preview-overlays::after');
+ assert.match(strip || "", /top:\s*calc\(100% - 10px\)/);
+ assert.match(strip || "", /bottom:\s*calc\(-1 \* \(var\(--chrome-pad\) - var\(--scrollbar-size, 8px\)\)\)/);
+ assert.match(strip || "", /pointer-events:\s*auto/);
+});
+
+test("hidden bottom chrome does not translate its hit boxes onto the scrollbar",()=>{
+ assert.match(ruleBodyOf('.preview-app[data-viewport="window"] .preview-overlays:not(.shown)')||'',/transform:\s*none/);
+});

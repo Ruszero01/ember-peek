@@ -1,0 +1,30 @@
+{
+  "api": 1,
+  "id": "ember.excel",
+  "name": "Excel 预览",
+  "i18n": {
+    "en": {
+      "name": "Excel Preview"
+    }
+  },
+  "version": "0.1.0",
+  "beta": true,
+  "extensions": [
+    "xlsx"
+  ],
+  "icon": "table",
+  "executable": "bin/ember-excel-plugin.exe",
+  "entry": "ui/index.html",
+  "capabilities": [
+    "view",
+    "controls"
+  ],
+  "permissions": [
+    "readFile"
+  ],
+  "activation": {
+    "mode": "auto",
+    "priority": 100
+  },
+  "category": "office"
+}

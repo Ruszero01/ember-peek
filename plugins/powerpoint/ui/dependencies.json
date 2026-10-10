@@ -1,0 +1,58 @@
+{
+  "dependencies": [
+    {
+      "version": "1.3.0",
+      "url": "https://registry.npmjs.org/@aiden0z/pptx-renderer/-/pptx-renderer-1.3.0.tgz",
+      "files": [
+        "vendor/LICENSE.echarts",
+        "vendor/LICENSE.jszip",
+        "vendor/LICENSE.pptx",
+        "vendor/LICENSE.zrender",
+        "vendor/pptx.js",
+        "vendor/THIRD_PARTY_NOTICES.md",
+        "vendor/licenses/ECMA-text-copyright-notice.txt",
+        "vendor/licenses/mtx-decompressor-MPL-2.0.txt"
+      ],
+      "name": "@aiden0z/pptx-renderer"
+    }
+  ],
+  "assets": [
+    {
+      "file": "vendor/LICENSE.echarts",
+      "sha256": "634293835b43a6dd2094fa39182a3d9a6b9ca43b7fdb9ac354e8037af2a3093a"
+    },
+    {
+      "file": "vendor/LICENSE.jszip",
+      "sha256": "566c953c6090b1218ca6217dd7359d45dde46581968586dc607d59a78af6a9c4"
+    },
+    {
+      "file": "vendor/LICENSE.pptx",
+      "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+    },
+    {
+      "file": "vendor/LICENSE.zrender",
+      "sha256": "a681e9d183c72b4af4856935893805eb48c08f0f5a3f260203db7444c20fb98a"
+    },
+    {
+      "file": "vendor/licenses/ECMA-text-copyright-notice.txt",
+      "sha256": "9a08c202df693f91f1f3b1674a64f5989d6269d5d89f710bc65e0fb2757d8f1f"
+    },
+    {
+      "file": "vendor/licenses/mtx-decompressor-MPL-2.0.txt",
+      "sha256": "1f256ecad192880510e84ad60474eab7589218784b9a50bc7ceee34c2b91f1d5"
+    },
+    {
+      "file": "vendor/pptx.js",
+      "sha256": "46b61afa1435de0c194f93324c9467ca392c891c6e07517727c8ffb5e51c376b"
+    },
+    {
+      "file": "vendor/scripts/ooxml-geometry/source-manifest.json",
+      "sha256": "ab675181c17d4e09acdbcfb1eb2f1f9c3d3306751d43fae197e1456e82fe3524"
+    },
+    {
+      "file": "vendor/THIRD_PARTY_NOTICES.md",
+      "sha256": "4e49f2e111bff02e594594abbca7924076649d9cc8826d80e42fd7ed2f4fa11c"
+    }
+  ],
+  "notes": "Pinned offline assets. Word bundle includes JSZip; PowerPoint standalone includes JSZip, ECharts and font support. Licenses accompany the files. Office renderer source is unmodified; Word is bundled and minified using esbuild."
+}

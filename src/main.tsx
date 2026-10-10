@@ -1,4 +1,10 @@
+import { toolbarMinimumWidth, toolbarWheelPosition, toolbarRowWidth, toolbarNeedsResize, toolbarScrollSpacing } from "./toolbar-layout";
+import { LogicalSize } from "@tauri-apps/api/window";
+import { autoHideChromeSetting, shouldShowChrome } from "./chrome-visibility";
+import { searchPluginSettings } from "./plugin-settings-search";
 import { AboutUpdates } from "./AboutUpdates";
+import { PluginCategories } from './PluginCategories';
+import { pluginCategory, matchesCategory, PLUGIN_CATEGORIES, type CategoryFilter } from './plugin-categories';
 import {PluginBadge} from "./PluginBadge";
 import {sortPosition,moveSortItem} from "./plugin-sort";
 import React, {
@@ -92,10 +98,10 @@ const initial: Snapshot = {
   // Nothing is shown until the host answers, and the chooser is the host's decision.
   onboarded: true,
 };
-const originOrder: Record<string, number> = { official: 0, generated: 1, local: 2, market: 3, unknown: 4 };
 type Settings = {
   theme: "light" | "dark" | "system";
   immersive: boolean;
+  autoHideChrome: boolean;
   /** Interface language; "system" follows the language the WebView reports. */
   locale: LocalePreference;
 };
@@ -105,10 +111,11 @@ function savedSettings(): Settings {
     return {
       theme: ["light", "dark", "system"].includes(v.theme) ? v.theme : "system",
       immersive: v.immersive !== false,
+      autoHideChrome: autoHideChromeSetting(v.autoHideChrome),
       locale: isLocalePreference(v.locale) ? v.locale : "system",
     };
   } catch {
-    return { theme: "system", immersive: true, locale: "system" };
+    return { theme: "system", immersive: true, autoHideChrome: true, locale: "system" };
   }
 }
 
@@ -568,6 +575,8 @@ function App() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [filter, setFilter] = useState("");
+  const [settingsSearch, setSettingsSearch] = useState("");
+  const [category, setCategory] = useState<CategoryFilter>("all");
   const [pluginTab, setPluginTab] = useState<string>("market");
   // A package on its way in from outside the window. The list says where it would land,
   // so the drop is not a guess about what the release would do.
@@ -623,6 +632,79 @@ function App() {
    * measured independently of the chrome reveal animation — the host paints nothing of its own
    * over the rectangle, so a bar's height and a small buffer are the whole of it.
    */
+  const actionGroups = useRef<HTMLDivElement>(null);
+  const toolbarMinWidth = useRef(0);
+  const toolbarSizing = useRef(false);
+  useEffect(() => {
+    if (page !== "preview") return;
+    const groups = actionGroups.current;
+    const footer = groups?.closest<HTMLElement>(".preview-overlays");
+    if (!groups || !footer) return;
+    let frame = 0;
+    const measure = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const style = getComputedStyle(footer);
+        const padding = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
+        // Measure intrinsic children, not the clipped viewport or its current scroll position.
+        const children = Array.from(groups.children, child => child.getBoundingClientRect().width);
+        const gap = parseFloat(getComputedStyle(groups).gap) || 0;
+        const information = footer.querySelector<HTMLElement>(".floating-file-info");
+        // Measure the actual styled information pill independently of the current viewport.
+        const probe = information?.cloneNode(true) as HTMLElement | undefined;
+        let informationWidth = 120;
+        if (probe) {
+          Object.assign(probe.style, { position: "fixed", left: "-10000px", visibility: "hidden", width: "max-content", maxWidth: "200px", flex: "none", padding: "4px 8px 4px 4px" });
+          const text = probe.querySelector<HTMLElement>("div");
+          if (text) text.style.display = "flex";
+          footer.append(probe);
+          informationWidth = probe.getBoundingClientRect().width;
+          probe.remove();
+        }
+        const hostActions = footer.querySelector<HTMLElement>(".toolbar-host-actions");
+        const hostWidth = hostActions?.getBoundingClientRect().width ?? 0;
+        const footerGap = parseFloat(style.gap) || 0;
+        const scrollStyle = getComputedStyle(groups);
+        const scrollSpacing = toolbarScrollSpacing(parseFloat(scrollStyle.paddingLeft) || 0, parseFloat(scrollStyle.paddingRight) || 0, parseFloat(scrollStyle.marginRight) || 0);
+        const width = toolbarMinimumWidth(toolbarRowWidth(children, gap) + scrollSpacing + hostWidth + footerGap, padding, screen.availWidth, informationWidth);
+        if (toolbarSizing.current || width === toolbarMinWidth.current) return;
+        const previousMinimum = toolbarMinWidth.current;
+        toolbarSizing.current = true;
+        void (async () => {
+          const nativeWindow = getCurrentWindow();
+          if (width !== toolbarMinWidth.current) {
+            await nativeWindow.setMinSize(new LogicalSize(width, 240));
+            toolbarMinWidth.current = width;
+          }
+          // Windows does not enlarge an existing window when only its minimum changes.
+          if (toolbarNeedsResize(window.innerWidth, width, previousMinimum)) {
+            await nativeWindow.setSize(new LogicalSize(width, Math.max(240, window.innerHeight)));
+          }
+        })().catch(() => {
+          // Older running hosts keep the scroll fallback until their permissions are rebuilt.
+        }).finally(() => { toolbarSizing.current = false; });
+      });
+    };
+    const observer = new ResizeObserver(measure);
+    // Observe intrinsic controls only; dragging the window must never trigger corrective resizing.
+    for (const child of groups.children) observer.observe(child);
+    const hostActions = footer.querySelector(".toolbar-host-actions");
+    if (hostActions) observer.observe(hostActions);
+    const wheel = (event: WheelEvent) => {
+      const next = toolbarWheelPosition(groups.scrollLeft, groups.scrollWidth, groups.clientWidth, event);
+      if (Math.abs(next - groups.scrollLeft) < 0.5) return;
+      event.preventDefault();
+      event.stopPropagation();
+      groups.scrollLeft = next;
+    };
+    groups.addEventListener("wheel", wheel, { passive: false });
+    measure();
+    return () => {
+      observer.disconnect();
+      cancelAnimationFrame(frame);
+      groups.removeEventListener("wheel", wheel);
+    };
+  }, [page, snapshot.sessions, reports]);
   const windowViewport = settings.immersive || !current;
   const [safeInsets, setSafeInsets] = useState({ top: 44, bottom: 44 });
   useLayoutEffect(() => {
@@ -666,14 +748,14 @@ function App() {
     }),
     [theme, safeInsets, windowViewport],
   );
-  const chromeShown = scrubbingControl || !settings.immersive || hot !== "" || !current;
+  const chromeShown = shouldShowChrome(settings.immersive, settings.autoHideChrome, hot !== "", scrubbingControl, Boolean(current));
   /**
    * Reveal while the pointer is on one of the chrome's own bubbles, hide the moment it is
    * not. Those bubbles are the whole reveal rule and the host owns it: a plugin never asks
    * for the bars, because a plugin's floating panel is a document with its own edges and a
    * panel would drag the chrome on and off for reasons the user cannot see. The target is the
-   * bubble's own box — no separately drawn zone — so the area that reveals the bars is the area
-   * the user can actually see, and it follows the bubble as it grows with a longer file name or
+   * bubble's own box, with a 10px tolerance around bottom pills, so the area follows the UI.
+   * It follows the bubble as it grows with a longer file name or
    * an expanded control set. A leave that lands on another host surface keeps the bars up, so
    * moving along the chrome never hides the thing being clicked.
    */
@@ -684,7 +766,8 @@ function App() {
     const held = document
       .elementsFromPoint(event.clientX, event.clientY)
       .some((element) => element.closest("[data-reveal]"));
-    if (!held) setHot("");
+    const bottomTrack = event.clientX >= 0 && event.clientX < window.innerWidth && event.clientY >= window.innerHeight - 8 && event.clientY < window.innerHeight;
+    if (!held && !bottomTrack) setHot("");
   };
   const viewReport = active ? reports[active] : undefined;
   const contributors = snapshot.sessions
@@ -1176,6 +1259,7 @@ function App() {
     (a, b) =>
       pendingOrder ? pendingOrder.indexOf(a.id) - pendingOrder.indexOf(b.id) : b.activation.priority - a.activation.priority || a.id.localeCompare(b.id),
   );
+  const settingsResults = searchPluginSettings(orderedPlugins, settingsSearch);
   async function reorderPlugin(target: string, after: boolean, keyboardSource?: string) {
     const source = keyboardSource ?? dragPlugin;
     setDragPlugin(null);
@@ -1269,6 +1353,7 @@ function App() {
                 controls={
                   secondary ? [] : (reports[session.id]?.controls ?? [])
                 }
+                pointerBoundary={bottom => { if (windowViewport) setHot(bottom ? "hover" : ""); }}
                 report={report}
                 register={register}
                 registerPeer={registerPeer}
@@ -1368,7 +1453,7 @@ function App() {
             onPointerEnter={holdChrome}
             onPointerLeave={dropChrome}
           >
-            <div className="floating-file-info">
+            <div className="floating-file-info" title={current ? `${current.name} · ${formatBytes(current.size)} · ${viewReport?.status || current.pluginId}` : "Ember Peek"}>
               <span className="file-icon">
                 <File size={17} />
               </span>
@@ -1381,7 +1466,7 @@ function App() {
                 </span>
               </div>
             </div>
-            <div className="preview-action-groups">
+            <div className="preview-action-groups" ref={actionGroups}>
               {contributors.map((contributor) => {
                 // The bubble of the plugin in front unfolds; the rest stay compact. A
                 // panel-only plugin counts as in front while its panel is open.
@@ -1474,6 +1559,7 @@ function App() {
                   </div>
                 );
               })}
+            </div>
               <div className="toolbar-host-actions">
                 {/* The host's own entry out of a preview. It has nothing to open until a
                     file has been shown, so it says so instead of failing on a click. */}
@@ -1493,7 +1579,6 @@ function App() {
                   <Settings2 size={16} />
                 </button>
               </div>
-            </div>
           </footer>
         </>
       ) : page === "welcome" ? (
@@ -1529,12 +1614,15 @@ function App() {
                 ))}
                 {snapshot.plugins.length > 0 && (
                   <div className="plugin-sidebar-section">
+                      <label className="plugin-settings-search">
+                        <Search size={14} aria-hidden="true" />
+                        <input type="search" value={settingsSearch} aria-label={t("nav.settingsSearch")} placeholder={t("nav.settingsSearchPlaceholder")} title={t(settingsSearch.trim() ? "nav.searchReorderHint" : "nav.settingsSearchPlaceholder")} disabled={!!dragPlugin}
+                          onChange={event=>setSettingsSearch(event.target.value)} onKeyDown={event=>{if(event.key==="Escape"){event.stopPropagation();setSettingsSearch("");}}} />
+                        {settingsSearch && <button type="button" aria-label={t("nav.clearSettingsSearch")} title={t("nav.clearSettingsSearch")} onClick={()=>setSettingsSearch("")}><X size={13}/></button>}
+                      </label>
                     <div className="plugin-sidebar-scroll"><div className="plugin-sort-list">
-                      <div className="plugin-sidebar-heading">
-                        <h2>{t("nav.pluginSettings")}</h2>
-                        <p>{t("nav.reorderHint")}</p>
-                      </div>
-                      {orderedPlugins.map((plugin, index) => {
+                      {settingsResults.length===0 && <p className="plugin-search-empty" role="status">{t("nav.settingsSearchEmpty")}</p>}
+                      {settingsResults.map(({plugin, index}) => {
                         const selected =
                           page === "plugin" && pluginPage === plugin.id;
                         const Icon = pluginIcon(plugin.icon);
@@ -1553,11 +1641,11 @@ function App() {
                                 : t("plugin.disabledTitle", { name: plugin.name })
                             }
                           >
-                            <button type="button" className="plugin-drag-handle" title={t("plugin.dragHint")} aria-label={t("plugin.dragLabel", { name: plugin.name })} disabled={sortingPlugins}
+                            <button type="button" className="plugin-drag-handle" title={t("plugin.dragHint")} aria-label={t("plugin.dragLabel", { name: plugin.name })} disabled={sortingPlugins || !!settingsSearch.trim()}
                               onClick={e => e.stopPropagation()}
-                              onKeyDown={e => { if (e.key === "ArrowUp" || e.key === "ArrowDown") { e.preventDefault(); e.stopPropagation(); const target = orderedPlugins[index + (e.key === "ArrowUp" ? -1 : 1)]; if (target) void reorderPlugin(target.id, e.key === "ArrowDown", plugin.id); } }}
+                              onKeyDown={e => { if (settingsSearch.trim()) return; if (e.key === "ArrowUp" || e.key === "ArrowDown") { e.preventDefault(); e.stopPropagation(); const target = orderedPlugins[index + (e.key === "ArrowUp" ? -1 : 1)]; if (target) void reorderPlugin(target.id, e.key === "ArrowDown", plugin.id); } }}
                               onPointerDown={event => {
-                                if (event.button !== 0 || sortingPlugins) return;
+                                if (event.button !== 0 || sortingPlugins || settingsSearch.trim()) return;
                                 event.preventDefault();event.stopPropagation();
                                 const row=event.currentTarget.closest<HTMLElement>(".plugin-nav-item")!;
                                 const list=row.parentElement!;
@@ -1739,6 +1827,10 @@ function App() {
                         }
                       />
                     </div>
+                    {settings.immersive && <div className="setting-row">
+                      <div><strong>{t("autoHideChrome.label")}</strong><p>{t("autoHideChrome.note")}</p></div>
+                      <Toggle checked={settings.autoHideChrome} label={t("autoHideChrome.label")} onChange={autoHideChrome => setSettings({ ...settings, autoHideChrome })} />
+                    </div>}
                   </section>
                 </>
               )}
@@ -1813,24 +1905,28 @@ function App() {
                   ) : pluginTab === "market" ? (
                     <Marketplace
                       filter={filter}
+                      category={category}
+                      onCategoryChange={setCategory}
                       onInstalled={refresh}
                       onManage={() => setPluginTab("installed")}
                     />
                   ) : (
                     <>
+                      <PluginCategories entries={snapshot.plugins.filter(p => `${p.name} ${p.id} ${p.extensions.join(" ")} ${t(`plugins.category.${pluginCategory(p)}`)}`.toLowerCase().includes(filter.toLowerCase()))} value={category} onChange={setCategory} />
                       {snapshot.plugins
+                        .filter((p) => matchesCategory(p, category))
                         .filter((p) =>
-                          `${p.name} ${p.id} ${p.extensions.join(" ")}`
+                          `${p.name} ${p.id} ${p.extensions.join(" ")} ${t(`plugins.category.${pluginCategory(p)}`)}`
                             .toLowerCase()
                             .includes(filter.toLowerCase()),
                         )
-                        .sort((a,b) => (originOrder[a.origin] ?? 4) - (originOrder[b.origin] ?? 4) || a.name.localeCompare(b.name))
+                        .sort((a,b) => PLUGIN_CATEGORIES.indexOf(pluginCategory(a)) - PLUGIN_CATEGORIES.indexOf(pluginCategory(b)) || a.name.localeCompare(b.name))
                         .map((plugin, index, plugins) => {
                           const Icon = pluginIcon(plugin.icon);
                           const group = (origin: string) => origin === "official" ? "plugins.origin.official" : origin === "local" ? "plugins.origin.local" : origin === "generated" ? "plugins.origin.generated" : origin === "market" ? "plugins.origin.market" : "plugins.origin.unknown";
                           return (
                             <React.Fragment key={plugin.id}>
-                            {(index === 0 || plugins[index-1].origin !== plugin.origin) && <div className="plugin-group-heading"><h2>{t(group(plugin.origin))}</h2><span>{plugins.filter(p => p.origin === plugin.origin).length}</span><div /></div>}
+                            {(index === 0 || pluginCategory(plugins[index-1]) !== pluginCategory(plugin)) && <div className="plugin-group-heading"><h2>{t(`plugins.category.${pluginCategory(plugin)}`)}</h2><span>{plugins.filter(p => pluginCategory(p) === pluginCategory(plugin)).length}</span><div /></div>}
                             <section className="market-card" key={plugin.id}>
                               <span className="plugin-icon">
                                 <Icon size={23} />
@@ -1886,6 +1982,7 @@ function App() {
                             </React.Fragment>
                           );
                         })}
+                      {snapshot.plugins.length > 0 && !snapshot.plugins.some(p => matchesCategory(p, category) && `${p.name} ${p.id} ${p.extensions.join(" ")} ${t(`plugins.category.${pluginCategory(p)}`)}`.toLowerCase().includes(filter.toLowerCase())) && <div className="card empty-plugins"><Package size={28}/><p>{t("market.noMatch")}</p></div>}
                       {!snapshot.plugins.length && (
                         <div className="card empty-plugins">
                           <Package size={28} />

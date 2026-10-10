@@ -52,7 +52,7 @@ let touched = false;
 const pixels = data?.dimensions;
 /** Whether the window is meant to be the picture. The preference is the plugin's whole
  *  interaction — no control on the toolbar, because opening the image is when it applies. */
-let framing = configuration().frameWindow !== false;
+let framing = configuration().frameWindow === true;
 /** What the host draws inside the preview window that is not this view: the two chrome bars in
  *  the normal viewport, nothing at all in immersive mode. Measured rather than assumed: the
  *  view knows its own rectangle, and the host told it the window it sits in. */
@@ -277,7 +277,7 @@ try {
     // host sizes a window when it opens it, and this one is already open, so turning the
     // preference on here re-renders the picture rather than resizing what the user is looking
     // at. The next image opens to the new preference.
-    framing = configuration().frameWindow !== false;
+    framing = configuration().frameWindow === true;
     if (touched) return;
     if (framing && framed()) return fill();
     applyDefaultView();

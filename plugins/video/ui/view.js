@@ -313,7 +313,7 @@ if (initial.role === "panel") {
     hudTimer = setTimeout(() => { hud.hidden = true; }, 900);
   }
   // Framing is an opening preference. A later settings change applies to the next video.
-  const frameOnOpen = configuration().frameWindow !== false;
+  const frameOnOpen = configuration().frameWindow === true;
   let preparationSent = false;
   const windowBasis = hostWindow();
   const currentWindow = {

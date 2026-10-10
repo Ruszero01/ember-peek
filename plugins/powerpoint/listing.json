@@ -1,0 +1,10 @@
+{
+  "summary": "只读预览 PPTX，无需安装 Office。",
+  "i18n": {
+    "en": {
+      "summary": "Read-only PPTX preview without installing Office."
+    }
+  },
+  "publisher": "Ember Peek",
+  "recommended": false
+}

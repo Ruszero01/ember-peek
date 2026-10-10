@@ -1,5 +1,6 @@
 {
   "api": 1,
+  "category": "tools",
   "id": "ember.metadata",
   "name": "文件信息",
   "i18n": {

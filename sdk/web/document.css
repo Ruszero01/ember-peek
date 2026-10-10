@@ -1,0 +1,4 @@
+:root { color: var(--text, #e5e5e6); background: var(--canvas, #141519); font: 13px "Segoe UI", sans-serif; }
+body { margin: 0; }
+#viewport { position: fixed; inset: 0; overflow: auto; box-sizing: border-box; padding: calc(var(--safe-top, 0px) + 16px) 16px calc(var(--safe-bottom, 0px) + 16px); scroll-padding-top: calc(var(--safe-top, 0px) + 16px); }
+#content { min-width: 0; }

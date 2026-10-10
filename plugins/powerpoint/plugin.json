@@ -1,0 +1,30 @@
+{
+  "api": 1,
+  "id": "ember.powerpoint",
+  "name": "PowerPoint 预览",
+  "i18n": {
+    "en": {
+      "name": "PowerPoint Preview"
+    }
+  },
+  "version": "0.1.0",
+  "beta": true,
+  "extensions": [
+    "pptx"
+  ],
+  "icon": "presentation",
+  "executable": "bin/ember-powerpoint-plugin.exe",
+  "entry": "ui/index.html",
+  "capabilities": [
+    "view",
+    "controls"
+  ],
+  "permissions": [
+    "readFile"
+  ],
+  "activation": {
+    "mode": "auto",
+    "priority": 100
+  },
+  "category": "office"
+}

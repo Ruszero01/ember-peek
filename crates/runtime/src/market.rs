@@ -157,6 +157,8 @@ struct Listing {
     #[serde(default)]
     icon: Option<String>,
     #[serde(default)]
+    category: Option<String>,
+    #[serde(default)]
     beta: bool,
 }
 
@@ -172,6 +174,7 @@ struct ListingText {
 
 /// A catalog entry resolved into what the host can actually do with it.
 struct Offering {
+    category: Option<String>,
     id: String,
     name: String,
     version: String,
@@ -217,6 +220,7 @@ pub struct Entry {
     pub extensions: Vec<String>,
     /// Declared icon name, so the market card matches the installed card.
     pub icon: Option<String>,
+    pub category: Option<String>,
     pub beta: bool,
     pub summary: String,
     pub publisher: String,
@@ -372,6 +376,7 @@ impl Market {
                 version: offering.version.clone(),
                 extensions: offering.extensions.clone(),
                 icon: offering.icon.clone(),
+                category: offering.category.clone(),
                 beta: offering.beta,
                 summary: offering.summary.clone(),
                 publisher: offering.publisher.clone(),
@@ -805,6 +810,13 @@ fn resolve(listing: &Listing, source: &Source, label: &str) -> Result<Offering, 
     if listing.version.len() > 64 || semver::Version::parse(&listing.version).is_err() {
         return Err(msg!(text().entry_version_invalid, id = listing.id));
     }
+    if listing
+        .category
+        .as_deref()
+        .is_some_and(|category| !crate::manifest::valid_category(category))
+    {
+        return Err("Invalid plugin category".into());
+    }
     let (name, summary) = wording(listing);
     Ok(Offering {
         id: listing.id.clone(),
@@ -812,6 +824,7 @@ fn resolve(listing: &Listing, source: &Source, label: &str) -> Result<Offering, 
         version: listing.version.clone(),
         extensions: listing.extensions.clone().unwrap_or_default(),
         icon: listing.icon.clone(),
+        category: listing.category.clone(),
         beta: listing.beta,
         summary,
         publisher: listing.publisher.clone(),
@@ -943,6 +956,27 @@ mod tests {
 
     fn catalog(source: Source, entries: Vec<Listing>) -> RemoteCatalog {
         RemoteCatalog { source, entries }
+    }
+
+    #[test]
+    fn category_survives_catalog_resolution_and_rejects_invalid_metadata() {
+        let mut entry = listing("test.category", "category.zip");
+        assert!(resolve(&entry, &source(), "Tests")
+            .unwrap()
+            .category
+            .is_none());
+        for name in ["office", "future-category"] {
+            entry.category = Some(name.into());
+            assert_eq!(
+                resolve(&entry, &source(), "Tests")
+                    .unwrap()
+                    .category
+                    .as_deref(),
+                Some(name)
+            );
+        }
+        entry.category = Some("../../office".into());
+        assert!(resolve(&entry, &source(), "Tests").is_err());
     }
 
     #[test]

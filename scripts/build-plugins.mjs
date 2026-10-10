@@ -28,6 +28,8 @@ const webSdk = path.join(root, "sdk", "web", "index.js");
 // Shared plugin-side UI. Copied into every package next to sdk.js and folded into the
 // build hash, so changing a shared component republishes the packages that use it.
 const webSdkExtras = [
+  [path.join(root, "sdk", "web", "document.js"), "sdk-document.js"],
+  [path.join(root, "sdk", "web", "document.css"), "sdk-document.css"],
   [path.join(root, "sdk", "web", "state.js"), "state.js"],
   [path.join(root, "sdk", "web", "shortcuts.js"), "shortcuts.js"],
   // Loaded by a page before its own module: the CSP allows no inline script, so a page whose
@@ -44,6 +46,7 @@ const bundledSdk = ["view", "navigation", "markdown"];
 /** The only libraries a plugin's native crate may link: everything else in this repository is
  *  host-side, and a plugin that linked it would stop being installable on its own. */
 const pluginLibraries = [
+  { name: "ember-office-document", directory: path.join(root, "crates", "office-document") },
   { name: "ember-file-store", directory: path.join(root, "crates", "file-store") },
   { name: "ember-plugin-sdk", directory: path.join(root, "sdk", "native") },
   { name: "ember-text-document", directory: path.join(root, "crates", "text-document") },
@@ -63,7 +66,11 @@ function providedSdkFiles() {
 
 /** Files a web file references: imports for JS, attributes for HTML, imports and `url()` for
  *  CSS. A guard rather than a parser — it only has to be right about what leaves the package. */
-function references(code, extension) {
+export async function references(code, extension) {
+  if (extension === ".js") {
+    const result = await build({ stdin: { contents: code, loader: "js" }, bundle: true, format: "esm", external: ["*"], write: false, metafile: true, treeShaking: false, logLevel: "silent" });
+    return [...new Set(Object.values(result.metafile.outputs).flatMap(output => output.imports.map(item => item.path)))];
+  }
   const patterns = {
     ".js": /(?:\bfrom|\bimport)\s*\(?\s*["']([^"']+)["']/g,
     ".html": /(?:src|href)\s*=\s*["']([^"']+)["']/g,
@@ -156,7 +163,7 @@ async function checkPluginBoundary({ directory, manifest }) {
   const provided = providedSdkFiles();
   for (const file of await readTree(ui)) {
     const extension = path.extname(file.name).toLowerCase();
-    for (const reference of references(file.data.toString("utf8"), extension)) {
+    for (const reference of await references(file.data.toString("utf8"), extension)) {
       if (reference.startsWith("data:")) continue; // inline assets are the point of a package
       const resolved = path.resolve(ui, reference);
       const outside = path.relative(ui, resolved).startsWith("..");
@@ -260,7 +267,7 @@ async function verifyPackage({ directory, manifest, provided }) {
   for (const name of files) {
     if (!/\.(js|html|css)$/.test(name)) continue;
     const code = await readFile(path.join(ui, name), "utf8");
-    for (const reference of references(code, path.extname(name))) {
+    for (const reference of await references(code, path.extname(name))) {
       if (/^(data:|https?:|#)/.test(reference)) continue;
       const target = reference.split(/[?#]/)[0].replace(/^\.\//, "");
       // A bare specifier without a file extension is a package import, not ours.
@@ -533,6 +540,7 @@ async function publish(release, { dist = false } = {}) {
       name: manifest.name,
       extensions: manifest.extensions,
       ...(manifest.icon ? { icon: manifest.icon } : {}),
+      ...(manifest.category ? { category: manifest.category } : {}),
       ...(manifest.beta ? { beta: true } : {}),
       targets: [target],
       summary: listing.summary,

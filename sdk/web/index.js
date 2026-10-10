@@ -1,6 +1,8 @@
 import { validateShortcuts, matchShortcut } from "./shortcuts.js";
 // Optional view SDK. This module is copied into each plugin package, not linked into the host.
 let port;
+let pointerTracking = false;
+let pointerBottom = null;
 let sequence = 0;
 let settings = {};
 let sessionId = "";
@@ -41,6 +43,8 @@ function disconnect(message, expected = port) {
     expected.close();
   } catch {}
   port = undefined;
+  pointerTracking = false;
+  pointerBottom = null;
   shortcutBindings = [];
   rejectAwaiting(message);
 }
@@ -192,6 +196,8 @@ window.addEventListener("message", (event) => {
     if (message.type === "disconnect") {
       disconnect(message.error || "Host connection closed", nextPort);
     } else if (message.type === "init") {
+      pointerTracking = message.trackPointer === true;
+      pointerBottom = null;
       sessionId = message.session || "";
       sourceFile = message.file || null;
       recordedWindow = message.window || recordedWindow;
@@ -537,3 +543,12 @@ export async function synchronizeState(get, restore) {
   const { createStateSynchronizer } = await import("./state.js");
   return createStateSynchronizer({ ready, viewState, onVisibility }, get, restore);
 }
+
+// Report only bottom-edge transitions; never capture or cancel scrollbar input.
+addEventListener("pointermove", event => {
+  if (!port || !pointerTracking) return;
+  const bottom = event.clientY >= innerHeight - 8;
+  if (bottom === pointerBottom) return;
+  pointerBottom = bottom;
+  port.postMessage({ type: "viewportPointer", x: event.clientX, y: event.clientY });
+}, { passive: true });

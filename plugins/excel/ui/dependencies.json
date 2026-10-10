@@ -1,0 +1,24 @@
+{
+  "dependencies": [
+    {
+      "version": "0.20.3",
+      "url": "https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js",
+      "files": [
+        "vendor/LICENSE.sheetjs",
+        "vendor/xlsx.full.min.js"
+      ],
+      "name": "SheetJS CE"
+    }
+  ],
+  "assets": [
+    {
+      "file": "vendor/LICENSE.sheetjs",
+      "sha256": "4d2a38ac35cda06a555c84074a819d413339cd3691b822cae50f8f322fe01f64"
+    },
+    {
+      "file": "vendor/xlsx.full.min.js",
+      "sha256": "cc015130aa8521e7f088f88898eba949ccdcbfb38df0bd129b44b7273c3a6f41"
+    }
+  ],
+  "notes": "Pinned offline assets. Word bundle includes JSZip; PowerPoint standalone includes JSZip, ECharts and font support. Licenses accompany the files. Office renderer source is unmodified; Word is bundled and minified using esbuild."
+}

@@ -1042,15 +1042,16 @@ kbd {
   padding-bottom: 0;
 }
 .preview-app[data-viewport="window"] .preview-overlays:not(.shown) {
-  transform: translateY(12px);
+  transform: none;
 }
 .floating-file-info {
   display: flex;
   align-items: center;
   gap: 7px;
   min-width: 0;
-  max-width: 55%;
-  padding: 5px 8px 5px 5px;
+  max-width: min(34%, 200px);
+  height: 40px;
+  padding: 4px 8px 4px 4px;
   /* Read-only host chrome: the name and size can be looked at, never selected. */
   user-select: none;
 }
@@ -1059,8 +1060,8 @@ kbd {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  width: 26px;
-  height: 26px;
+  width: 30px;
+  height: 30px;
   background: var(--raised);
   border-radius: 7px;
   color: var(--accent);
@@ -1087,8 +1088,8 @@ kbd {
 }
 .preview-action-groups {
   /* Keep the compact pill shadows inside the scrolling clip without moving the row. */
-  padding: 4px;
-  margin: -4px;
+  padding: 10px;
+  margin: -10px;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -1099,6 +1100,7 @@ kbd {
   display: flex;
   align-items: center;
   gap: 1px;
+  height: 40px;
   padding: 4px;
 }
 .toolbar-actions button,
@@ -1172,7 +1174,7 @@ kbd {
     height: 60px;
   }
   .floating-file-info {
-    max-width: 40%;
+    max-width: min(40%, 200px);
   }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -1292,8 +1294,17 @@ kbd {
   color: var(--muted);
 }
 .preview-action-groups {
-  max-width: 76%;
+  flex: 0 1 auto;
+  margin-left: auto;
+  max-width: none;
   overflow-x: auto;
+  scrollbar-width: none;
+}
+.preview-action-groups::-webkit-scrollbar {
+  display: none;
+}
+.toolbar-host-actions {
+  flex-shrink: 0;
 }
 .plugin-bubble {
   flex-shrink: 0;
@@ -1378,24 +1389,6 @@ kbd {
   background: var(--panel);
 }
 
-.plugin-sidebar-heading {
-  margin: 0 12px 10px;
-  padding-top: 20px;
-  flex-shrink: 0;
-}
-.plugin-sidebar-heading h2 {
-  margin: 0;
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.4px;
-}
-.plugin-sidebar-heading p {
-  margin: 6px 0 4px;
-  color: var(--faint);
-  font-size: 10px;
-  line-height: 1.5;
-}
 .plugin-order-number {
   margin-left: auto;
   flex-shrink: 0;
@@ -1704,3 +1697,57 @@ kbd {
 .about-update-row { border-top: 1px solid var(--border); padding: 16px 0; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; color: var(--muted); font-size: 11px; }
 .about-update-actions { display: flex; gap: 10px; flex-wrap: wrap; }
 .about-updates p { color: var(--muted); font-size: 12px; margin: 0 0 12px; }
+
+.plugin-categories { display:flex; flex-wrap:wrap; gap:6px; margin:14px 0 20px; }
+.plugin-categories button { display:flex; align-items:center; gap:7px; border:1px solid var(--border); border-radius:9px; padding:7px 10px; background:transparent; color:var(--muted); font:inherit; font-size:12px; cursor:pointer; }
+.plugin-categories button:hover { color:var(--text); background:var(--surface); }
+.plugin-categories button.is-active { color:var(--accent); background:var(--surface); border-color:var(--accent); }
+.plugin-categories button span { font-size:10px; opacity:.7; font-variant-numeric:tabular-nums; }
+.plugin-category-title { display:flex; align-items:center; gap:8px; color:var(--muted); font-size:12px; font-weight:500; margin:18px 0 10px; }
+.plugin-category-title span { font-size:10px; opacity:.7; }
+
+.plugin-settings-search { display:flex; align-items:center; gap:7px; margin:14px 12px 10px; padding:8px 9px; border:1px solid var(--border); border-radius:8px; background:var(--surface); color:var(--muted); flex-shrink:0; }
+.plugin-settings-search:focus-within { border-color:var(--accent); }
+.plugin-settings-search input { width:100%; min-width:0; padding:0; border:0; outline:0; background:transparent; color:var(--text); font:inherit; font-size:11px; }
+.plugin-settings-search input::placeholder { color:var(--faint); }
+.plugin-settings-search input::-webkit-search-cancel-button { display:none; }
+.plugin-settings-search button { display:flex; flex:none; padding:2px; border:0; background:transparent; color:var(--muted); cursor:pointer; }
+.plugin-settings-search button:hover { color:var(--text); }
+.plugin-search-empty { color:var(--muted); font-size:11px; line-height:1.6; margin:12px; }
+
+@media (max-width: 480px) {
+  .floating-file-info {
+    flex: 0 0 40px;
+    max-width: 40px;
+    padding: 4px;
+  }
+  .floating-file-info > div { display: none; }
+}
+
+/* Bridge small bottom-pill gaps without owning the large transparent space between groups. */
+.preview-app[data-viewport="window"] .floating-file-info,
+.preview-app[data-viewport="window"] .toolbar-actions,
+.preview-app[data-viewport="window"] .toolbar-host-actions {
+  position: relative;
+}
+.preview-app[data-viewport="window"] .floating-file-info::before,
+.preview-app[data-viewport="window"] .toolbar-actions::before,
+.preview-app[data-viewport="window"] .toolbar-host-actions::before {
+  content: "";
+  position: absolute;
+  inset: -10px;
+  pointer-events: auto;
+  z-index: -1;
+}
+
+/* Keep the bottom strip alive, while the large gap at button height remains transparent. */
+.preview-app[data-viewport="window"] .preview-overlays::after {
+  content: "";
+  position: absolute;
+  left: var(--chrome-pad);
+  right: var(--chrome-pad);
+  top: calc(100% - 10px);
+  bottom: calc(-1 * (var(--chrome-pad) - var(--scrollbar-size, 8px)));
+  pointer-events: auto;
+  z-index: -1;
+}

@@ -53,6 +53,11 @@ export const en = {
   "nav.about": "About",
   "nav.general": "General",
   "nav.plugins": "Plugins",
+  "nav.settingsSearchPlaceholder": "Search settings or drag to reorder",
+  "nav.settingsSearch": "Search plugins or settings",
+  "nav.clearSettingsSearch": "Clear settings search",
+  "nav.settingsSearchEmpty": "No matching plugins or settings",
+  "nav.searchReorderHint": "Clear search to reorder plugins",
   "nav.pluginSettings": "Plugin settings",
   "nav.reorderHint": "Drag the handle to reorder",
 
@@ -95,8 +100,9 @@ export const en = {
   "interface.title": "Interface",
   "interface.subtitle": "How the preview window shows content",
   "immersive.label": "Immersive mode",
-  "immersive.note":
-    "Off, the viewport is the band between the title bar and the action bar. On, it fills the window: the bars appear when the pointer reaches the top or bottom edge, and the space they leave does not block the plugin.",
+  "immersive.note": "When enabled, the preview fills the window and the bars float above it. Otherwise, the preview sits between the bars.",
+  "autoHideChrome.label": "Auto-hide action bars",
+  "autoHideChrome.note": "Hide both bars when the pointer leaves the action areas. Turn off to keep them visible.",
 
   "plugins.market": "Plugin marketplace",
   "plugins.openToolSettings": "Open settings ↗",
@@ -235,6 +241,14 @@ export const en = {
   "protocol.workshopToggleState": "Generated plugin toggles must declare their current state",
 
   "bridge.desktopOnly": "Files and plugin processes need the desktop window",
+  "plugins.category.all": "All",
+  "plugins.category.media": "Media",
+  "plugins.category.office": "Office",
+  "plugins.category.design": "Design",
+  "plugins.category.text": "Text & code",
+  "plugins.category.tools": "Tools",
+  "plugins.category.other": "Other",
+  "plugins.categories.label": "Plugin categories",
 };
 
 /** Every valid message key: the English catalog is the source of truth for them. */

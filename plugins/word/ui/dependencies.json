@@ -1,0 +1,40 @@
+{
+  "dependencies": [
+    {
+      "version": "0.4.1",
+      "url": "https://registry.npmjs.org/docx-preview/-/docx-preview-0.4.1.tgz",
+      "files": [
+        "vendor/docx.js",
+        "vendor/docx.js.LEGAL.txt",
+        "vendor/LICENSE.docx-preview",
+        "vendor/LICENSE.jszip"
+      ],
+      "name": "docx-preview"
+    },
+    {
+      "name": "jszip",
+      "version": "3.10.1",
+      "url": "https://registry.npmjs.org/jszip/-/jszip-3.10.1.tgz",
+      "license": "MIT"
+    }
+  ],
+  "assets": [
+    {
+      "file": "vendor/docx.js",
+      "sha256": "bfb6cd081d93c4c2aa2e09d8a53ba063c5761cb1077fd15c08f4b0c143ac1037"
+    },
+    {
+      "file": "vendor/docx.js.LEGAL.txt",
+      "sha256": "d28ed09fd9fd62902eebd3ec708b28f084d057f458037a0b527dae9601aabf99"
+    },
+    {
+      "file": "vendor/LICENSE.docx-preview",
+      "sha256": "8668bf4417d161e4eb4d47d6044526e4914d9eb3c748573d9bb7e87708c1253f"
+    },
+    {
+      "file": "vendor/LICENSE.jszip",
+      "sha256": "566c953c6090b1218ca6217dd7359d45dde46581968586dc607d59a78af6a9c4"
+    }
+  ],
+  "notes": "Pinned offline assets. Word bundle includes JSZip; PowerPoint standalone includes JSZip, ECharts and font support. Licenses accompany the files. Office renderer source is unmodified; Word is bundled and minified using esbuild."
+}

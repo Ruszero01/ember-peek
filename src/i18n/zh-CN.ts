@@ -45,6 +45,11 @@ export const zhCN: Catalog = {
   "nav.about": "关于",
   "nav.general": "通用",
   "nav.plugins": "插件",
+  "nav.settingsSearchPlaceholder": "搜索设置，或拖动排序",
+  "nav.settingsSearch": "搜索插件或设置项",
+  "nav.clearSettingsSearch": "清除设置搜索",
+  "nav.settingsSearchEmpty": "没有匹配的插件或设置项",
+  "nav.searchReorderHint": "清除搜索后可调整顺序",
   "nav.pluginSettings": "插件设置",
   "nav.reorderHint": "拖动左侧手柄调整顺序",
 
@@ -87,7 +92,9 @@ export const zhCN: Catalog = {
   "interface.subtitle": "预览窗口显示方式",
   "immersive.label": "沉浸模式",
   "immersive.note":
-    "关闭时视口只占标题栏与功能栏之间；开启后视口铺满窗口，鼠标移到顶部或底部时浮出操作栏，栏间空隙不挡插件操作。",
+    "关闭时视口位于标题栏与功能栏之间；开启后视口铺满窗口，操作栏浮在内容上方。",
+  "autoHideChrome.label": "自动隐藏功能栏",
+  "autoHideChrome.note": "鼠标离开操作区时自动收起两条栏；关闭后操作栏始终显示。",
 
   "plugins.market": "插件市场",
   "plugins.openToolSettings": "前往设置 ↗",
@@ -210,4 +217,12 @@ export const zhCN: Catalog = {
   "protocol.workshopToggleState": "生成插件的切换控件必须声明当前状态",
 
   "bridge.desktopOnly": "文件与插件进程功能需要在桌面窗口中使用",
+  "plugins.category.all": "全部",
+  "plugins.category.media": "媒体",
+  "plugins.category.office": "办公",
+  "plugins.category.design": "设计",
+  "plugins.category.text": "文本与代码",
+  "plugins.category.tools": "工具",
+  "plugins.category.other": "其他",
+  "plugins.categories.label": "插件分类",
 };

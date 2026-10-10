@@ -1,5 +1,6 @@
 {
   "api": 1,
+  "category": "text",
   "id": "ember.markdown",
   "name": "Markdown 预览",
   "i18n": {

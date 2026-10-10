@@ -1,5 +1,6 @@
 {
   "api": 1,
+  "category": "office",
   "viewStateContract": "ember.pdf-position/1",
   "id": "ember.pdf-editor",
   "name": "PDF 编辑",

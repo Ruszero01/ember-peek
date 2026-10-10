@@ -1104,6 +1104,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ember-excel-plugin"
+version = "0.1.0"
+dependencies = [
+ "ember-office-document",
+ "ember-plugin-sdk",
+ "serde_json",
+]
+
+[[package]]
 name = "ember-file-store"
 version = "0.1.0"
 dependencies = [
@@ -1135,6 +1144,15 @@ version = "0.1.0"
 dependencies = [
  "ember-plugin-sdk",
  "serde_json",
+]
+
+[[package]]
+name = "ember-office-document"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "tempfile",
+ "zip",
 ]
 
 [[package]]
@@ -1198,6 +1216,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ember-powerpoint-plugin"
+version = "0.1.0"
+dependencies = [
+ "ember-office-document",
+ "ember-plugin-sdk",
+ "serde_json",
+]
+
+[[package]]
 name = "ember-psd-plugin"
 version = "0.1.0"
 dependencies = [
@@ -1257,6 +1284,15 @@ name = "ember-video-plugin"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
+ "ember-plugin-sdk",
+ "serde_json",
+]
+
+[[package]]
+name = "ember-word-plugin"
+version = "0.1.0"
+dependencies = [
+ "ember-office-document",
  "ember-plugin-sdk",
  "serde_json",
 ]

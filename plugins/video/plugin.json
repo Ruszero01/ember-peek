@@ -1,5 +1,6 @@
 {
   "api": 1,
+  "category": "media",
   "id": "ember.video",
   "name": "视频预览",
   "i18n": {
@@ -64,7 +65,7 @@
       "type": "bool",
       "label": "窗口对齐视频",
       "help": "打开视频时按画面比例调整窗口；沉浸模式下画面贴住窗口边缘。",
-      "default": true
+      "default": false
     },
     {
       "key": "exportDir",

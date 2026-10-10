@@ -90,6 +90,7 @@ export type Plugin = {
   /** Icon name to look up in the host set; unknown or absent falls back to a generic one. */
   icon?: string;
   beta?: boolean;
+  category?: string | null;
   /** Declarations, used to render one control per setting. */
   settings: PluginSetting[];
   /** Current values, keyed by setting key: declared defaults plus user overrides. */
@@ -123,6 +124,7 @@ export type MarketEntry = {
   extensions: string[];
   icon?: string;
   beta?: boolean;
+  category?: string | null;
   summary: string;
   publisher: string;
   /** The source suggests this one for a fresh installation. */

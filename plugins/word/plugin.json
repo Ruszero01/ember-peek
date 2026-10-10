@@ -1,0 +1,30 @@
+{
+  "api": 1,
+  "id": "ember.word",
+  "name": "Word 预览",
+  "i18n": {
+    "en": {
+      "name": "Word Preview"
+    }
+  },
+  "version": "0.1.0",
+  "beta": true,
+  "extensions": [
+    "docx"
+  ],
+  "icon": "file-text",
+  "executable": "bin/ember-word-plugin.exe",
+  "entry": "ui/index.html",
+  "capabilities": [
+    "view",
+    "controls"
+  ],
+  "permissions": [
+    "readFile"
+  ],
+  "activation": {
+    "mode": "auto",
+    "priority": 100
+  },
+  "category": "office"
+}

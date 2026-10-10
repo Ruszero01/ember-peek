@@ -19,6 +19,7 @@ export function PluginView({
   settings,
   controls,
   report,
+  pointerBoundary,
   register,
   registerPeer,
   peer,
@@ -39,6 +40,7 @@ export function PluginView({
   /** Controls the view declared; only a view mount may declare them. */
   controls: Control[];
   report: (id: string, value: Partial<ViewReport>) => void;
+  pointerBoundary?: (bottom: boolean) => void;
   register: (
     id: string,
     send: ((id: string, value?: unknown) => void) | null,
@@ -74,6 +76,7 @@ export function PluginView({
     settings,
     controls,
     report,
+    pointerBoundary,
     shortcut,
     panel,
     confirm,
@@ -87,6 +90,7 @@ export function PluginView({
     settings,
     controls,
     report,
+    pointerBoundary,
     shortcut,
     panel,
     confirm,
@@ -202,6 +206,7 @@ export function PluginView({
                 currentWidth: window.innerWidth,
                 currentHeight: window.innerHeight,
               },
+              trackPointer: role === "view" && Boolean(latest.current.pointerBoundary),
               theme: latest.current.theme,
               locale: latest.current.locale,
               visible: latest.current.visible,
@@ -209,6 +214,12 @@ export function PluginView({
               // Same entry, two surfaces: the plugin renders its view or its panel.
               role,
             });
+        } else if (message?.type === "viewportPointer" && role === "view" && latest.current.visible && latest.current.interactive) {
+          const rect = frame.current?.getBoundingClientRect();
+          const { x, y } = message;
+          if (rect && Number.isFinite(x) && Number.isFinite(y) && x >= 0 && x <= rect.width && y >= 0 && y <= rect.height) {
+            latest.current.pointerBoundary?.(rect.top + y >= window.innerHeight - 8);
+          }
         } else if (message?.type === "controls") {
           if (secondary)
             throw new Error(t("view.panelNoControls"));

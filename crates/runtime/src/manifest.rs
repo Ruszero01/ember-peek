@@ -401,6 +401,9 @@ pub struct Manifest {
     /// catalogue can grow without invalidating already-published plugins.
     #[serde(default)]
     pub icon: Option<String>,
+    /// Optional discovery metadata. Unknown categories remain loadable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
     /// Optional release maturity marker, independent of the API version.
     #[serde(default)]
     pub beta: bool,
@@ -463,6 +466,14 @@ pub const HOST_TARGET: &str = if cfg!(all(target_os = "windows", target_arch = "
 } else {
     "unknown"
 };
+
+pub fn valid_category(category: &str) -> bool {
+    !category.is_empty()
+        && category.len() <= 40
+        && category
+            .bytes()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-')
+}
 
 pub fn valid_target(target: &str) -> bool {
     !target.is_empty()
@@ -639,6 +650,13 @@ impl Package {
         }
         validate_settings(&manifest.settings)?;
         validate_i18n(&manifest.i18n, &manifest.settings)?;
+        if manifest
+            .category
+            .as_deref()
+            .is_some_and(|category| !valid_category(category))
+        {
+            return Err("Invalid plugin category".into());
+        }
         if let Some(icon) = &manifest.icon {
             if icon.is_empty()
                 || icon.len() > 40
@@ -1099,6 +1117,9 @@ mod tests {
 
     /// Write a package with the given icon and load it through the real entry point.
     fn load_with_icon(icon: Option<Value>) -> Result<Manifest, String> {
+        load_with_field("icon", icon)
+    }
+    fn load_with_field(field: &str, declared: Option<Value>) -> Result<Manifest, String> {
         let directory = tempfile::tempdir().unwrap();
         std::fs::write(directory.path().join("worker.exe"), "").unwrap();
         std::fs::create_dir_all(directory.path().join("ui")).unwrap();
@@ -1112,11 +1133,34 @@ mod tests {
             "executable": "worker.exe",
             "entry": "ui/index.html", "capabilities": ["view"],
         });
-        if let Some(icon) = icon {
-            value["icon"] = icon;
+        if let Some(declared) = declared {
+            value[field] = declared;
         }
         std::fs::write(directory.path().join("plugin.json"), value.to_string()).unwrap();
         Package::load(directory.path()).map(|package| package.manifest)
+    }
+
+    #[test]
+    fn category_is_optional_bounded_and_independent_of_matching() {
+        assert!(load_with_field("category", None)
+            .unwrap()
+            .category
+            .is_none());
+        for name in ["media", "office", "design", "future-category"] {
+            let manifest = load_with_field("category", Some(json!(name))).unwrap();
+            assert!(manifest.matches("txt"));
+            assert!(!manifest.matches("pptx"));
+            assert_eq!(serde_json::to_value(manifest).unwrap()["category"], name);
+        }
+        for bad in [
+            json!(""),
+            json!("Office"),
+            json!("../office"),
+            json!("a".repeat(41)),
+            json!(["media"]),
+        ] {
+            assert!(load_with_field("category", Some(bad)).is_err());
+        }
     }
 
     #[test]

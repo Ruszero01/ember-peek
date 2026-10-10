@@ -34,3 +34,19 @@ export function reboundPosition(from, target, progress) {
   const eased = 1 - (1 - t) ** 3;
   return { x: from.x + (target.x - from.x) * eased, y: from.y + (target.y - from.y) * eased };
 }
+/** State chosen by defaults; manual view changes take precedence over later setting updates. */
+export function defaultView(settings, touched, viewport, pixels, insets, windowViewport) {
+  if(touched)return null;
+  const sameShape=pixels.width>=pixels.height
+    ?Math.abs(viewport.height-viewport.width*pixels.height/pixels.width)<=1
+    :Math.abs(viewport.width-viewport.height*pixels.width/pixels.height)<=1;
+  if(settings.frameWindow===true && sameShape)return {zoom:Math.max(viewport.width/pixels.width,viewport.height/pixels.height),x:0,y:0,fitting:true};
+  return settings.fitWindow!==false?{...fitGeometry(viewport,pixels,insets,windowViewport),fitting:true}:{zoom:1,x:0,y:0,fitting:false};
+}
+/** Prepare only when requested, using the remembered viewport's longest axis plus host chrome. */
+export function preparedWindow(settings, baseline, pixels, chrome) {
+  if(settings.frameWindow!==true)return undefined;
+  const width=Math.max(1,baseline.width-chrome.width),height=Math.max(1,baseline.height-chrome.height);
+  const scale=pixels.width>=pixels.height?width/pixels.width:height/pixels.height;
+  return {width:Math.round(pixels.width*scale+chrome.width),height:Math.round(pixels.height*scale+chrome.height)};
+}

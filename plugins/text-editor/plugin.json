@@ -1,5 +1,6 @@
 {
   "api": 1,
+  "category": "text",
   "id": "ember.text-editor",
   "name": "文本编辑",
   "i18n": {

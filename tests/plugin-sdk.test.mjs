@@ -203,3 +203,18 @@ test('shared state SDK restores and writes opaque groups over the existing chann
   port1.close(); port2.close();
  }
 });
+
+test('optional pointer tracking reports bottom transitions without touching scrollbar input',async()=>{
+ for(const enabled of [false,true]){
+  const {sdk,browserListeners,parentWindow,pageListeners}=await sdkPage('pointer-edge');
+  const {port1,port2}=new MessageChannel();const messages=[];
+  port1.onmessage=event=>{if(event.data.type==='connected')port1.postMessage({type:'init',session:'test',trackPointer:enabled,theme:{},settings:{}});else if(event.data.type==='viewportPointer')messages.push(event.data)};
+  port1.start();browserListeners.get('message')({source:parentWindow,data:{type:'ember:connect'},ports:[port2]});
+  const previousHeight=globalThis.innerHeight;globalThis.innerHeight=600;
+  try{await sdk.ready;const move=pageListeners.get('pointermove');
+   for(const clientY of [598,599,400,401])move({clientX:20,clientY,preventDefault(){assert.fail('must not cancel scrollbar input')}});
+   await new Promise(resolve=>setTimeout(resolve,10));
+   assert.deepEqual(messages.map(m=>m.y),enabled?[598,400]:[]);
+  }finally{port1.close();port2.close();if(previousHeight===undefined)delete globalThis.innerHeight;else globalThis.innerHeight=previousHeight;}
+ }
+});

@@ -1,5 +1,6 @@
 {
   "api": 1,
+  "category": "media",
   "id": "ember.image",
   "name": "图片预览",
   "i18n": {
@@ -42,7 +43,7 @@
       "type": "bool",
       "label": "窗口对齐图片",
       "help": "开启后打开图片时把窗口调成图片的形状，画面从边到边铺满、没有留白；关闭后窗口保持它自己的大小。",
-      "default": true
+      "default": false
     }
   ],
   "prepare": true,
