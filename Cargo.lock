@@ -1198,6 +1198,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "ember-psd-plugin"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "ember-plugin-sdk",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "ember-runtime"
 version = "0.1.0"
 dependencies = [

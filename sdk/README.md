@@ -219,3 +219,7 @@ Stateful editors must refresh native draft metadata when their view remounts ins
 Workshop model selection captures the provider and model IDs before updating busy UI state. Its searchable picker is plugin-owned and does not change the Tool API.
 
 Workshop polling preserves model-menu DOM nodes when the catalog and search query are unchanged; selection and availability update in place.
+
+## PSD composite preview
+
+The official PSD/PSB plugin uses existing native calls without extending the SDK. Open returns only header metadata; render caches a bounded RGBA composite and pixels transfers at most 512 KiB per call. Release removes the session cache. The view uses existing controls for zoom percentage, fit and actual size, with wheel zoom and pointer panning. Zoom is relative to document dimensions and reuses the sampled bitmap without further native reads; enlarging it does not add detail. The view background matches the image preview dot pattern. Pointer dragging uses bounded elastic overflow and a 280 ms return to the pan bounds; reduced-motion users return immediately. See [the PSD preview contract](../docs/specs/psd-preview.md) for supported formats and display limits.

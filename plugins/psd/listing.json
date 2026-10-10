@@ -1,0 +1,6 @@
+{
+  "summary": "快速查看 PSD/PSB 保存的最终合成图像，支持缩放、拖动和适应窗口，不解析图层。",
+  "i18n": {"en": {"summary": "Quickly preview the saved PSD/PSB composite with zoom, pan and fit controls, without parsing layers."}},
+  "publisher": "Ember Peek",
+  "recommended": false
+}
