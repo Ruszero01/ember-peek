@@ -1,0 +1,9 @@
+:root { background: var(--canvas, #141519); }
+body { margin: 0; overflow: hidden; }
+canvas {
+  position: fixed; inset: 0; width: 100%; height: 100%;
+  touch-action: none; cursor: grab;
+  background-image: radial-gradient(var(--border, #303137) 0.7px, transparent 0.7px);
+  background-size: 16px 16px;
+}
+canvas.dragging { cursor: grabbing; }

@@ -1,0 +1,15 @@
+{
+  "api": 1,
+  "id": "ember.psd",
+  "name": "PSD 预览",
+  "i18n": {"en": {"name": "PSD Preview"}},
+  "version": "0.1.0",
+  "extensions": ["psd", "psb"],
+  "icon": "image",
+  "prepare": true,
+  "executable": "bin/ember-psd-plugin.exe",
+  "entry": "ui/index.html",
+  "capabilities": ["view", "controls"],
+  "permissions": ["readFile"],
+  "activation": {"mode": "auto", "priority": 100}
+}
