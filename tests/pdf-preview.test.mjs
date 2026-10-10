@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { pageNumber, renderGeometry, defaultFitMode } from "../plugins/pdf/ui/geometry.js";
-import { readPdfRange } from "../plugins/pdf/ui/range.js";
+import { readPdfRange, createPdfRangeReader } from "../plugins/pdf/ui/range.js";
 import { readFile } from "node:fs/promises";
 import vm from "node:vm";
 import { readingMode, pageAt, visiblePages } from "../plugins/pdf/ui/pages.js";
@@ -98,4 +98,59 @@ test("PDF window filling covers the available edges and bounds canvas allocation
   const result = renderGeometry(14400, 14400, 900, 600, "manual", 8, 3);
   assert.ok(14400 * result.scale * result.outputScale <= 4096);
   assert.ok((14400 * result.scale * result.outputScale) ** 2 <= 16 * 1024 * 1024);
+});
+
+async function pdfTransportStream() {
+  const source = await readFile(new URL("../plugins/pdf/ui/vendor/pdf.mjs", import.meta.url), "utf8");
+  const base = source.slice(source.indexOf("class BasePDFStream {"), source.indexOf(";// ./src/display/transport_stream.js"));
+  const transport = source.slice(source.indexOf("function getArrayBuffer(val)"), source.indexOf(";// ./src/display/fetch_stream.js"));
+  return vm.runInNewContext(base + transport + "; PDFDataTransportStream", {
+    Uint8Array, Promise, assert: (condition, message) => assert.ok(condition, message),
+  });
+}
+
+test("PDF transport drops late responses after individual cancellation without disrupting active ranges", async () => {
+  const Stream = await pdfTransportStream();
+  let receive;
+  const requested = [];
+  const range = {
+    initialData: new Uint8Array(), length: 100,
+    addRangeListener: listener => { receive = listener; },
+    addProgressListener() {}, addProgressiveReadListener() {}, addProgressiveDoneListener() {}, transportReady() {},
+    requestDataRange: (begin, end) => requested.push([begin, end]), abort() {},
+  };
+  const stream = new Stream({ pdfDataRangeTransport: range, disableStream: true });
+  const cancelled = stream.getRangeReader(0, 10);
+  const pending = cancelled.read();
+  const active = stream.getRangeReader(20, 30);
+  cancelled.cancel(new Error("Reading cancelled"));
+  assert.equal((await pending).done, true);
+  assert.doesNotThrow(() => receive(0, new Uint8Array(10)));
+  receive(20, new Uint8Array(10).fill(42));
+  assert.deepEqual(new Uint8Array((await active.read()).value), new Uint8Array(10).fill(42));
+  assert.equal((await active.read()).done, true);
+  const remaining = stream.getRangeReader(40, 50);
+  stream.cancelAllRequests(new Error("Document closed"));
+  assert.doesNotThrow(() => receive(40, new Uint8Array(10)));
+  assert.equal((await remaining.read()).done, true);
+  assert.deepEqual(requested, [[0, 10], [20, 30], [40, 50]]);
+});
+
+test("PDF range bursts stay within four SDK reads and recover after a failed request", async () => {
+  let active = 0, maximum = 0;
+  const reader = createPdfRangeReader(async offset => {
+    maximum = Math.max(maximum, ++active);
+    await new Promise(resolve => setImmediate(resolve));
+    active--;
+    if (offset === 0) throw new Error("Read failed");
+    return new Uint8Array([offset]);
+  });
+  const results = await Promise.allSettled(Array.from({ length: 80 }, (_, index) => reader(index, index + 1)));
+  assert.equal(maximum, 4);
+  assert.equal(active, 0);
+  assert.equal(results[0].status, "rejected");
+  for (let index = 1; index < results.length; index++) {
+    assert.equal(results[index].status, "fulfilled");
+    assert.deepEqual(results[index].value, new Uint8Array([index]));
+  }
 });

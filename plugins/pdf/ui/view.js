@@ -2,7 +2,7 @@ import "./shortcuts.js";
 import { ready, read, controls, status, presented, shortcuts, translate, onLocale, configuration, onSettings, synchronizeState } from "./sdk.js";
 import { getDocument, GlobalWorkerOptions, PDFDataRangeTransport } from "./vendor/pdf.mjs";
 import { pageNumber, renderGeometry, defaultFitMode } from "./geometry.js";
-import { readPdfRange } from "./range.js";
+import { createPdfRangeReader } from "./range.js";
 import { readingMode, pageAt, visiblePages } from "./pages.js";
 import { pdfShortcuts, animateScroll } from "./navigation.js";
 import { pdfPosition, capturePosition, restorePosition } from "./position.js";
@@ -171,10 +171,13 @@ try {
   GlobalWorkerOptions.workerPort = worker;
   const initial = await read(0, Math.min(file.size, 65536));
   const range = new PDFDataRangeTransport(file.size, initial);
+  let aborted = false;
+  range.abort = () => { aborted = true; };
+  const readRange = createPdfRangeReader((offset, length) => aborted || closed ? Promise.reject(new Error("PDF read cancelled")) : read(offset, length));
   range.requestDataRange = (begin, end) => {
-    void readPdfRange(read, begin, end).then(bytes => {
-      if (!closed) range.onDataRange(begin, bytes);
-    }).catch(error => { failure(error); void loadingTask.destroy(); });
+    void readRange(begin, end).then(bytes => {
+      if (!closed && !aborted) range.onDataRange(begin, bytes);
+    }).catch(error => { if (!aborted && !closed) { failure(error); void loadingTask?.destroy(); } });
   };
   const assets = new URL("./vendor/", import.meta.url).href;
   loadingTask = getDocument({ range, disableAutoFetch: true, disableStream: true, rangeChunkSize: 65536, isEvalSupported: false, useWorkerFetch: false, cMapUrl: `${assets}cmaps/`, cMapPacked: true, standardFontDataUrl: `${assets}standard_fonts/`, wasmUrl: `${assets}wasm/` });

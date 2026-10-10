@@ -12,7 +12,7 @@ PDF 页码滑块声明 `direction:"down"`：第一页位于标尺顶部，末页
 
 PDF worker 使用普通 blob worker：沙箱 iframe 的隔离源不支持 blob 模块 worker。升级 PDF.js 后执行 `node plugins/pdf/build-worker.mjs`，将原版 worker 转为随包分发的 IIFE；启动失败须报告错误，不能无限等待。
 
-官方 `ember.pdf` 保持 0.1.0，匹配 `.pdf`，独立随包分发 PDF.js 5.4.624、worker、字体、CMap 与解码资源。原生入口只检查文件头并返回文件大小；网页通过 `read()` 与 PDF.js range transport 按需读取，每次渲染一页，不把整份 PDF 放进原生响应，不声明共享解析源。
+官方 `ember.pdf` 为 0.1.1，匹配 `.pdf`，独立随包分发 PDF.js 5.4.624、worker、字体、CMap 与解码资源。原生入口只检查文件头并返回文件大小；网页通过 `read()` 与 PDF.js range transport 按需读取，每次渲染一页，不把整份 PDF 放进原生响应，不声明共享解析源。
 
 视口只绘制 PDF 页面；页码、上一页／下一页、缩放、适配窗口、顺时针旋转全部使用宿主控件，当前页数与缩放显示在信息栏。左右方向键翻页，Home／End 跳至首尾页。缩放后用视口滚动查看超出窗口的内容。适应模式随窗口尺寸变化重新计算。
 

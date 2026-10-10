@@ -6,7 +6,7 @@
   "name": "PDF 预览",
   "i18n": { "en": { "name": "PDF Preview", "settings": { "viewMode": { "label": "Reading mode", "help": "Show one page or scroll continuously through the document.", "options": { "single": "Single page", "continuous": "Continuous" } }, "fitWindow": { "label": "Fill window by default", "help": "On: fill the window. Off: show the entire page. Changes apply immediately." } } } },
   "settings": [{ "key": "viewMode", "type": "select", "label": "阅读模式", "help": "单页显示，或纵向连续滚动浏览文档。", "default": "single", "options": [{ "value": "single", "label": "单页模式" }, { "value": "continuous", "label": "连续模式" }] }, { "key": "fitWindow", "type": "bool", "label": "默认适配窗口", "help": "开启时铺满窗口，关闭时完整显示整页；修改立即生效。", "default": true }],
-  "version": "0.1.0",
+  "version": "0.1.1",
   "extensions": ["pdf"],
   "icon": "file-text",
   "executable": "bin/ember-pdf-plugin.exe",

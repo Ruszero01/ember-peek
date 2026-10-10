@@ -22,7 +22,10 @@ Numeric `scrub` controls accept optional `direction: "up" | "down"` (default `up
 Left/Right and Home/End retain their numeric meaning. This is an additive `api:1` field;
 PDF page navigation uses `down`, while zoom keeps the default direction.
 
-The official PDF baseline uses `read()` with a PDF.js range transport and a packaged blob worker.
+The official PDF preview uses `read()` with a PDF.js range transport and a packaged blob worker.
+PDF range bursts are queued with at most four concurrent SDK reads, leaving room for lifecycle
+and control requests. Queued reads stop when the transport is aborted. Pending SDK reads may finish after PDF.js cancels an individual range reader. The packaged
+transport drops responses without a remaining reader while continuing to deliver active ranges.
 The worker is bundled as a classic IIFE because sandboxed opaque iframe origins cannot start
 blob module workers in WebView2. Worker startup errors are reported through the presentation lifecycle.
 It renders one page at a time, publishes navigation/zoom/rotation through `controls()`, and reports

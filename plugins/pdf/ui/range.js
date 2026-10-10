@@ -11,3 +11,15 @@ export async function readPdfRange(read, begin, end) {
   }
   return result;
 }
+
+// Leave room for lifecycle and controls requests in the host's shared request budget.
+export function createPdfRangeReader(read) {
+  const lanes = Array.from({ length: 4 }, () => Promise.resolve());
+  let next = 0;
+  return (begin, end) => {
+    const lane = next++ % lanes.length;
+    const result = lanes[lane].then(() => readPdfRange(read, begin, end));
+    lanes[lane] = result.catch(() => {});
+    return result;
+  };
+}

@@ -12923,7 +12923,10 @@ class PDFDataTransportStream extends BasePDFStream {
       }
     } else {
       const rangeReader = this._rangeReaders.keys().find(r => r._begin === begin);
-      assert(rangeReader, "#onReceiveData - no `PDFDataTransportStreamRangeReader` instance found.");
+      // Ember Peek: SDK reads can finish after PDF.js cancels an individual reader.
+      if (!rangeReader) {
+        return;
+      }
       rangeReader._enqueue(buffer);
     }
   }
