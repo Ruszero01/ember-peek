@@ -3,6 +3,8 @@
 import type { Catalog } from "./en";
 
 export const zhCN: Catalog = {
+  "previewDots.label": "预览点纹背景",
+  "previewDots.note": "在透明的预览内容后显示淡点纹，关闭后使用主题纯色背景。",
   "plugins.createWithAI": "用 AI 创建预览插件",
   "plugins.noViewer": "没有已启用的查看器匹配此文件，可以查找插件或在工坊中创建。",
   "plugins.installFromFile": "安装插件包",

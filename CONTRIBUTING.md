@@ -71,3 +71,9 @@ the manual Windows matrix in [docs/testing.md](docs/testing.md).
 Keep commits focused and use an imperative Conventional Commit-style subject where practical,
 for example `fix: reject requests on bridge replacement`. Pull requests should describe the user
 impact, compatibility implications, automated checks, and any manual Windows verification.
+
+## Model plugin build dependency
+
+Windows builds of Model Preview require the proprietary Cineware S22.008 SDK. Run `npm run model:sdk` before invoking Cargo directly; plugin packaging and npm Rust checks prepare it automatically. The checksum-verified dependency stays in ignored `target/cineware-sdk/`. You may instead set `EMBER_CINEWARE_SDK`. SDK headers, libraries, examples and documentation must not be committed. See [the dependency and license details](docs/specs/model-preview.md).
+
+Native model decoding and both gzip backends use optimization level 2 in the development profile. Workspace feature unification can select zlib-rs instead of miniz_oxide, so benchmark the packaged plugin through the shared app, including transfer and first-frame rendering, rather than relying only on a standalone Cargo build.

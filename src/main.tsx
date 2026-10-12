@@ -1,3 +1,5 @@
+import { isPreviewLoading } from './protocol.mjs';
+import { LoadingIndicator } from './LoadingIndicator';
 import { toolbarMinimumWidth, toolbarWheelPosition, toolbarRowWidth, toolbarNeedsResize, toolbarScrollSpacing } from "./toolbar-layout";
 import { LogicalSize } from "@tauri-apps/api/window";
 import { autoHideChromeSetting, shouldShowChrome } from "./chrome-visibility";
@@ -102,6 +104,7 @@ type Settings = {
   theme: "light" | "dark" | "system";
   immersive: boolean;
   autoHideChrome: boolean;
+  previewDots: boolean;
   /** Interface language; "system" follows the language the WebView reports. */
   locale: LocalePreference;
 };
@@ -112,10 +115,11 @@ function savedSettings(): Settings {
       theme: ["light", "dark", "system"].includes(v.theme) ? v.theme : "system",
       immersive: v.immersive !== false,
       autoHideChrome: autoHideChromeSetting(v.autoHideChrome),
+      previewDots: v.previewDots !== false,
       locale: isLocalePreference(v.locale) ? v.locale : "system",
     };
   } catch {
-    return { theme: "system", immersive: true, autoHideChrome: true, locale: "system" };
+    return { theme: "system", immersive: true, autoHideChrome: true, previewDots: true, locale: "system" };
   }
 }
 
@@ -509,7 +513,7 @@ type DesktopReport = {
   file: string | null;
 };
 
-function DelayedLoading({ visible, name }: { visible: boolean; name: string }) {
+function DelayedLoading({ visible, name, progress }: { visible: boolean; name: string; progress?:number|null }) {
   const t = useT();
   const [shown, setShown] = useState(false);
   useEffect(() => {
@@ -523,9 +527,8 @@ function DelayedLoading({ visible, name }: { visible: boolean; name: string }) {
   if (!visible || !shown) return null;
   return (
     <div className="surface-state">
-      <LoaderCircle size={25} className="spinner" />
+      <LoadingIndicator progress={progress} label={t("loading.title",{name})} />
       <strong>{t("loading.title", { name })}</strong>
-      <p>{t("loading.note")}</p>
     </div>
   );
 }
@@ -1323,6 +1326,7 @@ function App() {
       )}
       <div
         className="preview-canvas"
+        data-background={settings.previewDots ? "dots" : "solid"}
         style={{ visibility: page === "preview" ? "visible" : "hidden" }}
       >
         <PluginStage
@@ -1414,15 +1418,9 @@ function App() {
           </div>
         )}
         <DelayedLoading
-          visible={
-            opening ||
-            current?.status === "loading" ||
-            Boolean(
-              current?.status === "ready" &&
-                !current.viewReady &&
-                !viewReport?.error,
-            )
-          }
+          key={active ?? 'opening'}
+          visible={isPreviewLoading({opening,status:current?.status,viewReady:current?.viewReady,error:viewReport?.error,progress:viewReport?.loading})}
+          progress={viewReport?.loading}
           name={current?.name || t("loading.file")}
         />
         {(current?.status === "error" || viewReport?.error) && (
@@ -1831,6 +1829,10 @@ function App() {
                       <div><strong>{t("autoHideChrome.label")}</strong><p>{t("autoHideChrome.note")}</p></div>
                       <Toggle checked={settings.autoHideChrome} label={t("autoHideChrome.label")} onChange={autoHideChrome => setSettings({ ...settings, autoHideChrome })} />
                     </div>}
+                    <div className="setting-row">
+                      <div><strong>{t("previewDots.label")}</strong><p>{t("previewDots.note")}</p></div>
+                      <Toggle checked={settings.previewDots} label={t("previewDots.label")} onChange={previewDots => setSettings({ ...settings, previewDots })} />
+                    </div>
                   </section>
                 </>
               )}

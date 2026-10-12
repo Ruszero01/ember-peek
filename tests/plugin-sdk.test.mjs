@@ -218,3 +218,16 @@ test('optional pointer tracking reports bottom transitions without touching scro
   }finally{port1.close();port2.close();if(previousHeight===undefined)delete globalThis.innerHeight;else globalThis.innerHeight=previousHeight;}
  }
 });
+
+test('loading progress is a separate finite primary-view report',async()=>{
+ const {sdk,browserListeners,parentWindow}=await sdkPage('loading');
+ const {port1,port2}=new MessageChannel();const messages=[];
+ port1.onmessage=event=>{if(event.data.type==='connected')port1.postMessage({type:'init',session:'test',theme:{},settings:{}});else messages.push(event.data)};
+ port1.start();browserListeners.get('message')({source:parentWindow,data:{type:'ember:connect'},ports:[port2]});
+ try{
+  await sdk.ready;sdk.loading(0);sdk.loading(0.45);sdk.loading(1);sdk.loading();
+  for(const value of [NaN,Infinity,-0.1,1.1,'50',false])assert.throws(()=>sdk.loading(value));
+  await new Promise(resolve=>setTimeout(resolve,10));
+  assert.deepEqual(messages,[{type:'loading',progress:0},{type:'loading',progress:0.45},{type:'loading',progress:1},{type:'loading',progress:null}]);
+ }finally{port1.close();port2.close();}
+});

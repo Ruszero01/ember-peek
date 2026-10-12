@@ -1,0 +1,22 @@
+[package]
+name = "ember-model-plugin"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+ember-plugin-sdk = { path = "../../../sdk/native" }
+serde_json.workspace = true
+serde.workspace = true
+base64 = "0.22"
+blend = "=0.9.0"
+flate2 = "1"
+zstd = "0.13"
+earcutr = "0.5"
+
+[dev-dependencies]
+tempfile = "3"
+
+[build-dependencies]
+cc = "1"
+

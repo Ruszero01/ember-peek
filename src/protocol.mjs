@@ -165,3 +165,15 @@ export function isContributionCurrent(contributor, active, focusedTool, expanded
   if (contributor.capabilities.includes("overlay")) return expanded.includes(contributor.pluginId);
   return contributor.id === active || contributor.id === focusedTool;
 }
+
+export function validateLoading(value) {
+  if(value===null)return null;
+  if(typeof value!=='number'||!Number.isFinite(value)||value<0||value>1)throw new Error('Invalid loading progress');
+  return value;
+}
+
+export function isPreviewLoading({opening,status,viewReady,error,progress}) {
+  if(opening)return true;
+  if(error)return false;
+  return status==='loading'||(status==='ready'&&(!viewReady||progress!==undefined));
+}

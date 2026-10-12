@@ -17,6 +17,8 @@ import path from "node:path";
 import { readTree, createZip } from "./zip.mjs";
 import { selectSdkAssets } from "./sdk-assets.mjs";
 import { packageTable } from "./cargo-manifest.mjs";
+import { setupCineware } from "./setup-cineware.mjs";
+import { buildModelWeb } from "./build-model-web.mjs";
 import { hashInput, hashInputTree } from "./release-inputs.mjs";
 
 export const root = fileURLToPath(new URL("../", import.meta.url));
@@ -341,6 +343,8 @@ async function publish(release, { dist = false } = {}) {
     });
   }
   if (!entries.length) throw new Error("No marketplace plugins found");
+  await setupCineware();
+  await buildModelWeb();
   await new Promise((resolve, reject) => {
     child = spawn(
       "cargo",
@@ -429,6 +433,11 @@ async function publish(release, { dist = false } = {}) {
     }
     await hashInputTree(input, path.join(directory, "native"), "native");
     await hashInputTree(input, path.join(directory, "ui"), "ui");
+    if (manifest.id === "ember.model") {
+      for (const name of ["plugins/model/web-bundle.mjs", "plugins/model/csg-core.mjs", "plugins/model/csg-worker.mjs", "scripts/build-model-web.mjs", "scripts/setup-cineware.mjs"]) {
+        hashInput(input, name, await readFile(path.join(root, name)));
+      }
+    }
     if (manifest.id === "ember.workshop") {
       await hashInputTree(input, path.join(directory, "agent"), "agent");
       hashInput(input, "node-runtime", await readFile(process.execPath));

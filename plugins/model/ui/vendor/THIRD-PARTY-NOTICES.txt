@@ -1,0 +1,14 @@
+Ember Peek Model Preview
+
+Original plugin code: Apache License 2.0.
+Three.js 0.186.1: MIT. See ui/vendor/THREE-LICENSE.txt.
+three-bvh-csg 0.0.18: MIT. See ui/vendor/CSG-LICENSE.txt.
+three-mesh-bvh: MIT. See ui/vendor/BVH-LICENSE.txt.
+Rust blend 0.9.0: MIT. See ui/vendor/BLEND-LICENSE.txt. Source: https://github.com/lukebitts/blend
+Rust earcutr: ISC. See ui/vendor/EARCUTR-LICENSE.txt. Source: https://github.com/frewsxcv/earcutr
+
+The Windows C4D reader statically incorporates MAXON Cineware SDK S22.008,
+a proprietary component governed by its separate Software License Agreement.
+It is not licensed under Apache-2.0. Obtain the SDK and its agreement from
+https://developers.maxon.net/downloads/ . SDK source headers, libraries,
+programming examples and documentation are not included in this repository.

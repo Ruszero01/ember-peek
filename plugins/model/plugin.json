@@ -1,0 +1,23 @@
+{
+  "api": 1,
+  "category": "design",
+  "id": "ember.model",
+  "name": "模型预览",
+  "version": "0.1.0",
+  "extensions": ["c4d", "glb", "gltf", "blend", "obj", "fbx", "stl", "ply", "dae", "3ds", "3mf"],
+  "icon": "file-type",
+  "executable": "bin/ember-model-plugin.exe",
+  "entry": "ui/index.html",
+  "capabilities": ["view", "controls"],
+  "permissions": ["readFile", "readResources"],
+  "settings": [
+    {"key":"ground","type":"bool","label":"默认显示地面网格","help":"打开模型时显示辅助地面，工具栏可以临时切换。","default":false},
+    {"key":"axes","type":"bool","label":"默认显示坐标轴","help":"打开模型时显示 RGB 坐标轴，工具栏可以临时切换。","default":false},
+    {"key":"wire","type":"bool","label":"默认显示线框","help":"打开模型时使用线框显示，工具栏可以临时切换。","default":false}
+  ],
+  "i18n": {"en":{"name":"Model Preview","settings":{
+    "ground":{"label":"Show ground grid by default","help":"Show the guide grid when opening a model. The toolbar can temporarily toggle it."},
+    "axes":{"label":"Show axes by default","help":"Show RGB axes when opening a model. The toolbar can temporarily toggle them."},
+    "wire":{"label":"Show wireframe by default","help":"Open models in wireframe mode. The toolbar can temporarily toggle it."}
+  }}}
+}

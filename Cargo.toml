@@ -1,5 +1,5 @@
 [workspace]
-members = ["src-tauri", "crates/runtime", "crates/file-store", "crates/text-document", "crates/office-document", "sdk/native", "plugins/text/native", "plugins/code/native", "plugins/markdown/native", "plugins/image/native", "plugins/psd/native", "plugins/word/native", "plugins/powerpoint/native", "plugins/excel/native", "plugins/video/native", "plugins/pdf/native", "plugins/pdf-editor/native", "plugins/text-editor/native", "plugins/metadata/native", "plugins/workshop/native"]
+members = ["src-tauri", "crates/runtime", "crates/file-store", "crates/text-document", "crates/office-document", "sdk/native", "plugins/text/native", "plugins/code/native", "plugins/markdown/native", "plugins/image/native", "plugins/psd/native", "plugins/model/native", "plugins/word/native", "plugins/powerpoint/native", "plugins/excel/native", "plugins/video/native", "plugins/pdf/native", "plugins/pdf-editor/native", "plugins/text-editor/native", "plugins/metadata/native", "plugins/workshop/native"]
 resolver = "2"
 
 [workspace.package]
@@ -15,3 +15,16 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "io
 [profile.release]
 lto = "thin"
 strip = true
+
+# Keep native model decoding responsive in the shared development app.
+[profile.dev.package.ember-model-plugin]
+opt-level = 2
+
+[profile.dev.package.miniz_oxide]
+opt-level = 2
+
+[profile.dev.package.zlib-rs]
+opt-level = 2
+
+[profile.dev.package.flate2]
+opt-level = 2

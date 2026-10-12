@@ -5,6 +5,8 @@
 // A value may be a string, or `{ one, other }` for a message whose wording depends on a
 // `count` parameter. `{name}` placeholders are filled from the parameters passed to `t`.
 export const en = {
+  "previewDots.label": "Dotted preview background",
+  "previewDots.note": "Show a subtle dot pattern behind transparent preview content. Turn off for a solid theme background.",
   "plugins.createWithAI": "Create with AI",
   "plugins.noViewer": "No enabled viewer matches this file. Find a plugin or create one in Workshop.",
   "plugins.installFromFile": "Install package",

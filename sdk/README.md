@@ -262,3 +262,19 @@ Hosts may opt into passive bottom-edge pointer transitions with init.trackPointe
 Immersive viewport layout and host chrome auto-hide are independent preferences. Auto-hide defaults on for existing users and appears only when immersive mode is enabled; turning immersive mode off preserves the preference. Disabling auto-hide keeps both floating bars visible without changing viewport geometry.
 
 Image, PSD, and video frameWindow settings default to false; missing configuration also preserves the host window size. Explicit saved choices remain respected, and fitWindow defaults are unchanged.
+
+## Model preview
+
+The standalone model plugin uses existing read-only file/resource APIs, native sessions and host controls. It adds no format-specific host or SDK API. See the [model preview contract](../docs/specs/model-preview.md) for saved geometry, resource limits and unsupported project features.
+
+Small C4D polygon differences may be refined in a bounded worker after initial presentation. Timeout or failure retains the base preview, and release terminates the worker. This uses existing file transport and bundled resources without adding SDK exports or executing project scripts.
+
+The host supplies the viewport backdrop behind the plugin iframe, with a general solid/dotted preference. Keep empty viewport pixels transparent (`html`/`body`, alpha-enabled canvas and WebGL clear color); draw content backgrounds such as document paper inside the plugin. This adds no API fields and existing opaque views remain compatible.
+
+Model previews accept source files up to 1024 MiB. Chunk transport does not imply streaming parsing. Dense C4D scenes retain bounded simplified geometry before falling back to a saved thumbnail; see [model preview](../docs/specs/model-preview.md).
+
+The model plugin uses lossless gzip for its private native mesh payload, with a validated decoded size. The host transports it unchanged. Original saved geometry is retained up to four million triangles; the existing host loading spinner remains until the first frame is presented.
+
+`loading(progress = null)` optionally reports primary-view loading progress to the host: a finite number from 0 to 1, or null for an indeterminate ring. It does not write file metadata. Panels cannot report progress. `presented()` clears the report; plugins without this optional export continue to use the host spinner. No API version change is required.
+
+Model Preview also keeps saved C4D splines as read-only 3D line geometry, including line-only scenes. Line decoding and orbit controls remain plugin-owned; no host protocol changes are required.

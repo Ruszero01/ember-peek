@@ -2,7 +2,7 @@ import { validateShortcuts, matchShortcut, type ShortcutBinding } from "../sdk/w
 import { useEffect, useRef } from "react";
 import { createViewVisibilityReporter } from "./viewLifecycle";
 import { call, viewUrl } from "./bridge";
-import { validateControls, validateDialog, isSessionOwning, ROLES } from "./protocol.mjs";
+import { validateControls, validateDialog, validateLoading, isSessionOwning, ROLES } from "./protocol.mjs";
 import { useT } from "./i18n";
 import type { PluginDialogRequest } from "./protocol.mjs";
 import type { Control, Session, Theme, ViewReport } from "./types";
@@ -171,6 +171,7 @@ export function PluginView({
     closeChannel("Plugin view reconnected");
     const connection = new MessageChannel();
     channel.current = connection;
+    if(!secondary)latest.current.report(instanceId,{loading:null,error:undefined});
     clearTimeout(handshake.current);
     handshake.current = setTimeout(
       () =>
@@ -228,6 +229,9 @@ export function PluginView({
               ? validateControls(message.items, t)
               : [],
           });
+        } else if (message?.type === "loading") {
+          if(secondary)throw new Error('Only the primary view may report loading progress');
+          latest.current.report(instanceId,{loading:validateLoading(message.progress)});
         } else if (
           message?.type === "status" &&
           typeof message.text === "string"
@@ -274,6 +278,7 @@ export function PluginView({
                 value: params?.value ?? null,
               });
             } else if (message.method === "presented") {
+              latest.current.report(instanceId,{loading:undefined});
               value = await call("complete_view", {
                 id: session.id,
                 error:
