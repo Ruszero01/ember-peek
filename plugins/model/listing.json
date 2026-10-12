@@ -1,0 +1,6 @@
+{
+  "summary": "快速辨认 C4D、GLB/glTF、OBJ、FBX、STL、PLY、DAE、3DS、3MF 与 Blender 模型，支持基础材质、旋转、缩放和平移；工程文件只读保存的基础几何，C4D 也支持样条线。",
+  "i18n": {"en":{"summary":"Quickly identify C4D, GLB/glTF, OBJ, FBX, STL, PLY, DAE, 3DS, 3MF and Blender models with basic materials, orbit, zoom and pan. Project files use saved base geometry; C4D also supports saved splines."}},
+  "publisher": "Ember Peek",
+  "recommended": false
+}

@@ -294,6 +294,11 @@ export async function shortcuts(items) {
 /** Publish one concise line of parsed facts or viewer state in the host's file-information
  * area. The host already owns the file name and size; keep status/metadata chrome out of the
  * preview DOM and update this line when page, zoom, selection or other useful state changes. */
+/** Report loading progress to the primary host indicator: 0..1, or null when unknown. */
+export function loading(progress = null) {
+  if(progress!==null&&(typeof progress!=='number'||!Number.isFinite(progress)||progress<0||progress>1))throw new Error('Invalid loading progress');
+  port?.postMessage({type:'loading',progress});
+}
 export function status(text) {
   port?.postMessage({ type: "status", text });
 }

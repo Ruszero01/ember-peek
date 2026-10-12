@@ -6,7 +6,7 @@
   A fast, lightweight, plugin-driven file previewer for Windows.
 
   Select a file in File Explorer and press `Space` to preview text, source code,
-  Markdown, images, PDFs, videos, metadata, and formats supported by installed plugins.
+  Markdown, images, PSD/PSB files, PDFs, videos, metadata, and formats supported by installed plugins.
 
   [![Windows](https://img.shields.io/badge/Windows-2f6fed?style=flat-square&logo=windows11&logoColor=white)](https://github.com/Ruszero01/ember-peek/releases)
   [![Release](https://img.shields.io/github/v/release/Ruszero01/ember-peek?display_name=tag&style=flat-square&color=b7572f)](https://github.com/Ruszero01/ember-peek/releases/latest)
@@ -33,6 +33,8 @@ More plugins will extend support to additional file formats in the future.
 | Source-code preview | Common programming languages | Syntax highlighting, virtualized long documents |
 | Markdown preview | READMEs, notes, documentation | Render/source modes, outline, linked local and remote images |
 | Image preview | PNG, JPEG, GIF, WebP, BMP, AVIF, SVG | Zoom, pan, fit to window |
+| PSD/PSB preview | Photoshop documents | Saved final composite image, zoom, pan, fit to window |
+| Model preview | GLB/glTF, OBJ, FBX, STL, PLY, DAE, 3DS, 3MF, C4D, Blender | Basic saved geometry and materials, rotate, zoom, pan; no Blender installation required |
 | PDF preview | PDF documents | Page navigation, zoom, fill window, rotation |
 | PDF editor (Beta) | PDF documents | Edit text fragments, replace/resize images, add/delete pages, undo, save |
 | Video preview | Common video files | Playback, seeking, volume, frame export, codec compatibility |
@@ -113,17 +115,6 @@ Network search is optional and configured separately.
 
 Workshop uses the AI service you configure. Requests include your requirements, conversation,
 and generated code; sample files stay on your computer.
-
-## PDF preview and editing
-
-Install PDF Preview for single-page or continuous reading, page navigation, zoom, rotation,
-and a choice of filling the window or showing the entire page. PDF Preview and PDF Editor
-share the reading position when you switch between them.
-
-Switch to PDF Editor (Beta) to select and edit text fragments, replace or resize images,
-and insert or delete pages. Changes stay in a draft until you save, with undo and protection
-against external file changes. Drag an image corner to resize it, or hold Shift to preserve
-its proportions.
 
 ## File safety and privacy
 

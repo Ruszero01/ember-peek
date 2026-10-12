@@ -149,6 +149,7 @@ export type Control = {
 };
 export type Theme = Record<string, string>;
 export type ViewReport = {
+  loading?: number | null;
   controls: Control[];
   status: string;
   error?: string;

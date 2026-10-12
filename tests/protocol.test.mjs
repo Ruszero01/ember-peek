@@ -162,3 +162,23 @@ test("plugin dialogs preserve opaque action results without host business semant
     ],
   }));
 });
+
+test('host loading reports reject malformed and non-finite progress',async()=>{
+ const {validateLoading}=await import('../src/protocol.mjs');
+ for(const value of [null,0,0.5,1])assert.equal(validateLoading(value),value);
+ for(const value of [undefined,NaN,Infinity,-Infinity,-1,1.01,'0.5',{},true])assert.throws(()=>validateLoading(value));
+});
+
+test('cached previews still show loading until the current mount presents',async()=>{
+ const {isPreviewLoading}=await import('../src/protocol.mjs');
+ const cached={opening:false,status:'ready',viewReady:true};
+ assert.equal(isPreviewLoading(cached),false);
+ assert.equal(isPreviewLoading({...cached,progress:null}),true);
+ assert.equal(isPreviewLoading({...cached,progress:0}),true);
+ assert.equal(isPreviewLoading({...cached,progress:0.5}),true);
+ assert.equal(isPreviewLoading({...cached,progress:1}),true);
+ assert.equal(isPreviewLoading({...cached,progress:undefined}),false);
+ assert.equal(isPreviewLoading({...cached,viewReady:false}),true);
+ assert.equal(isPreviewLoading({...cached,progress:0.5,error:'Failed'}),false);
+ assert.equal(isPreviewLoading({...cached,status:'error',progress:null}),false);
+});

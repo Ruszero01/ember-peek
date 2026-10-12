@@ -799,6 +799,10 @@ h2 {
   overflow: clip;
   background: var(--canvas);
 }
+.preview-canvas[data-background="dots"] {
+  background-image: radial-gradient(var(--border) 0.7px, transparent 0.7px);
+  background-size: 16px 16px;
+}
 .preview-app[data-viewport="band"] .preview-canvas {
   position: relative;
   order: 2;
@@ -811,8 +815,8 @@ h2 {
   position: absolute;
   inset: 0;
 }
-/* Nothing of the host's is painted over the plugin's rectangle: the viewport is the plugin's
-   pixels edge to edge, and what that excludes is written down in docs/plugins.md. */
+/* The host backdrop stays behind transparent plugin pixels. Content and input remain
+   inside the plugin rectangle; the backdrop adds no layer above it. */
 .plugin-view {
   /* All plugin surfaces share this iframe. Exclude the replaced element from
      host selection without disabling text selection inside its own document. */
@@ -1751,3 +1755,11 @@ kbd {
   pointer-events: auto;
   z-index: -1;
 }
+
+.loading-indicator { position: relative; width: 64px; height: 64px; display: grid; place-items: center; }
+.loading-indicator svg { position: absolute; inset: 0; width: 64px; height: 64px; }
+.loading-indicator circle { fill: none; stroke-width: 4; }
+.loading-track { stroke: var(--border); }
+.loading-arc { stroke: var(--accent); stroke-linecap: round; transition: stroke-dashoffset 220ms ease-out; }
+.loading-indicator span { font-size: 13px; font-variant-numeric: tabular-nums; color: var(--text); }
+@media (prefers-reduced-motion: reduce) { .loading-indicator .spinner { animation: none; } .loading-arc { transition: none; } }

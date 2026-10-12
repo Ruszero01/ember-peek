@@ -1,0 +1,4 @@
+html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; }
+canvas { display: block; width: 100%; height: 100%; touch-action: none; outline: none; }
+#thumbnail { position: absolute; inset: 0; margin: auto; max-width: 90%; max-height: 85%; object-fit: contain; }
+#thumbnail[hidden] { display: none; }

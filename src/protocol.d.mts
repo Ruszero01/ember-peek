@@ -20,3 +20,7 @@ export function isContributionCurrent(
   focusedTool: string | null,
   expanded: string[],
 ): boolean;
+
+export function validateLoading(value:unknown):number|null;
+
+export function isPreviewLoading(value:{opening:boolean;status?:string;viewReady?:boolean;error?:unknown;progress?:number|null}):boolean;

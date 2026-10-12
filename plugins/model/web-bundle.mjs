@@ -1,0 +1,11 @@
+export * from 'three';
+export { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+export { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+export { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
+export { MTLLoader } from 'three/addons/loaders/MTLLoader.js';
+export { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
+export { STLLoader } from 'three/addons/loaders/STLLoader.js';
+export { PLYLoader } from 'three/addons/loaders/PLYLoader.js';
+export { ColladaLoader } from 'three/addons/loaders/ColladaLoader.js';
+export { TDSLoader } from 'three/addons/loaders/TDSLoader.js';
+export { ThreeMFLoader } from 'three/addons/loaders/3MFLoader.js';

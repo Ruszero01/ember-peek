@@ -1,5 +1,5 @@
 :root {
-  background: var(--canvas, #141519);
+  background: transparent;
   color: var(--text, #e5e5e6);
   font:
     13px "Segoe UI",
@@ -14,11 +14,6 @@ main {
   overflow: hidden;
   display: grid;
   place-items: center;
-  background-image: radial-gradient(
-    var(--border, #303137) 0.7px,
-    transparent 0.7px
-  );
-  background-size: 16px 16px;
   touch-action: none;
   cursor: grab;
 }

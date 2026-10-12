@@ -6,7 +6,7 @@
   轻量、快速、由插件驱动的 Windows 文件预览工具。
 
   在资源管理器中选中文件并按下 `Space`，即可预览文本、代码、Markdown、图片、PDF、视频、
-  文件信息以及已安装插件支持的其他格式。
+  PSD/PSB、文件信息以及已安装插件支持的其他格式。
 
   [![Windows](https://img.shields.io/badge/Windows-2f6fed?style=flat-square&logo=windows11&logoColor=white)](https://github.com/Ruszero01/ember-peek/releases)
   [![Release](https://img.shields.io/github/v/release/Ruszero01/ember-peek?display_name=tag&style=flat-square&color=b7572f)](https://github.com/Ruszero01/ember-peek/releases/latest)
@@ -32,6 +32,8 @@ Ember Peek 常驻 Windows 系统托盘，仅在资源管理器文件列表获得
 | 代码预览 | 常见编程语言源码 | 语法高亮、长文档虚拟化 |
 | Markdown 预览 | README、笔记、说明文档 | 渲染与源码切换、大纲、本地及远程关联图片 |
 | 图片预览 | PNG、JPEG、GIF、WebP、BMP、AVIF、SVG | 缩放、拖动、适应窗口 |
+| PSD/PSB 预览 | Photoshop 文档 | 查看保存的最终合成图、缩放、拖动、适应窗口 |
+| 模型预览 | GLB/glTF、OBJ、FBX、STL、PLY、DAE、3DS、3MF、C4D、Blender | 基础已保存网格与材质、旋转、缩放、平移；无需安装 Blender |
 | PDF 预览 | PDF 文档 | 翻页、缩放、适配窗口、旋转 |
 | PDF 编辑（Beta） | PDF 文档 | 编辑文字片段、替换／缩放图片、增删页、撤销、保存 |
 | 视频预览 | 常见视频文件 | 播放、跳转、音量、帧导出与编码兼容 |
@@ -106,15 +108,6 @@ Ember Peek 不会拦截地址栏、搜索框、重命名输入框或其他应用
 验证通过的结果。支持继续对话、取消生成和恢复先前验证过的版本。网络搜索可选，单独配置。
 
 工坊使用你配置的 AI 服务，需求、对话和生成代码会发送给该服务；样例文件保留在本机。
-
-## PDF 预览与编辑
-
-安装 PDF 预览后，可使用单页或连续阅读、翻页、缩放、旋转，并选择铺满窗口或完整显示
-整页。切换 PDF 预览与 PDF 编辑时，会保留当前阅读位置。
-
-切换到 PDF 编辑（Beta），即可选择并修改文字片段、替换或缩放图片、插入或删除页面。
-修改先保留为草稿，保存时才写入文件，支持撤销和外部修改冲突保护。
-拖动图片四角可调整大小，按住 Shift 可保持原有比例。
 
 ## 文件安全与隐私
 

@@ -19,3 +19,8 @@
 # from these files and compares the result. A checkout that rewrote a line ending here
 # would change the archive, so no conversion may touch this tree.
 crates/runtime/tests/fixtures/package/** -text
+# Bundled Three.js shaders preserve upstream string whitespace.
+plugins/model/ui/vendor/*.js whitespace=-blank-at-eol,-space-before-tab
+# Original binary model fixtures must remain byte-identical.
+*.blend binary
+*.c4d binary
