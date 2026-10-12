@@ -39,6 +39,16 @@ Ember Peek 常驻 Windows 系统托盘，仅在资源管理器文件列表获得
 | 文件信息 | 任意本地文件 | 路径、大小和基础元数据 |
 | 插件工坊（Beta） | 自定义文件格式 | AI 辅助生成、校验、试预览和安装 |
 
+## 软件截图
+
+浅色与深色主题下的 Markdown 预览，支持大纲和代码高亮。
+预览使用专门为截图准备的演示文档。
+
+| 浅色主题 | 深色主题 |
+| --- | --- |
+| ![浅色主题的 Markdown 预览](assets/screenshots/markdown-light.png) | ![深色主题的 Markdown 预览](assets/screenshots/markdown-dark.png) |
+| ![浅色主题的外观与语言设置](assets/screenshots/settings-light.png) | ![深色主题的插件市场](assets/screenshots/marketplace-dark.png) |
+
 ## 安装与使用
 
 Ember Peek 适用于 Windows 11 x64，安装器会准备运行所需的组件。

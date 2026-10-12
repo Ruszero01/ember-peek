@@ -40,6 +40,16 @@ More plugins will extend support to additional file formats in the future.
 | File information | Any local file | Path, size, and basic metadata |
 | Plugin Workshop (Beta) | Custom file formats | AI-assisted generation, validation, trial preview, and installation |
 
+## Screenshots
+
+Markdown preview in light and dark themes, with an outline and syntax highlighting.
+The preview uses a demonstration document created for these screenshots.
+
+| Light theme | Dark theme |
+| --- | --- |
+| ![Markdown preview in the light theme](assets/screenshots/markdown-light.png) | ![Markdown preview in the dark theme](assets/screenshots/markdown-dark.png) |
+| ![Appearance and language settings in the light theme](assets/screenshots/settings-light.png) | ![Plugin Marketplace in the dark theme](assets/screenshots/marketplace-dark.png) |
+
 ## Installation and use
 
 Ember Peek runs on Windows 11 x64. The installer takes care of the components needed to run it.
