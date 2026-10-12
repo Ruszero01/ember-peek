@@ -45,10 +45,21 @@ More plugins will extend support to additional file formats in the future.
 Markdown preview in light and dark themes, with an outline and syntax highlighting.
 The preview uses a demonstration document created for these screenshots.
 
-| Light theme | Dark theme |
-| --- | --- |
-| ![Markdown preview in the light theme](assets/screenshots/markdown-light.png) | ![Markdown preview in the dark theme](assets/screenshots/markdown-dark.png) |
-| ![Appearance and language settings in the light theme](assets/screenshots/settings-light.png) | ![Plugin Marketplace in the dark theme](assets/screenshots/marketplace-dark.png) |
+### Markdown preview · Light
+
+![Markdown preview in the light theme](assets/screenshots/markdown-light.png)
+
+### Markdown preview · Dark
+
+![Markdown preview in the dark theme](assets/screenshots/markdown-dark.png)
+
+### Settings · Light
+
+![Appearance and language settings in the light theme](assets/screenshots/settings-light.png)
+
+### Plugin Marketplace · Dark
+
+![Plugin Marketplace in the dark theme](assets/screenshots/marketplace-dark.png)
 
 ## Installation and use
 
