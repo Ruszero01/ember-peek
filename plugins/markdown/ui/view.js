@@ -14,11 +14,13 @@ import {
 } from "./sdk.js";
 import { createTextView } from "./sdk-view.js";
 import { renderMarkdown } from "./sdk-markdown.js";
+import { mountOutline, outlineSidebar } from "./outline.js";
 import { synchronizePosition } from "./sdk-navigation.js";
 /** The plugin's own wording, in the language the host is showing. */
 const say = translate({
   "zh-CN": {
     outline: "大纲",
+    closeOutline: "关闭大纲",
     empty: "暂无标题",
     copy: "复制 Markdown 源码",
     copyCode: "复制代码",
@@ -44,6 +46,7 @@ const say = translate({
   },
   en: {
     outline: "Outline",
+    closeOutline: "Close outline",
     empty: "No headings",
     copy: "Copy the Markdown source",
     copyCode: "Copy the code",
@@ -70,10 +73,12 @@ const say = translate({
 });
 
 const initial = await ready;
+if (initial.role === "sidebar") {
+  mountOutline(say);
+} else {
 const data = initial.source?.data || initial.data;
 const sourceRoot = document.querySelector("#source"),
-  rendered = document.querySelector("#rendered"),
-  outline = document.querySelector("#outline");
+  rendered = document.querySelector("#rendered");
 let navigation,
   raw = false,
   scheduled = false,
@@ -227,36 +232,9 @@ try {
   }
   await Promise.all([drawCallouts(), drawCodeBlocks()]);
   const nodes = [...rendered.querySelectorAll("[data-line]")];
-  // The outline is this plugin's own surface, so its name is in the interface language.
-  // The heading and the empty note are this plugin's own words and are refreshed below
-  // when the language changes; the entry text comes from the document itself.
-  const title = document.createElement("h2");
-  let emptyNote = null;
-  function labelOutline() {
-    outline.setAttribute("aria-label", say("outline"));
-    title.textContent = say("outline");
-    if (emptyNote) emptyNote.textContent = say("empty");
-  }
-  labelOutline();
-  outline.append(title);
-  const buttons = output.headings.map((heading) => {
-    const button = document.createElement("button");
-    button.textContent = heading.title;
-    button.title = heading.title;
-    button.style.paddingLeft = `${8 + (heading.level - 1) * 10}px`;
-    button.onclick = () => {
-      reveal({ line: heading.line });
-      navigation?.changed();
-      updateOutline(heading.line);
-    };
-    outline.append(button);
-    return button;
+  const outlineControl = outlineSidebar(output.headings, {
+    say, refresh: publish, navigate: line => { reveal({line});navigation?.changed(); },
   });
-  if (!buttons.length) {
-    emptyNote = document.createElement("p");
-    emptyNote.textContent = say("empty");
-    outline.append(emptyNote);
-  }
   let measured = [];
   function measure() {
     if (raw) return;
@@ -334,21 +312,7 @@ try {
     }
     const index = low - 1;
     if (index === activeHeading) return;
-    if (buttons[activeHeading]) {
-      buttons[activeHeading].classList.remove("active");
-      buttons[activeHeading].removeAttribute("aria-current");
-    }
-    if (buttons[index]) {
-      const button = buttons[index];
-      button.classList.add("active");
-      button.setAttribute("aria-current", "true");
-      if (
-        button.offsetTop < outline.scrollTop ||
-        button.offsetTop + button.offsetHeight >
-          outline.scrollTop + outline.clientHeight
-      )
-        outline.scrollTop = button.offsetTop - outline.clientHeight / 2;
-    }
+    outlineControl.changed(index);
     activeHeading = index;
   }
   function changed() {
@@ -362,6 +326,7 @@ try {
   }
   function publish() {
     controls([
+      outlineControl.control(),
       {
         id: "copy",
         kind: "button",
@@ -420,7 +385,6 @@ try {
   onSettings(settings);
   publish();
   onLocale(() => {
-    labelOutline();
     labelCallouts();
     labelCopyButtons();
     publish();
@@ -435,4 +399,6 @@ try {
   await presented();
 } catch (error) {
   await presented(String(error));
+}
+
 }

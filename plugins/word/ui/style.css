@@ -1,4 +1,2 @@
-#content { width: max-content; min-width: 100%; }
-#content .docx-wrapper { background: transparent; padding: 0; gap: 16px; }
-#content .docx-wrapper > section.docx { flex: none; margin-bottom: 16px; box-shadow: 0 8px 32px #0002; }
-#content section.docx { scroll-margin-top: calc(var(--safe-top, 0px) + 16px); }
+#content .docx-wrapper { background: transparent; padding: 0; }
+#content section.docx { margin: 0; box-shadow: none; }

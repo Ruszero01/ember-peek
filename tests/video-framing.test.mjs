@@ -3,6 +3,26 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { windowForVideo, videoFillsViewport } from '../plugins/video/ui/framing.js';
 
+test('video layout fits the viewport without intrinsic portrait dimensions expanding its grid', () => {
+  const css = readFileSync(new URL('../plugins/video/ui/style.css', import.meta.url), 'utf8');
+  const viewer = css.match(/#viewer\s*\{([^}]+)\}/)?.[1];
+  const video = css.match(/\nvideo\s*\{([^}]+)\}/)?.[1];
+  assert.match(viewer, /grid-template:\s*minmax\(0,\s*1fr\)\s*\/\s*minmax\(0,\s*1fr\)/);
+  for (const axis of ['width', 'height']) {
+    assert.match(video, new RegExp(`(?:^|[;\\s])min-${axis}:\\s*0\\s*;`));
+    assert.match(video, new RegExp(`(?:^|[;\\s])${axis}:\\s*100%\\s*;`));
+  }
+  assert.match(video, /object-fit:\s*contain\s*;/);
+});
+
+test('video letterboxing exposes the host viewport backdrop', () => {
+  const css = readFileSync(new URL('../plugins/video/ui/style.css', import.meta.url), 'utf8');
+  for (const selector of [':root', '#viewer', 'video']) {
+    const rule = css.match(new RegExp(`(?:^|\\n)${selector}\\s*\\{([^}]+)\\}`))?.[1];
+    assert.match(rule, /background:\s*transparent\s*;/, selector);
+  }
+});
+
 test('video declares the optional preparation phase and a saved framing setting', () => {
   const manifest = JSON.parse(readFileSync(new URL('../plugins/video/plugin.json', import.meta.url)));
   assert.equal(manifest.prepare, true);

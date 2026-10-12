@@ -586,6 +586,17 @@ function App() {
   const [packageDrag, setPackageDrag] = useState(false);
   const [toolPageRevision, setToolPageRevision] = useState(0);
   const [hot, setHot] = useState("");
+  const [sidebarSurfaces, setSidebarSurfaces] = useState<Record<string, { open: boolean; options: import('./surfaces.mjs').SidebarOptions }>>({});
+  const [overlayBehaviors, setOverlayBehaviors] = useState<Record<string, import('./surfaces.mjs').OverlayOptions>>({});
+  useEffect(() => {
+    const live = new Set(snapshot.sessions.map(session => session.id));
+    const prune = <T,>(old: Record<string, T>) => {
+      const entries = Object.entries(old).filter(([id]) => live.has(id));
+      return entries.length === Object.keys(old).length ? old : Object.fromEntries(entries);
+    };
+    setSidebarSurfaces(prune);
+    setOverlayBehaviors(prune);
+  }, [snapshot.sessions]);
   const [scrubbingControl, setScrubbingControl] = useState(false);
   const [opening, setOpening] = useState(false);
   // The file the window is showing, as the native side reports it. It is not the same
@@ -1330,6 +1341,9 @@ function App() {
         style={{ visibility: page === "preview" ? "visible" : "hidden" }}
       >
         <PluginStage
+          sidebar={current ? sidebarSurfaces[current.id] : undefined}
+          overlayBehaviors={overlayBehaviors}
+          chromeShown={chromeShown}
           expanded={expanded}
           sessions={retainedViews}
           active={page === "preview" ? current : undefined}
@@ -1338,7 +1352,7 @@ function App() {
             // A panel mount of a plugin that also owns a view is secondary: it may draw and
             // call native methods, but it never reports controls or session state.
             const secondary =
-              role === "panel" && session.capabilities.includes("view");
+              role !== "view" && session.capabilities.includes("view");
             return session.status === "ready" ? (
               <PluginView
                 key={`${session.id}-${role}`}
@@ -1349,7 +1363,7 @@ function App() {
                   session.available &&
                   session.fileId === current?.fileId &&
                   page === "preview" &&
-                  (role === "panel" || session.id === active)
+                  (role !== "view" || session.id === active)
                 }
                 theme={role === "panel" ? theme : viewTheme}
                 locale={language}
@@ -1370,7 +1384,9 @@ function App() {
                   return true;
                 }}
                 shortcut={shortcut}
-                panel={(open) =>
+                sidebar={(open, options) => setSidebarSurfaces(old => ({ ...old, [session.id]: { open, options: options ?? old[session.id]?.options ?? { side: 'left', width: 220, minWidth: 140, maxWidth: 480 } } }))}
+                panel={(open, options) => {
+                  if (options) setOverlayBehaviors(old => ({ ...old, [session.id]: options }));
                   setExpanded((old) =>
                     open
                       ? [
@@ -1378,8 +1394,8 @@ function App() {
                           session.pluginId,
                         ]
                       : old.filter((id) => id !== session.pluginId),
-                  )
-                }
+                  );
+                }}
                 confirm={requestPluginDialog}
               />
             ) : null;

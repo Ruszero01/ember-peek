@@ -349,8 +349,13 @@ export function presented(error = null) {
  * what it contains is the plugin's business. A plugin that owns both a view and a panel
  * usually opens it from a toolbar control, e.g. a search button.
  */
-export function panel(open = true) {
-  return request("panel", { open });
+export function panel(open = true, options) {
+  return request("panel", { open, ...(options === undefined ? {} : { options }) });
+}
+
+/** Split the primary viewport with a docked mount of this entry (role: sidebar). */
+export function sidebar(open = true, options) {
+  return request("sidebar", { open, ...(options === undefined ? {} : { options }) });
 }
 /**
  * State what this view needs during its preparation — the phase between the host building the

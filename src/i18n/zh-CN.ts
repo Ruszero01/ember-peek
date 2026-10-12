@@ -183,6 +183,8 @@ export const zhCN: Catalog = {
   "details.show": "查看详情",
 
   "stage.overlays": "插件浮层",
+  "stage.sidebarWidth": "侧栏宽度",
+  "stage.resizeHint": "拖动调整大小，或使用方向键",
   "stage.dragHint": "拖动调整位置，双击恢复默认位置",
   "stage.loading": "加载中…",
 

@@ -90,3 +90,5 @@ npm run plugins:build     # 只重建插件包（--watch 持续重建）
 - `tests/protocol.test.mjs`、`tests/plugin-sdk.test.mjs`、`tests/ui-kit.test.mjs`：分别钉 `api:1` 协议、插件侧 SDK 通道、宿主与 kit 控件的一致。
 
 所以任何行为改动，要在同一次改动里更新 `docs/plugins.md` 或 `docs/specs/` 与 [sdk/README.md](sdk/README.md)，并在 CHANGELOG 的 `[Unreleased]` 记一条用户可见的变化。
+
+未发布开发过程、实现方式、技术预算与验证记录写在 CHANGELOG 的 `[Unreleased]`。发布脚本只截取具体版本章节；发布时整理面向用户的功能与体验结果，不把开发记录直接搬进发布章节。

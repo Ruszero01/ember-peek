@@ -110,6 +110,23 @@ test('a view prepares the window it is about to be shown in',async()=>{
  }
 });
 
+test('surface SDK passes optional behavior and sidebar geometry through the channel',async()=>{
+ const {sdk,browserListeners,parentWindow}=await sdkPage('surfaces');
+ const {port1,port2}=new MessageChannel();const requests=[];
+ port1.onmessage=event=>{
+  const message=event.data;
+  if(message.type==='connected') port1.postMessage({type:'init',session:'surfaces',file:{},theme:{},locale:'en',settings:{},role:'view'});
+  else if(message.type==='request'){requests.push([message.method,message.params]);port1.postMessage({type:'reply',id:message.id,value:null});}
+ };
+ port1.start();
+ try {
+  browserListeners.get('message')({source:parentWindow,data:{type:'ember:connect'},ports:[port2]});await sdk.ready;
+  await sdk.panel();await sdk.panel(true,{movable:false,resizable:true,followToolbar:true});
+  await sdk.sidebar(true,{side:'right',width:240,minWidth:120,maxWidth:400});await sdk.sidebar(false);
+  assert.deepEqual(requests,[['panel',{open:true}],['panel',{open:true,options:{movable:false,resizable:true,followToolbar:true}}],['sidebar',{open:true,options:{side:'right',width:240,minWidth:120,maxWidth:400}}],['sidebar',{open:false}]]);
+ } finally {port1.close();port2.close();}
+});
+
 test('a link leaves the page as the document wrote it',async()=>{
  const {sdk,browserListeners,parentWindow}=await sdkPage('open-external');
  const {port1,port2}=new MessageChannel();

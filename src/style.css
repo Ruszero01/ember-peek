@@ -798,9 +798,13 @@ h2 {
 .preview-canvas {
   overflow: clip;
   background: var(--canvas);
+  --canvas-dot: var(--border);
+}
+:root[data-theme="light"] .preview-canvas {
+  --canvas-dot: color-mix(in srgb, var(--muted) 40%, var(--canvas));
 }
 .preview-canvas[data-background="dots"] {
-  background-image: radial-gradient(var(--border) 0.7px, transparent 0.7px);
+  background-image: radial-gradient(var(--canvas-dot) 0.7px, transparent 0.7px);
   background-size: 16px 16px;
 }
 .preview-app[data-viewport="band"] .preview-canvas {
@@ -830,6 +834,16 @@ h2 {
   visibility: hidden;
   pointer-events: none;
 }
+.plugin-stage { position: absolute; inset: 0; display: flex; min-width: 0; min-height: 0; }
+.plugin-primary { position: relative; flex: 1; min-width: 0; min-height: 0; }
+.plugin-sidebar { position: relative; flex-shrink: 0; min-width: 0; background: var(--panel); }
+.plugin-sidebar.right { order: 2; }
+.sidebar-body { position: absolute; inset: 0 6px 0 0; overflow: hidden; }
+.plugin-sidebar.right .sidebar-body { inset: 0 0 0 6px; }
+.sidebar-divider { position: absolute; top: 0; bottom: 0; right: 0; width: 6px; background: var(--border); cursor: col-resize; touch-action: none; }
+.plugin-sidebar.right .sidebar-divider { right: auto; left: 0; }
+.sidebar-divider:hover, .sidebar-divider:focus-visible { background: var(--accent); }
+.surface-resizing iframe { pointer-events: none; }
 .plugin-view.selected {
   visibility: visible;
   pointer-events: auto;
@@ -1297,6 +1311,8 @@ kbd {
   font-size: 12px;
   color: var(--muted);
 }
+.overlay-resizer { position: absolute; right: 0; bottom: 0; width: 14px; height: 14px; cursor: nwse-resize; touch-action: none; background: linear-gradient(135deg, transparent 50%, var(--muted) 50%, var(--muted) 58%, transparent 58%, transparent 70%, var(--muted) 70%, var(--muted) 78%, transparent 78%); opacity: 0.6; }
+.overlay-resizer:hover, .overlay-resizer:focus-visible { opacity: 1; }
 .preview-action-groups {
   flex: 0 1 auto;
   margin-left: auto;

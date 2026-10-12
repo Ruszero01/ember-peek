@@ -30,7 +30,13 @@ const webSdk = path.join(root, "sdk", "web", "index.js");
 // Shared plugin-side UI. Copied into every package next to sdk.js and folded into the
 // build hash, so changing a shared component republishes the packages that use it.
 const webSdkExtras = [
+  [path.join(root, "sdk", "web", "page-sidebar.js"), "sdk-page-sidebar.js"],
+  [path.join(root, "sdk", "web", "page-sidebar.css"), "sdk-page-sidebar.css"],
   [path.join(root, "sdk", "web", "document.js"), "sdk-document.js"],
+  [path.join(root, "sdk", "web", "paged-document.js"), "sdk-paged-document.js"],
+  [path.join(root, "sdk", "web", "paged-document.css"), "sdk-paged-document.css"],
+  [path.join(root, "sdk", "web", "paged-geometry.js"), "sdk-paged-geometry.js"],
+
   [path.join(root, "sdk", "web", "document.css"), "sdk-document.css"],
   [path.join(root, "sdk", "web", "state.js"), "state.js"],
   [path.join(root, "sdk", "web", "shortcuts.js"), "shortcuts.js"],

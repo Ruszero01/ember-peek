@@ -14,6 +14,10 @@
         "wrap": {
           "label": "Wrap long lines",
           "help": "Off, long lines scroll sideways instead of folding."
+        },
+        "showOutline": {
+          "label": "Show outline by default",
+          "help": "Show the outline sidebar when opening a document. Changes apply immediately."
         }
       }
     }
@@ -39,6 +43,13 @@
       "type": "bool",
       "label": "自动换行",
       "help": "关闭后长行横向滚动，不折断。",
+      "default": true
+    },
+    {
+      "key": "showOutline",
+      "type": "bool",
+      "label": "默认显示大纲",
+      "help": "打开文档时显示大纲侧栏；修改立即生效。",
       "default": true
     }
   ],

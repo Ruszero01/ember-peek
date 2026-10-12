@@ -95,8 +95,8 @@ test("a plugin's floating panel may not speak for the session it shares with the
   for (const method of ["read", "call", "panel", "peer", "setting", "clipboard", "sourceCall"])
     assert.equal(isSessionOwning(method), false);
 });
-test("the pipe only has two ends", () => {
-  assert.deepEqual(ROLES, ["view", "panel"]);
+test("peer targets include the primary view, floating panel and docked sidebar", () => {
+  assert.deepEqual(ROLES, ["view", "panel", "sidebar"]);
 });
 
 test("overlay-only highlight follows visibility after open, close and reopen", () => {

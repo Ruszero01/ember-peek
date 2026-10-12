@@ -6,3 +6,5 @@ canvas[hidden] { display: none; }
 .pdf-page { position: relative; margin: 0 auto 16px; background: white; box-shadow: 0 2px 16px #0003; }
 .pdf-page:last-child { margin-bottom: 0; }
 .pdf-page canvas { margin: 0; box-shadow: none; }
+#viewport[data-reading="single"][data-fit="page"] { display: flex; flex-direction: column; }
+#viewport[data-reading="single"][data-fit="page"] .pdf-page { flex: none; margin: auto; }

@@ -4,6 +4,7 @@ import { createViewVisibilityReporter } from "./viewLifecycle";
 import { call, viewUrl } from "./bridge";
 import { validateControls, validateDialog, validateLoading, isSessionOwning, ROLES } from "./protocol.mjs";
 import { useT } from "./i18n";
+import { overlayOptions, sidebarOptions, type OverlayOptions, type SidebarOptions } from "./surfaces.mjs";
 import type { PluginDialogRequest } from "./protocol.mjs";
 import type { Control, Session, Theme, ViewReport } from "./types";
 
@@ -25,11 +26,12 @@ export function PluginView({
   peer,
   shortcut,
   panel,
+  sidebar,
   confirm,
 }: {
   session: Session;
   /** Which surface of the plugin's entry this is: its view, or its floating panel. */
-  role: "view" | "panel";
+  role: "view" | "panel" | "sidebar";
   visible: boolean;
   interactive: boolean;
   theme: Theme;
@@ -55,7 +57,8 @@ export function PluginView({
   peer: (to: string, payload: unknown) => boolean;
   shortcut: (key: string) => void;
   /** Ask the host to show or hide this plugin's floating panel. */
-  panel: (open: boolean) => void;
+  panel: (open: boolean, options?: OverlayOptions) => void;
+  sidebar: (open: boolean, options?: SidebarOptions) => void;
   /** Show format-agnostic modal chrome and return the plugin's selected action id. */
   confirm: (request: PluginDialogRequest) => Promise<string | null>;
 }) {
@@ -63,8 +66,8 @@ export function PluginView({
   // When one entry owns both a view and a panel, the panel mount is secondary: it renders
   // and talks to the native process, but the view stays the owner of session state
   // (lifecycle, pending changes, toolbar controls) and of writes to the document.
-  const secondary = role === "panel" && session.capabilities.includes("view");
-  const instanceId = secondary ? `${session.id}#panel` : session.id;
+  const secondary = role !== "view" && session.capabilities.includes("view");
+  const instanceId = secondary ? `${session.id}#${role}` : session.id;
   const frame = useRef<HTMLIFrameElement>(null);
   const channel = useRef<MessageChannel | null>(null);
   const bindings = useRef<ShortcutBinding[]>([]);
@@ -79,6 +82,7 @@ export function PluginView({
     pointerBoundary,
     shortcut,
     panel,
+    sidebar,
     confirm,
     peer,
   });
@@ -93,6 +97,7 @@ export function PluginView({
     pointerBoundary,
     shortcut,
     panel,
+    sidebar,
     confirm,
     peer,
   };
@@ -212,7 +217,7 @@ export function PluginView({
               locale: latest.current.locale,
               visible: latest.current.visible,
               settings: latest.current.settings ?? {},
-              // Same entry, two surfaces: the plugin renders its view or its panel.
+              // The entry selects its primary view, floating panel or docked sidebar.
               role,
             });
         } else if (message?.type === "viewportPointer" && role === "view" && latest.current.visible && latest.current.interactive) {
@@ -373,8 +378,15 @@ export function PluginView({
                 value: params.value ?? null,
               });
             } else if (message.method === "panel") {
+              if (typeof params?.open !== 'boolean') throw new Error('Invalid panel visibility');
               // The panel is the plugin's own surface, so any mount may open or close it.
-              latest.current.panel(params?.open === true);
+              if (!session.capabilities.includes("overlay")) throw new Error('Overlay capability required');
+              latest.current.panel(params?.open === true, params?.options === undefined ? undefined : overlayOptions(params.options));
+              value = null;
+            } else if (message.method === "sidebar") {
+              if (typeof params?.open !== 'boolean') throw new Error('Invalid sidebar visibility');
+              if (!session.capabilities.includes("view") || (secondary && (role !== 'sidebar' || params?.open !== false || params?.options !== undefined))) throw new Error('Only the primary view may configure a sidebar');
+              latest.current.sidebar(params?.open === true, params?.options === undefined ? undefined : sidebarOptions(params.options));
               value = null;
             } else if (message.method === "call") {
               if (

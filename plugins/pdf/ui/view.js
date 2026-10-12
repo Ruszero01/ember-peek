@@ -1,4 +1,6 @@
 import "./shortcuts.js";
+import { documentViewportSize } from "./sdk-paged-geometry.js";
+import { mountPageSidebar, pageSidebar } from './sdk-page-sidebar.js';
 import { ready, read, controls, status, presented, shortcuts, translate, onLocale, configuration, onSettings, synchronizeState } from "./sdk.js";
 import { getDocument, GlobalWorkerOptions, PDFDataRangeTransport } from "./vendor/pdf.mjs";
 import { pageNumber, renderGeometry, defaultFitMode } from "./geometry.js";
@@ -7,7 +9,10 @@ import { readingMode, pageAt, visiblePages } from "./pages.js";
 import { pdfShortcuts, animateScroll } from "./navigation.js";
 import { pdfPosition, capturePosition, restorePosition } from "./position.js";
 
-const { file } = await ready;
+const { file, role } = await ready;
+if (role === 'sidebar') {
+  await mountPageSidebar();
+} else {
 const viewport = document.querySelector("#viewport");
 let pages = [], rendered = new Set(), layoutDirty = true;
 let reading = readingMode(configuration());
@@ -20,7 +25,21 @@ let defaultFit = defaultFitMode(configuration());
 let page = 1, rotation = 0, mode = defaultFit, zoom = 1, revision = 0;
 let queue = Promise.resolve(), usable = false, closed = false;
 let jumpPage = null, cancelJump;
-let positionSync, pendingPosition;
+let positionSync, pendingPosition, resizeFrame, resizeObserver, lastLayoutSize;
+const navigationSidebar = pageSidebar({
+  state: () => ({ count: documentProxy?.numPages ?? 0, page }),
+  navigate,
+  refresh: publish,
+  thumbnail: async number => {
+    const pdfPage = await documentProxy.getPage(number);
+    const base = pdfPage.getViewport({ scale: 1 });
+    const view = pdfPage.getViewport({ scale: Math.min(160 / base.width, 240 / base.height) });
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.ceil(view.width); canvas.height = Math.ceil(view.height);
+    await pdfPage.render({ canvasContext: canvas.getContext('2d'), viewport: view }).promise;
+    return canvas.toDataURL('image/jpeg', 0.75);
+  },
+});
 
 function position() {
   if (viewport.clientWidth === 0 || viewport.clientHeight === 0) return undefined;
@@ -38,6 +57,7 @@ function stopJump() {
 function publish() {
   if (!documentProxy) return;
   controls([
+    navigationSidebar.control(),
     { id: "previous", kind: "button", label: say("previous"), icon: "chevron-left", run: () => navigate(page - 1) },
     ...(documentProxy.numPages > 1 ? [{ id: "page", kind: "scrub", label: say("page"), value: page, min: 1, max: documentProxy.numPages, direction: "down", run: navigate }] : []),
     { id: "next", kind: "button", label: say("next"), icon: "chevron-right", run: () => navigate(page + 1) },
@@ -46,6 +66,7 @@ function publish() {
     { id: "rotate", kind: "button", label: say("rotate"), icon: "rotate-cw", run: () => { rotation = (rotation + 90) % 360; schedule(); } },
   ]);
   status(say("info", { page, count: documentProxy.numPages, zoom: Math.round(zoom * 100) }));
+  void navigationSidebar.changed();
 }
 
 function navigate(value) {
@@ -78,7 +99,7 @@ function failure(error) {
 }
 
 function schedule(reset = true) {
-  if (reset && !pendingPosition) pendingPosition = position();
+  if (reset && !pendingPosition && mode !== "page") pendingPosition = position();
   if (reset) stopJump();
   layoutDirty ||= reset;
   const current = ++revision;
@@ -90,14 +111,16 @@ function schedule(reset = true) {
     if (closed || current !== revision) return;
     const base = pdfPage.getViewport({ scale: 1, rotation: (pdfPage.rotate + rotation) % 360 });
     const css = getComputedStyle(viewport);
-    const width = viewport.clientWidth - parseFloat(css.paddingLeft) - parseFloat(css.paddingRight);
-    const height = viewport.clientHeight - parseFloat(css.paddingTop) - parseFloat(css.paddingBottom);
+    const { width, height } = documentViewportSize(viewport, css, mode);
+    lastLayoutSize = `${width}:${height}`;
     const geometry = renderGeometry(base.width, base.height, Math.max(1, width), Math.max(1, height), mode, zoom, devicePixelRatio);
     if (layoutDirty) zoom = geometry.scale;
     if (layoutDirty) {
       layoutDirty = false;
       rendered.clear();
       viewport.replaceChildren();
+      viewport.dataset.reading = reading;
+      viewport.dataset.fit = mode;
       pages = Array.from({ length: reading === "continuous" ? documentProxy.numPages : 1 }, (_, index) => {
         const slot = document.createElement("div");
         slot.className = "pdf-page";
@@ -227,7 +250,16 @@ try {
     pendingPosition = previousPosition;
     schedule();
   });
-  new ResizeObserver(() => { if (mode !== "manual" && viewport.clientWidth > 0 && viewport.clientHeight > 0) schedule(); }).observe(viewport);
+  resizeObserver = new ResizeObserver(() => {
+    if (closed || mode === "manual" || resizeFrame !== undefined || viewport.clientWidth <= 0 || viewport.clientHeight <= 0) return;
+    resizeFrame = requestAnimationFrame(() => {
+      resizeFrame = undefined;
+      if (closed || mode === "manual") return;
+      const { width, height } = documentViewportSize(viewport, getComputedStyle(viewport), mode);
+      if (`${width}:${height}` !== lastLayoutSize) schedule();
+    });
+  });
+  resizeObserver.observe(viewport);
   onLocale(publish);
 } catch (error) { failure(error); }
 
@@ -236,9 +268,12 @@ window.addEventListener("pagehide", () => {
   positionSync?.dispose();
   stopJump();
   closed = true;
+  resizeObserver?.disconnect();
+  if (resizeFrame !== undefined) cancelAnimationFrame(resizeFrame);
   revision++;
   renderTask?.cancel();
   void loadingTask?.destroy();
   worker?.terminate();
   if (workerUrl) URL.revokeObjectURL(workerUrl);
 });
+}

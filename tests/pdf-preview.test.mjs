@@ -154,3 +154,9 @@ test("PDF range bursts stay within four SDK reads and recover after a failed req
     assert.deepEqual(results[index].value, new Uint8Array([index]));
   }
 });
+
+test("PDF vertical centering is limited to whole-page fit", async () => {
+  const css = await readFile(new URL('../plugins/pdf/ui/style.css', import.meta.url), 'utf8');
+  const selectors = [...css.matchAll(/([^{}]+)\{[^{}]*display:\s*flex/g)].map(match => match[1].trim());
+  assert.deepEqual(selectors, ['#viewport[data-reading="single"][data-fit="page"]']);
+});

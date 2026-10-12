@@ -171,57 +171,20 @@
   color: var(--success, var(--accent));
 }
 
-#outline {
-  width: 210px;
-  max-width: 28%;
-  overflow: auto;
-  padding: 12px 6px;
-  font-size: 12px;
-}
-#outline h2 {
-  color: var(--muted);
-  margin: 0 8px 10px;
-  font-size: 11px;
-  font-weight: 500;
-}
-#outline button {
-  display: block;
-  width: 100%;
-  text-align: left;
-  border: 0;
-  background: transparent;
-  color: var(--muted);
-  padding: 7px 8px;
-  border-radius: 6px;
-  cursor: pointer;
-  font: inherit;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-#outline button.active {
-  color: var(--accent);
-  background: var(--accent-bg);
-}
-#outline button:hover {
-  background: var(--panel);
-}
-@media (max-width: 700px) {
-  #outline {
-    width: 140px;
-  }
-  #rendered {
-    padding: 16px;
-  }
-}
-
 #rendered {
   padding-top: calc(var(--safe-top, 0px) + 12px);
   padding-bottom: calc(var(--safe-bottom, 0px) + 12px);
   scroll-padding-top: calc(var(--safe-top, 0px) + 12px);
   scroll-padding-bottom: calc(var(--safe-bottom, 0px) + 12px);
 }
-#outline {
-  padding-top: calc(var(--safe-top, 0px) + 12px);
-  padding-bottom: calc(var(--safe-bottom, 0px) + 12px);
-}
+html:has(body.outline-sidebar), body.outline-sidebar {height:100%;margin:0;overflow:hidden;background:var(--panel);}
+body.outline-sidebar {display:flex;flex-direction:column;}
+.outline-sidebar header {display:flex;align-items:center;justify-content:space-between;gap:8px;padding:calc(var(--safe-top,0px) + 10px) 12px 10px;}
+.outline-sidebar header button {border:0;background:transparent;color:var(--muted);font-size:20px;cursor:pointer;}
+#outline {flex:1;min-height:0;overflow:auto;scrollbar-gutter:stable;padding:0 6px var(--safe-bottom,0px);font-size:12px;}
+.outline-spacer {position:relative;}
+#outline button {position:absolute;left:0;top:0;width:100%;height:32px;border:0;background:transparent;color:var(--muted);text-align:left;padding:7px 8px;border-radius:6px;cursor:pointer;font:inherit;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+#outline button.active {color:var(--accent);background:var(--accent-bg);}
+#outline button:hover {background:var(--hover);}
+#outline button:focus-visible {outline:2px solid var(--accent);outline-offset:-2px;}
+#outline p {margin:8px;color:var(--muted);}

@@ -17,6 +17,33 @@ does not dynamically link against host source files.
 
 ## Web view SDK
 
+The document kit exports `captureZoomCenter(viewport, content)` and
+`restoreZoomCenter(viewport, content, anchor)` to preserve the content point at the usable
+viewport center across scaling, including safe padding. PDF single pages center on both axes;
+PDF, PPT, and Word zoom use the center anchor rather than the top-left corner. Continuous
+documents retain vertical reading flow. Shared PDF reading-state coordinates remain unchanged.
+
+`sidebar(open = true, options?)` is an additive `api:1` host request from a primary view.
+It mounts the same entry with `role: "sidebar"`, splitting the viewport instead of covering it.
+Options are `side: "left" | "right"` (left), `width` (220), `minWidth` (140), and `maxWidth` (480),
+all finite 80–800 CSS pixels with ordered bounds. Narrow windows cap the sidebar to roughly half
+the available width. Dragging the divider or arrow/Home/End keys adjusts width for this mount.
+Only the current contribution's sidebar is mounted; closing or switching unmounts it.
+It stays visible when host chrome hides. Only the primary view configures or opens it;
+the sidebar may close itself with `sidebar(false)`.
+
+`panel(open = true, options?)` adds independent boolean overlay options: `movable` (true),
+`resizable` (false), and `followToolbar` (false). Defaults preserve existing behavior. Disabling
+movement removes the strip and uses the declared anchor; resizing stays within the viewport.
+Following hidden chrome also disables panel input. Neither overlay mode splits the viewport.
+Unknown options and invalid values are rejected by the host.
+
+`postTo()` accepts `view`, `panel`, and `sidebar`, with the existing 64 KiB message budget.
+Sidebar mounts follow secondary panel restrictions: no session ownership, status, controls,
+or window preparation. File reads and opaque native calls remain available.
+The copied plugin kit `sdk-page-sidebar.js`/`.css` provides bounded thumbnail navigation for
+PDF, PPT, and Word. The host does not interpret pages, markup, or thumbnails.
+
 Numeric `scrub` controls accept optional `direction: "up" | "down"` (default `up`).
 `down` puts the minimum at the top and reverses vertical dragging and Up/Down keys.
 Left/Right and Home/End retain their numeric meaning. This is an additive `api:1` field;
@@ -262,6 +289,12 @@ Hosts may opt into passive bottom-edge pointer transitions with init.trackPointe
 Immersive viewport layout and host chrome auto-hide are independent preferences. Auto-hide defaults on for existing users and appears only when immersive mode is enabled; turning immersive mode off preserves the preference. Disabling auto-hide keeps both floating bars visible without changing viewport geometry.
 
 Image, PSD, and video frameWindow settings default to false; missing configuration also preserves the host window size. Explicit saved choices remain respected, and fitWindow defaults are unchanged.
+With video window framing disabled, landscape and portrait frames fit entirely within the actual
+viewport. Video grid tracks and elements must shrink below intrinsic media dimensions so portrait
+content cannot expand the layout and be clipped. This requires no SDK or protocol changes.
+Video letterboxing stays transparent so the host's solid or dotted viewport backdrop is visible.
+The host uses a stronger dot color in light mode for visibility comparable to dark mode,
+while preserving dot size and spacing. Plugin theme tokens and API fields are unchanged.
 
 ## Model preview
 
@@ -278,3 +311,17 @@ The model plugin uses lossless gzip for its private native mesh payload, with a 
 `loading(progress = null)` optionally reports primary-view loading progress to the host: a finite number from 0 to 1, or null for an indeterminate ring. It does not write file metadata. Panels cannot report progress. `presented()` clears the report; plugins without this optional export continue to use the host spinner. No API version change is required.
 
 Model Preview also keeps saved C4D splines as read-only 3D line geometry, including line-only scenes. Line decoding and orbit controls remain plugin-owned; no host protocol changes are required.
+
+Sidebar widths are remembered by the host per plugin and side. Temporary viewport limits do not overwrite the stored width. The page sidebar kit reads the declared `showThumbnails` boolean setting (default true), applies it once pages are available, and responds immediately to setting changes. Manual toggles affect only the current document.
+
+The PDF, PPT and Word previews do not use center compensation during manual zoom. PDF vertically centers only single pages in whole-page fit mode.
+
+The optional paged document kit provides plugin-side single/continuous presentation, whole-page/fill fitting, rotation and 1–800% manual zoom. It reads `viewMode` and `fitWindow` declarations and applies setting changes immediately; page thumbnail behavior remains in the sidebar kit. Continuous lazy renderers retain visible and nearby pages with a maximum of 32. Manual zoom preserves the top reading anchor; vertical centering applies only to single-page whole-page fit.
+
+The page sidebar kit reserves a stable scrollbar gutter, batches resize and scroll work per animation frame, and reuses visible row and image nodes. Duplicate page state does not trigger a repaint.
+
+Markdown outline navigation uses the sidebar role and peer transport: the primary view sends bounded heading batches and the active index; the sidebar requests navigation by heading index. Heading interpretation and source-line positioning stay within the plugin.
+
+Paged document surfaces clip pre-transform overflow. Renderers must receive a nested container so their style changes cannot replace surface positioning. Viewport resize notifications are coalesced and only changed usable dimensions trigger layout.
+
+Fill sizing uses the viewport border-box height minus borders and padding, so horizontal scrollbar visibility cannot feed back into the fit scale. Whole-page fitting continues to use the available client height.

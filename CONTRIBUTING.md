@@ -59,6 +59,10 @@ the manual Windows matrix in [docs/testing.md](docs/testing.md).
   reference in [sdk/README.md](sdk/README.md).
 - Add user-visible changes to `CHANGELOG.md` under `[Unreleased]` using Added, Changed, Fixed, or
   Security. At release time, move entries into the target version section.
+- Keep release entries focused on user-facing outcomes. Record unreleased development work,
+  implementation details, technical budgets, and validation under `[Unreleased]` in `CHANGELOG.md`.
+  Release extraction reads only the exact version section. At release time, curate user-facing
+  outcomes into that section and leave development records under `[Unreleased]`.
 - Application and workspace versions are synchronized with `npm run version:set -- <version>` and
   verified with `npm run version:check`. Plugin versions are independent, but every package stays
   at the `0.1.0` baseline until the first public release: a changed package is bumped when it is

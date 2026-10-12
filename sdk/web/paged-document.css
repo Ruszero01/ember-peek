@@ -1,0 +1,8 @@
+html, body { height: 100%; overflow: hidden; }
+#viewport { scrollbar-gutter: stable; }
+#content.paged-document { width: max-content; min-width: 100%; display: flex; flex-direction: column; align-items: center; gap: 16px; }
+.document-page { overflow: clip; position: relative; flex: none; background: white; box-shadow: 0 8px 32px #0002; }
+.document-page[hidden] { display: none; }
+.document-page-surface { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+#viewport[data-reading="single"][data-fit="page"] { display: flex; }
+#viewport[data-reading="single"][data-fit="page"] #content.paged-document { min-width: 0; margin: auto; }

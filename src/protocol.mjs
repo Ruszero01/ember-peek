@@ -142,7 +142,7 @@ export function isSessionOwning(method) {
 }
 
 /** The two mounts one plugin entry can have. */
-export const ROLES = ["view", "panel"];
+export const ROLES = ["view", "panel", "sidebar"];
 
 export class Selection {
   generation = 0;

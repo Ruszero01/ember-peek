@@ -29,3 +29,27 @@ export function lockDocumentLinks(root) {
 export function fitDocument(width, height, contentWidth, contentHeight) {
   return Math.max(.1, Math.min(4, Math.max(0, width) / contentWidth, Math.max(0, height) / contentHeight));
 }
+
+function viewportCenter(viewport) {
+  const rect = viewport.getBoundingClientRect(), css = getComputedStyle(viewport);
+  const padding = key => parseFloat(css[key]) || 0;
+  return {
+    x: rect.left + (viewport.clientLeft || 0) + (viewport.clientWidth + padding('paddingLeft') - padding('paddingRight')) / 2,
+    y: rect.top + (viewport.clientTop || 0) + (viewport.clientHeight + padding('paddingTop') - padding('paddingBottom')) / 2,
+  };
+}
+
+/** Preserve the content point at the usable viewport center across zoom or reflow. */
+export function captureZoomCenter(viewport, content) {
+  if (!content) return null;
+  const rect = content.getBoundingClientRect(), center = viewportCenter(viewport);
+  if (rect.width <= 0 || rect.height <= 0) return null;
+  return { x: Math.max(0, Math.min(1, (center.x - rect.left) / rect.width)), y: Math.max(0, Math.min(1, (center.y - rect.top) / rect.height)) };
+}
+
+export function restoreZoomCenter(viewport, content, anchor) {
+  if (!content || !anchor) return;
+  const rect = content.getBoundingClientRect(), center = viewportCenter(viewport);
+  viewport.scrollLeft += rect.left + rect.width * anchor.x - center.x;
+  viewport.scrollTop += rect.top + rect.height * anchor.y - center.y;
+}

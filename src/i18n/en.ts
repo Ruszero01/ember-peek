@@ -203,6 +203,8 @@ export const en = {
   "details.show": "Details",
 
   "stage.overlays": "Plugin panels",
+  "stage.sidebarWidth": "Sidebar width",
+  "stage.resizeHint": "Drag to resize, or use arrow keys",
   "stage.dragHint": "Drag to move, double-click to reset",
   "stage.loading": "Loading…",
 

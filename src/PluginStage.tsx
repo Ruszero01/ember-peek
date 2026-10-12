@@ -10,6 +10,9 @@ import { GripHorizontal } from "lucide-react";
 import { useT } from "./i18n";
 import type { Session } from "./types";
 import { keepViewMounted, visitView } from "./recentViews";
+import { PluginSidebar } from './PluginSidebar';
+import type { SidebarOptions, OverlayOptions } from './surfaces.mjs';
+import { overlaySize } from './surfaces.mjs';
 
 type Position = { x: number; y: number };
 type Size = { width: number; height: number };
@@ -72,21 +75,29 @@ export function PluginStage({
   active,
   children,
   expanded,
+  sidebar,
+  overlayBehaviors = {},
+  chromeShown = true,
 }: {
   expanded: string[];
+  sidebar?: { open: boolean; options: SidebarOptions };
+  overlayBehaviors?: Record<string, OverlayOptions>;
+  chromeShown?: boolean;
   sessions: Session[];
   active: Session | undefined;
   /** `role` tells the mount which surface it is: the plugin's view, or its floating panel. */
   children: (
     session: Session,
     visible: boolean,
-    role: "view" | "panel",
+    role: "view" | "panel" | "sidebar",
   ) => ReactNode;
 }) {
   const t = useT();
   const [positions, setPositions] = useState(loadPositions);
   const [dragging, setDragging] = useState<string>();
   const [front, setFront] = useState<string>();
+  const [sizes, setSizes] = useState<Record<string, Size>>({});
+  const resizeDrag = useRef<{ id: string; pointer: number; x: number; y: number; width: number; height: number; strip: number } | null>(null);
   // Keep a bounded visit order. Only unfinished background views stay mounted; completed
   // views can be rebuilt from the runtime cache if the user returns to them.
   const [recentViews, setRecentViews] = useState<string[]>([]);
@@ -205,7 +216,9 @@ export function PluginStage({
       (!s.capabilities.includes("view") || s.id === active?.id),
   );
   return (
-    <>
+    <div className="plugin-stage">
+      {active?.available && sidebar?.open && <PluginSidebar key={active.id} options={sidebar.options} persistenceKey={`${active.pluginId}:${sidebar.options.side}`} label={t('stage.sidebarWidth')}>{children(active, true, 'sidebar')}</PluginSidebar>}
+      <div className="plugin-primary">
       {sessions
         // The main viewport shows one source at a time, like a monitor switching inputs:
         // only the active view is mounted, so hidden plugins cost nothing while another
@@ -227,6 +240,7 @@ export function PluginStage({
             )}
           </div>
         ))}
+      </div>
       <aside
         className={`overlay-stack ${dragging ? "dragging" : ""}`}
         aria-label={t("stage.overlays")}
@@ -239,14 +253,17 @@ export function PluginStage({
           // A closed panel is not mounted at all: hiding it would still leave a whole plugin
           // UI running in a zero-sized frame, which is exactly the cost this model avoids.
           if (index < 0 || !open) return null;
+          const behavior = overlayBehaviors[session.id] ?? { movable: true, resizable: false, followToolbar: false };
+          const strip = behavior.movable ? STRIP : 0;
+          const size = behavior.resizable ? sizes[session.pluginId] : undefined;
           const point =
-            positions[session.pluginId] ||
+            (behavior.movable && positions[session.pluginId]) ||
             defaultPoint(
               session.overlay?.anchor,
               index,
               {
                 width: session.overlay!.width,
-                height: session.overlay!.height + STRIP,
+                height: session.overlay!.height + strip,
               },
               // Before the layer has been measured (nothing open yet), the window is the
               // closest honest answer; the layer is the window in immersive mode anyway.
@@ -258,16 +275,21 @@ export function PluginStage({
             <section
               key={session.id}
               className="overlay-slot"
+              data-follow-toolbar={behavior.followToolbar ? 'true' : 'false'}
+              aria-hidden={behavior.followToolbar && !chromeShown}
               style={{
-                width: session.overlay!.width,
-                height: session.overlay!.height + STRIP,
+                visibility: behavior.followToolbar && !chromeShown ? 'hidden' : undefined,
+                minWidth: behavior.resizable ? Math.min(120, layerSize.width) : undefined,
+                minHeight: behavior.resizable ? Math.min(24 + strip, layerSize.height) : undefined,
+                width: size?.width ?? session.overlay!.width,
+                height: size?.height ?? session.overlay!.height + strip,
                 left: `${point.x * 100}%`,
                 top: `${point.y * 100}%`,
                 transform: `translate(${-point.x * 100}%, ${-point.y * 100}%)`,
                 zIndex: front === session.pluginId ? 2 : 1,
               }}
             >
-              <header
+              {behavior.movable && <header
                 onPointerDown={(e) => start(e, session.pluginId, point)}
                 onPointerMove={move}
                 onPointerUp={finish}
@@ -277,10 +299,39 @@ export function PluginStage({
                 title={t("stage.dragHint")}
               >
                 <GripHorizontal size={12} className="overlay-grip" />
-              </header>
+              </header>}
               <div className="overlay-body">
-                {children(session, true, "panel")}
+                {children(session, !behavior.followToolbar || chromeShown, "panel")}
               </div>
+              {behavior.resizable && <div className="overlay-resizer" role="button" tabIndex={0} aria-label={t('stage.resizeHint')}
+                onKeyDown={event => {
+                  if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) return;
+                  event.preventDefault();
+                  const rect = event.currentTarget.parentElement!.getBoundingClientRect();
+                  setSizes(old => ({ ...old, [session.pluginId]: overlaySize({
+                    width: rect.width + (event.key === 'ArrowLeft' ? -16 : event.key === 'ArrowRight' ? 16 : 0),
+                    height: rect.height + (event.key === 'ArrowUp' ? -16 : event.key === 'ArrowDown' ? 16 : 0),
+                  }, layerSize, strip) }));
+                }}
+                onPointerDown={event => {
+                  if (event.button !== 0) return;
+                  const rect = event.currentTarget.parentElement!.getBoundingClientRect();
+                  resizeDrag.current = { id: session.pluginId, pointer: event.pointerId, x: event.clientX, y: event.clientY, width: rect.width, height: rect.height, strip };
+                  event.currentTarget.setPointerCapture(event.pointerId);
+                  setDragging(session.pluginId); setFront(session.pluginId); event.preventDefault();
+                }}
+                onPointerMove={event => {
+                  const d = resizeDrag.current;
+                  if (!d || d.pointer !== event.pointerId) return;
+                  setSizes(old => ({ ...old, [d.id]: overlaySize({
+                    width: d.width + event.clientX - d.x,
+                    height: d.height + event.clientY - d.y,
+                  }, layerSize, d.strip) }));
+                }}
+                onPointerUp={() => { resizeDrag.current = null; setDragging(undefined); }}
+                onPointerCancel={() => { resizeDrag.current = null; setDragging(undefined); }}
+                onLostPointerCapture={() => { resizeDrag.current = null; setDragging(undefined); }}
+              />}
               {session.status !== "ready" && (
                 <p>{session.error || t("stage.loading")}</p>
               )}
@@ -288,6 +339,6 @@ export function PluginStage({
           );
         })}
       </aside>
-    </>
+    </div>
   );
 }
