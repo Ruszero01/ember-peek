@@ -262,6 +262,35 @@ fn metadata(path: &Path) -> Value {
     })
 }
 
+/// Confirm consecutive transport packets rather than trusting the ambiguous `.ts` suffix.
+fn transport_stream(bytes: &[u8]) -> bool {
+    [188, 192, 204].into_iter().any(|stride| {
+        (0..bytes.len().min(stride * 2)).any(|offset| {
+            (0..5).all(|packet| {
+                let position = offset + packet * stride;
+                bytes.get(position) == Some(&0x47)
+                    && bytes
+                        .get(position + 3)
+                        .is_some_and(|header| header & 0x30 != 0)
+            })
+        })
+    })
+}
+
+fn open_file(path: &Path) -> Result<Value, String> {
+    if path
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("ts"))
+    {
+        let bytes =
+            ember_plugin_sdk::read_prefix(path, 64 * 1024).map_err(|error| error.to_string())?;
+        if !transport_stream(&bytes) {
+            return Ok(ember_plugin_sdk::not_applicable());
+        }
+    }
+    Ok(metadata(path))
+}
+
 fn session(params: &Value) -> Result<&str, String> {
     params["session"].as_str().ok_or("Missing session".into())
 }
@@ -623,7 +652,7 @@ fn save_frame(params: &Value) -> Result<Value, String> {
 
 fn handle(method: &str, params: &Value) -> Result<Value, String> {
     match method {
-        "open" => Ok(metadata(source(params)?)),
+        "open" => open_file(source(params)?),
         "settings" => ember_plugin_sdk::settings_applied(params),
         "preparePlayback" => prepare_playback(params),
         "playbackStatus" => playback_status(params),
@@ -711,6 +740,36 @@ fn sweep() {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn ambiguous_ts_requires_repeated_transport_headers() {
+        assert!(!super::transport_stream(
+            b"import { defineConfig } from 'vite';\n"
+        ));
+        assert!(!super::transport_stream(&[0x47; 1024]));
+        for stride in [188, 192, 204] {
+            let mut bytes = vec![0; stride * 7];
+            for packet in 0..6 {
+                bytes[4 + packet * stride] = 0x47;
+                bytes[7 + packet * stride] = 0x10;
+            }
+            assert!(super::transport_stream(&bytes));
+            bytes[4 + 2 * stride] = 0;
+            assert!(!super::transport_stream(&bytes));
+        }
+        assert!(!super::transport_stream(&[]));
+    }
+
+    #[test]
+    fn typescript_open_is_inapplicable_without_media_probe() {
+        let path =
+            std::env::temp_dir().join(format!("ember-video-source-{}.TS", std::process::id()));
+        std::fs::write(&path, "export default {};\n").unwrap();
+        assert_eq!(
+            super::open_file(&path).unwrap(),
+            ember_plugin_sdk::not_applicable()
+        );
+        std::fs::remove_file(path).unwrap();
+    }
     use super::*;
 
     #[test]

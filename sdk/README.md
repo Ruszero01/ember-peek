@@ -1,5 +1,19 @@
 # Ember Peek SDK contracts
 
+## Optional native content recognition
+
+Native plugins may call `read_prefix(path, limit)` to inspect raw file bytes before parsing.
+It reads at most the requested size, accepts up to 64 KiB, and reports I/O errors or an
+oversized request. It does not classify formats. This is opt-in; existing plugins need no changes.
+
+An `open` success may return `not_applicable()` (`{"applicable":false}`) to decline a filename
+match. `applicable` is reserved host admission metadata; omission or `true` preserves normal
+behavior. Declined contributions are unavailable, cannot activate or mount a webpage, and
+are negatively cached for that file revision. They release native state; a worker stops
+immediately when no accepted or loading contribution still needs it. Detection can briefly
+start a process. Do not use rejection to hide I/O errors or failures parsing a supported file.
+See [the admission contract](../docs/specs/plugin-capabilities.md).
+
 The SDK is transport code, not a rendering framework. Format parsing and presentation stay in
 plugins. The build copies the required SDK files into each plugin package, so an installed plugin
 does not dynamically link against host source files.

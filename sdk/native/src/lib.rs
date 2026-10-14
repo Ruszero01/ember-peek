@@ -14,6 +14,28 @@ pub struct Request {
     pub params: Value,
 }
 
+/// Read a bounded prefix for plugin-owned content recognition, without decoding the file.
+/// Requests above 64 KiB are rejected rather than silently truncated.
+pub fn read_prefix(path: &std::path::Path, limit: usize) -> io::Result<Vec<u8>> {
+    use std::io::Read;
+    if limit > 64 * 1024 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "Prefix exceeds 64 KiB",
+        ));
+    }
+    let mut bytes = Vec::with_capacity(limit);
+    std::fs::File::open(path)?
+        .take(limit as u64)
+        .read_to_end(&mut bytes)?;
+    Ok(bytes)
+}
+
+/// Decline an extension match after inspecting content. No preview state is retained.
+pub fn not_applicable() -> Value {
+    json!({"applicable": false})
+}
+
 /// Values of the settings this plugin declared in `plugin.json`.
 ///
 /// Every request carries `params.settings`, already resolved against the declared
@@ -104,5 +126,26 @@ pub fn serve_with_release(
         if send.send(request).is_err() {
             break;
         }
+    }
+}
+
+#[cfg(test)]
+mod prefix_tests {
+    #[test]
+    fn prefix_is_bounded_and_preserves_raw_bytes() {
+        let path = std::env::temp_dir().join(format!("ember-prefix-{}.bin", std::process::id()));
+        std::fs::write(&path, [0, 0xff, 1, 2]).unwrap();
+        assert_eq!(super::read_prefix(&path, 2).unwrap(), [0, 0xff]);
+        assert_eq!(
+            super::read_prefix(&path, 64 * 1024).unwrap(),
+            [0, 0xff, 1, 2]
+        );
+        assert!(super::read_prefix(&path, 0).unwrap().is_empty());
+        assert_eq!(
+            super::read_prefix(&path, 65537).unwrap_err().kind(),
+            std::io::ErrorKind::InvalidInput
+        );
+        std::fs::remove_file(&path).unwrap();
+        assert!(super::read_prefix(&path, 10).is_err());
     }
 }

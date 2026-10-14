@@ -98,12 +98,21 @@ impl Runtime {
                 session.touched = Instant::now();
                 session.last_used = Instant::now();
             }
-            if let Some(selected) = inner.sessions.values().find(|s| {
-                s.info.file_id == file_id
-                    && s.info.plugin_id == packages[selected_index].manifest.id
-            }) {
+            if let Some(selected) = inner
+                .sessions
+                .values()
+                .filter(|s| s.info.file_id == file_id && s.info.available)
+                .min_by_key(|s| {
+                    (
+                        s.info.plugin_id != packages[selected_index].manifest.id,
+                        !s.package.manifest.has(Capability::View),
+                        &s.info.id,
+                    )
+                })
+            {
                 return Ok(selected.info.clone());
             }
+            return Err(msg!(text().unsupported_extension, extension = extension));
         }
         // A completed save invalidates a clean revision. Retire that revision before
         // admitting its replacement, so repeated saves cannot consume all file slots.
@@ -261,7 +270,13 @@ impl Runtime {
                 if let Some(position) = jobs.iter().position(|job| Some(job.0) == source_index) {
                     let (_, id, worker, params) = jobs.remove(position);
                     let result = worker.call("open", params).await;
-                    let outcome = result.as_ref().map(|_| ()).map_err(Clone::clone);
+                    let outcome = result.as_ref().map_err(Clone::clone).and_then(|data| {
+                        if data["applicable"] == false {
+                            Err("Source is not applicable to this file".into())
+                        } else {
+                            Ok(())
+                        }
+                    });
                     runtime.opened(&id, result).await;
                     outcome
                 } else {
@@ -293,6 +308,7 @@ impl Runtime {
             session.touched = Instant::now();
             match result {
                 Ok(data) => {
+                    session.info.available = data["applicable"] != false;
                     session.info.status = "ready".into();
                     session.data["result"] = data;
                 }
@@ -300,6 +316,25 @@ impl Runtime {
                     session.info.status = "error".into();
                     session.info.error = Some(error);
                 }
+            }
+        }
+        // Keep a negative cache entry, but do not keep its native process alive. Holding
+        // the lifecycle lock prevents a new open from racing the final worker shutdown.
+        if let Some(session) = inner.sessions.get(id).filter(|s| !s.info.available) {
+            let key = session.package.key();
+            if inner
+                .sessions
+                .values()
+                .any(|s| s.package.key() == key && s.info.available)
+            {
+                if let Some(worker) = inner.workers.get(&key).cloned() {
+                    let id = id.to_owned();
+                    tokio::spawn(async move {
+                        let _ = worker.release(json!({"session": id})).await;
+                    });
+                }
+            } else if let Some(worker) = inner.workers.remove(&key) {
+                worker.stop().await;
             }
         }
     }
@@ -311,7 +346,8 @@ impl Runtime {
                 .sessions
                 .get(id)
                 .ok_or_else(|| msg!(text().session_expired))?;
-            if inner.disabled.contains(&session.info.plugin_id)
+            if !session.info.available
+                || inner.disabled.contains(&session.info.plugin_id)
                 || !inner.packages.contains_key(&session.info.plugin_id)
             {
                 return Err(msg!(text().plugin_disabled));
@@ -359,7 +395,8 @@ impl Runtime {
             .get(id)
             .ok_or_else(|| msg!(text().session_expired))?;
         let available = |s: &&Session| {
-            s.info.file_id == session.info.file_id
+            s.info.available
+                && s.info.file_id == session.info.file_id
                 && s.package.manifest.has(Capability::View)
                 && !inner.disabled.contains(&s.info.plugin_id)
                 && inner.packages.contains_key(&s.info.plugin_id)

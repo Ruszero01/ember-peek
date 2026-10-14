@@ -20,6 +20,17 @@ fn main() {
                 PARSES.fetch_add(1, Ordering::Relaxed);
                 let path = request["params"]["path"].as_str().unwrap();
                 let text = std::fs::read_to_string(path).unwrap();
+                if text == "not-applicable"
+                    && request["params"]["settings"]["acceptInapplicable"] != true
+                {
+                    writeln!(
+                        output.lock().unwrap(),
+                        "{}",
+                        json!({"id":request["id"],"result":{"applicable":false}})
+                    )
+                    .unwrap();
+                    return;
+                }
                 if text == "slow" {
                     std::thread::sleep(Duration::from_millis(700));
                 }
