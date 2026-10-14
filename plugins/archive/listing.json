@@ -1,0 +1,10 @@
+{
+  "summary": "不解压即可查看 zip、7z、rar、tar 与 gz/bz2/xz/zst 等压缩包内的文件列表与子文件夹，并按需预览其中的图片、文本和视频首帧。",
+  "i18n": {
+    "en": {
+      "summary": "Browse the files and folders inside zip, 7z, rar, tar and gz/bz2/xz/zst archives without unpacking, and preview their images, text and video first frames on demand."
+    }
+  },
+  "publisher": "Ember Peek",
+  "recommended": true
+}
