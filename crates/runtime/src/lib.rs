@@ -582,7 +582,8 @@ impl Runtime {
             .values()
             .map(|s| {
                 let mut info = s.info.clone();
-                info.available = !inner.disabled.contains(&info.plugin_id)
+                info.available = info.available
+                    && !inner.disabled.contains(&info.plugin_id)
                     && inner.packages.contains_key(&info.plugin_id)
                     && (!s.data["cacheKey"].is_null() || info.pending);
                 // The label is the plugin's name, which the plugin declares per language:
@@ -1015,6 +1016,9 @@ impl Runtime {
                 .sessions
                 .get_mut(id)
                 .ok_or_else(|| msg!(text().session_expired))?;
+            if !session.info.available {
+                return Err(msg!(text().session_not_ready));
+            }
             if session.calls >= 8 {
                 return Err(msg!(text().too_many_calls));
             }

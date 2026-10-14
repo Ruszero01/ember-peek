@@ -56,6 +56,151 @@ async fn ready(runtime: &Arc<Runtime>, id: &str) {
 }
 
 #[tokio::test]
+async fn declined_source_does_not_initialize_its_consumer() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("installed");
+    for (name, field) in [("source", "provides"), ("consumer", "consumes")] {
+        let directory = root.join(name);
+        package(&directory, &format!("test.{name}"), "ts");
+        let path = directory.join("plugin.json");
+        let mut manifest: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        manifest[field] = json!("test.text/1");
+        std::fs::write(path, manifest.to_string()).unwrap();
+    }
+    let runtime = Runtime::new(root).unwrap();
+    runtime.scan().await.unwrap();
+    let file = temp.path().join("source.ts");
+    std::fs::write(&file, "not-applicable").unwrap();
+    runtime.open(file).await.unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let snapshot = runtime.snapshot().await;
+        if snapshot.sessions.iter().all(|s| s.status != "loading") {
+            assert!(
+                !snapshot
+                    .sessions
+                    .iter()
+                    .find(|s| s.plugin_id == "test.source")
+                    .unwrap()
+                    .available
+            );
+            assert_eq!(
+                snapshot
+                    .sessions
+                    .iter()
+                    .find(|s| s.plugin_id == "test.consumer")
+                    .unwrap()
+                    .status,
+                "error"
+            );
+            assert!(snapshot.plugins.iter().all(|p| p.process_ids.is_empty()));
+            break;
+        }
+        assert!(Instant::now() < deadline);
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    runtime.shutdown().await;
+}
+
+#[tokio::test]
+async fn rejected_selected_candidate_falls_back_and_negative_cache_reuses_valid_view() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("installed");
+    package(&root.join("alpha"), "test.alpha", "ts");
+    package(&root.join("beta"), "test.beta", "ts");
+    let manifest_path = root.join("beta/plugin.json");
+    let mut manifest: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&manifest_path).unwrap()).unwrap();
+    manifest["settings"] =
+        json!([{"key":"acceptInapplicable","type":"bool","label":"accept","default":true}]);
+    std::fs::write(manifest_path, manifest.to_string()).unwrap();
+    let runtime = Runtime::new(root).unwrap();
+    runtime.scan().await.unwrap();
+    let file = temp.path().join("source.ts");
+    std::fs::write(&file, "not-applicable").unwrap();
+    let selected = runtime.open(file.clone()).await.unwrap();
+    runtime.activate(Some(selected.id.clone())).await.unwrap();
+    let fallback = runtime
+        .snapshot()
+        .await
+        .sessions
+        .into_iter()
+        .find(|s| s.id != selected.id)
+        .unwrap();
+    ready(&runtime, &selected.id).await;
+    ready(&runtime, &fallback.id).await;
+    assert_eq!(runtime.snapshot().await.active, Some(fallback.id.clone()));
+    assert_eq!(runtime.open(file.clone()).await.unwrap().id, fallback.id);
+    assert!(runtime
+        .snapshot()
+        .await
+        .plugins
+        .iter()
+        .find(|p| p.manifest.id == "test.alpha")
+        .unwrap()
+        .process_ids
+        .is_empty());
+    std::fs::write(&file, "new accepted contents").unwrap();
+    let revised = runtime.open(file).await.unwrap();
+    assert_ne!(revised.file_id, selected.file_id);
+    ready(&runtime, &revised.id).await;
+    assert!(
+        runtime
+            .snapshot()
+            .await
+            .sessions
+            .iter()
+            .find(|s| s.id == revised.id)
+            .unwrap()
+            .available
+    );
+    runtime.shutdown().await;
+}
+
+#[tokio::test]
+async fn inapplicable_content_hides_candidate_and_stops_only_unused_worker() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("installed");
+    package(&root.join("one"), "test.one", "ts");
+    let runtime = Runtime::new(root).unwrap();
+    runtime.scan().await.unwrap();
+    let video = temp.path().join("video.ts");
+    std::fs::write(&video, "accepted").unwrap();
+    let accepted = runtime.open(video).await.unwrap();
+    ready(&runtime, &accepted.id).await;
+    let pid = runtime.snapshot().await.plugins[0].process_ids.clone();
+    assert_eq!(pid.len(), 1);
+    let source = temp.path().join("source.ts");
+    std::fs::write(&source, "not-applicable").unwrap();
+    let rejected = runtime.open(source.clone()).await.unwrap();
+    ready(&runtime, &rejected.id).await;
+    let snapshot = runtime.snapshot().await;
+    assert!(
+        !snapshot
+            .sessions
+            .iter()
+            .find(|s| s.id == rejected.id)
+            .unwrap()
+            .available
+    );
+    assert_eq!(snapshot.plugins[0].process_ids, pid);
+    assert!(runtime.activate(Some(rejected.id.clone())).await.is_err());
+    assert!(runtime.call(&rejected.id, "echo", json!({})).await.is_err());
+    assert!(runtime.open(source.clone()).await.is_err());
+    runtime.shutdown().await;
+
+    let runtime = Runtime::new(temp.path().join("installed")).unwrap();
+    runtime.scan().await.unwrap();
+    let rejected = runtime.open(source.clone()).await.unwrap();
+    ready(&runtime, &rejected.id).await;
+    assert!(runtime.snapshot().await.plugins[0].process_ids.is_empty());
+    assert!(runtime.open(source).await.is_err());
+    assert!(runtime.snapshot().await.plugins[0].process_ids.is_empty());
+    runtime.shutdown().await;
+}
+
+#[tokio::test]
 async fn matching_plugins_compose_and_switch_without_reopening() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("installed");
