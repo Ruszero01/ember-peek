@@ -63,6 +63,13 @@ the manual Windows matrix in [docs/testing.md](docs/testing.md).
   implementation details, technical budgets, and validation under `[Unreleased]` in `CHANGELOG.md`.
   Release extraction reads only the exact version section. At release time, curate user-facing
   outcomes into that section and leave development records under `[Unreleased]`.
+- Compare releases against the last publicly shipped user version, never a previous commit,
+  PR, development branch, or unpublished build. Verify the public Release/tag and the shipped
+  plugin versions before writing notes. `Fixed` requires a problem in a shipped user version;
+  bugs, regressions, visual revisions, and performance iterations during an unreleased feature's
+  development stay in development records. Describe a first-release feature once by its final
+  capabilities, rather than listing its internal added/changed/fixed sequence. Host and plugin
+  release baselines are independent. Follow the [release-note review](docs/release-notes.md).
 - Application and workspace versions are synchronized with `npm run version:set -- <version>` and
   verified with `npm run version:check`. Plugin versions are independent, but every package stays
   at the `0.1.0` baseline until the first public release: a changed package is bumped when it is
