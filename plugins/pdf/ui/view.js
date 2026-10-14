@@ -59,9 +59,9 @@ function publish() {
   controls([
     navigationSidebar.control(),
     { id: "previous", kind: "button", label: say("previous"), icon: "chevron-left", run: () => navigate(page - 1) },
-    ...(documentProxy.numPages > 1 ? [{ id: "page", kind: "scrub", label: say("page"), value: page, min: 1, max: documentProxy.numPages, direction: "down", run: navigate }] : []),
+    ...(documentProxy.numPages > 1 ? [{ id: "page", kind: "scrub", defaultValue:1, label: say("page"), value: page, min: 1, max: documentProxy.numPages, direction: "down", run: navigate }] : []),
     { id: "next", kind: "button", label: say("next"), icon: "chevron-right", run: () => navigate(page + 1) },
-    { id: "zoom", kind: "scrub", label: say("zoom"), value: zoom * 100, min: Math.min(1, zoom * 100), max: 800, suffix: "%", run: value => { mode = "manual"; zoom = Math.max(0.01, Math.min(8, Number(value) / 100)); schedule(); } },
+    { id: "zoom", kind: "scrub", defaultValue:100, label: say("zoom"), value: zoom * 100, min: Math.min(1, zoom * 100), max: 800, suffix: "%", run: value => { mode = "manual"; zoom = Math.max(0.01, Math.min(8, Number(value) / 100)); schedule(); } },
     { id: "fit", kind: "toggle", label: say("fit"), icon: "maximize-2", active: mode === "fill", run: () => { mode = mode === "fill" ? "page" : "fill"; schedule(); } },
     { id: "rotate", kind: "button", label: say("rotate"), icon: "rotate-cw", run: () => { rotation = (rotation + 90) % 360; schedule(); } },
   ]);

@@ -45,6 +45,16 @@ The copied plugin kit `sdk-page-sidebar.js`/`.css` provides bounded thumbnail na
 PDF, PPT, and Word. The host does not interpret pages, markup, or thumbnails.
 
 Numeric `scrub` controls accept optional `direction: "up" | "down"` (default `up`).
+
+Optional positive finite `step` snaps dragging from `min`, increments arrow keys by that step, and determines decimal precision for visible and accessible readouts, stripping trailing zeros. Home/End reach the bounds. For example, `step: 0.25` displays `0.25×`, `0.5×`, and `1×`. Omitting `step` retains continuous multiplicative adjustment and integer display. This is additive within `api:1`.
+
+Hovered scrubs accept wheel input following `direction`: one declared step per notch, or a 1.1 ratio without `step`. Small trackpad deltas accumulate; handled events prevent underlying scrolling, while Ctrl/Meta wheel gestures are untouched. Optional finite in-range `defaultValue` enables double-click and focused Backspace reset through the existing control callback. The host does not infer defaults. Official plugins declare 1× audio speed, 80% audio volume, 100% zoom, and first page/sheet as appropriate; video volume resets to 100%.
+
+Wheel input keeps an optimistic local draft until the plugin confirms the displayed value; late older reports do not rewind the gesture. A one-second idle timeout releases an unconfirmed draft to actual plugin state. `onSettings` fires only when settings change, so identical polling snapshots do not overwrite pending local edits. Reordered top-level keys do not constitute a change.
+
+Without a declared step, wheel changes have a one-unit minimum so integer readouts can advance near the lower bound even if plugins round reported values.
+
+The audio plugin also retains its debounced volume draft until the newest setting value is acknowledged, preventing a late earlier save from replacing an ongoing edit.
 `down` puts the minimum at the top and reverses vertical dragging and Up/Down keys.
 Left/Right and Home/End retain their numeric meaning. This is an additive `api:1` field;
 PDF page navigation uses `down`, while zoom keeps the default direction.
@@ -331,3 +341,15 @@ The preview host settings button and settings shortcut open the current viewport
 On Windows, hidden or minimized host windows request WebView2’s low memory usage target; reopening restores the normal target. Preparing previews retain the normal target. This cache hint does not suspend plugin scripts, IPC, background work, or pending edits. Older runtimes without the optional interface retain existing behavior; the 120-second window recycling policy and SDK remain unchanged.
 
 The host loads the settings sidebar search module only for settings pages; preview windows do not load the pinyin dictionary. Search matching and plugin metadata contracts are unchanged.
+
+General settings can opt into automatic plugin updates (off by default). The native host persists this preference and checks at startup and hourly without requiring a window. Only newer releases of installed plugins from their recorded configured catalog are eligible; the installer rechecks opt-in, provenance and installed version after download. Pending edits defer that plugin, while others continue. Disabled state and settings survive replacement. Development build synchronization remains independent. Optional control fields remain compatible with `api:1`; published plugin changes still require a new plugin release version. See [automatic updates](../docs/specs/plugin-auto-update.md).
+
+The official audio plugin uses existing `streamUrl()` for browser-native playback and opaque `call("audio-read")` requests for built-in Symphonia fallback decoding. PCM replies are bounded to 2 MiB, scheduled through Web Audio with bounded lookahead and stale-seek rejection. The audio viewport contains its waveform timeline, play/pause, time, and five-second skip buttons; mute, volume, loop, and speed use the host toolbar. This documented audio layout exception uses no overlay or new host API.
+
+`call("waveform-read")` progressively analyzes a separate decoding cursor, without delaying first playback or changing playback position. It retains at most 2048 signed min/max time buckets, compacting while preserving extrema. Bundled WaveSurfer.js and Timeline render at most 4096 precomputed signed samples using an empty URL and explicit duration, without fetching or decoding the audio file. A separate source-less media element isolates visualization updates from both playback backends. Playback advances only the library playhead and progress mask. Pausing or hiding stops animation; hiding stops analysis polls, and release drops both decoding cursors. System-playable codecs without built-in decode support can play without a waveform. See [audio preview](../docs/specs/audio-preview.md) for codec limits.
+
+The audio viewport header shows only the file name and format, without repeating the host toolbar plugin title.
+
+The audio workbench uses a full-width waveform without a track caption or card frame. Playback controls and time sit directly below the track; skip buttons indicate five seconds. A pointer time preview supplements the accessible range input. Theme tokens, visible keyboard focus, compact-window sizing, and reduced-motion behavior stay plugin-side.
+
+Waveform analysis yields after a bounded native batch and resumes after 16 ms while visible. Peaks aggregate directly from decoded samples rather than passing through the playback PCM queue. Partial analysis does not reload WaveSurfer; the completed track is rendered once and fades in over 160 ms (immediately with reduced motion). A progress note appears only after 400 ms, while playback and seeking remain available.

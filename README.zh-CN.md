@@ -5,7 +5,7 @@
 
   轻量、快速、由插件驱动的 Windows 文件预览工具。
 
-  在资源管理器中选中文件并按下 `Space`，即可预览文本、代码、Markdown、图片、PDF、视频、
+  在资源管理器中选中文件并按下 `Space`，即可预览文本、代码、Markdown、图片、PDF、视频、音频、
   PSD/PSB、文件信息以及已安装插件支持的其他格式。
 
   [![Windows](https://img.shields.io/badge/Windows-2f6fed?style=flat-square&logo=windows11&logoColor=white)](https://github.com/Ruszero01/ember-peek/releases)
@@ -36,6 +36,7 @@ Ember Peek 常驻 Windows 系统托盘，仅在资源管理器文件列表获得
 | 模型预览 | GLB/glTF、OBJ、FBX、STL、PLY、DAE、3DS、3MF、C4D、Blender | 基础已保存网格与材质、旋转、缩放、平移；无需安装 Blender |
 | PDF 预览 | PDF 文档 | 翻页、缩放、适配窗口、旋转 |
 | PDF 编辑（Beta） | PDF 文档 | 编辑文字片段、替换／缩放图片、增删页、撤销、保存 |
+| 音频预览 | MP3、FLAC、WAV、AAC/M4A、Ogg/Opus、AIFF、CAF 等 | 音频波形、交互式播放进度、音量、循环、倍速与内置兼容解码 |
 | 视频预览 | 常见视频文件 | 播放、跳转、音量、帧导出与编码兼容 |
 | 文本编辑 | 可写的文本和代码文件 | 搜索、保存、外部修改冲突保护 |
 | 文件信息 | 任意本地文件 | 路径、大小和基础元数据 |

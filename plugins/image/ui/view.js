@@ -119,7 +119,7 @@ function publishControls() {
   publishedZoom = zoom;
   controls([
     {
-      id: "zoom", kind: "scrub", label: say("zoom"),
+      id: "zoom", kind: "scrub", label: say("zoom"), defaultValue:100,
       value: zoom * 100, min: Math.min(2, zoom * 100), max: 2000, suffix: "%",
       run: value => { if (typeof value === "number" && Number.isFinite(value)) scale(value / (zoom * 100)); },
     },

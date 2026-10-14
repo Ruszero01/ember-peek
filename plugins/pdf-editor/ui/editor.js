@@ -98,10 +98,10 @@ async function mountView() {
   function publish() {
     const items = [
       {id:"previous",kind:"button",label:say("previous"),icon:"chevron-left",run:()=>navigate(page-1)},
-      ...(state.pages > 1 ? [{id:"page",kind:"scrub",label:say("page"),value:page,min:1,max:state.pages,direction:"down",run:navigate}] : []),
+      ...(state.pages > 1 ? [{id:"page",kind:"scrub", defaultValue:1,label:say("page"),value:page,min:1,max:state.pages,direction:"down",run:navigate}] : []),
       {id:"next",kind:"button",label:say("next"),icon:"chevron-right",run:()=>navigate(page+1)},
       {id:"fit",kind:"toggle",label:say("fit"),icon:"maximize-2",active:fill && manualZoom === undefined,run:()=>{if(busy)return;fill=!(fill && manualZoom === undefined);manualZoom=undefined;void renderPage(position());}},
-      {id:"zoom",kind:"scrub",label:say("zoom"),value:Math.max(1,geometry().scale*100),min:1,max:800,suffix:"%",run:value=>{if(busy)return;manualZoom=Number(value)/100;void renderPage(position());}},
+      {id:"zoom",kind:"scrub", defaultValue:100,label:say("zoom"),value:Math.max(1,geometry().scale*100),min:1,max:800,suffix:"%",run:value=>{if(busy)return;manualZoom=Number(value)/100;void renderPage(position());}},
       {id:"edit",kind:"toggle",label:say("edit"),icon:"file-pen",active:panelOpen,run:()=>setPanel(!panelOpen)},
     ];
     if (state.editable) items.push(

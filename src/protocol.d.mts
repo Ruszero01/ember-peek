@@ -4,6 +4,9 @@ import type {MessageKey} from './en';
 export function validateControls(value:unknown, say?:(key:MessageKey)=>string):Control[];
 export function scrubPosition(value:number,min:number,max:number,direction?:"up"|"down"):number;
 export function scrubDragValue(value:number,deltaY:number,direction?:"up"|"down"):number;
+export function scrubDisplayValue(value:number,step?:number,min?:number,max?:number):string;
+export function scrubClampValue(value:number,min:number,max:number,step?:number):number;
+export function scrubWheelValue(value:number,ticks:number,min:number,max:number,step?:number,direction?:"up"|"down"):number;
 /** The stricter contract a generated plugin is held to: a real icon name and an explicit
  * toggle state, so a trial preview matches the installed host toolbar. */
 export function validateWorkshopControls(value:unknown, say?:(key:MessageKey)=>string):Control[];

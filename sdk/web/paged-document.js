@@ -22,9 +22,9 @@ export async function pagedDocument({ viewport, content, dimensions, mount, unmo
     controls([
       navigation.control(),
       { id:'previous', kind:'button', label:say('previous'), icon:'chevron-left', run:()=>navigate(page) },
-      ...(slots.length > 1 ? [{ id:'page', kind:'scrub', label:say('page'), value:page+1, min:1, max:slots.length, direction:'down', run:navigate }] : []),
+      ...(slots.length > 1 ? [{ id:'page', kind:'scrub', defaultValue:1, label:say('page'), value:page+1, min:1, max:slots.length, direction:'down', run:navigate }] : []),
       { id:'next', kind:'button', label:say('next'), icon:'chevron-right', run:()=>navigate(page+2) },
-      { id:'zoom', kind:'scrub', label:say('zoom'), value:zoom*100, min:Math.min(1,zoom*100), max:800, suffix:'%', run:value=>{mode='manual';layout(documentZoom(value));} },
+      { id:'zoom', kind:'scrub', defaultValue:100, label:say('zoom'), value:zoom*100, min:Math.min(1,zoom*100), max:800, suffix:'%', run:value=>{mode='manual';layout(documentZoom(value));} },
       { id:'fit', kind:'toggle', label:say('fit'), icon:'maximize-2', active:mode==='fill', run:()=>{mode=mode==='fill'?'page':'fill';layout();} },
       { id:'rotate', kind:'button', label:say('rotate'), icon:'rotate-cw', run:()=>{rotation=(rotation+90)%360;layout();} },
     ]);

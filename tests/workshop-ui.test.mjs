@@ -23,7 +23,7 @@ function fixture(page='',options={}){
   // CJS conversion deliberately rejects top-level await: mounting must not wait for the parent's load callback.
   const timers=new Map();let timerId=0;let poll;
   const code=transformSync(source,{format:'cjs',target:'es2022'}).code;
-  runInNewContext(code,{require:()=>sdk,document,location:{href:`http://plugin.localhost/@tool-test/ui/index.html${page}`},URL,Option:class extends Element{constructor(text,value){super();this.text=text;this.value=value;}},setInterval(fn){poll=fn;},setTimeout(fn){const id=++timerId;timers.set(id,fn);return id;},clearTimeout(id){timers.delete(id);},crypto:{randomUUID:()=> 'test'},console});
+  runInNewContext(code,{Date:class extends Date{static now(){return options.now??Date.now();}},require:()=>sdk,document,location:{href:`http://plugin.localhost/@tool-test/ui/index.html${page}`},URL,Option:class extends Element{constructor(text,value){super();this.text=text;this.value=value;}},setInterval(fn){poll=fn;},setTimeout(fn){const id=++timerId;timers.set(id,fn);return id;},clearTimeout(id){timers.delete(id);},crypto:{randomUUID:()=> 'test'},console});
   return {elements,calls,state,connect,listeners,async poll(){await poll();},async saveProvider(){elements['provider-name'].oninput();const callbacks=[...timers.values()];timers.clear();for(const fn of callbacks)await fn();},async saveSearch(){elements['search-key'].oninput();const callbacks=[...timers.values()];timers.clear();for(const fn of callbacks)await fn();},drop(paths){onDrop(paths);},drag(state){onDrag(state);},setPage(page){hostContext={page};onContext(hostContext);},async settle(){await new Promise(resolve=>setImmediate(resolve));}};
 }
 function project(overrides={}){
@@ -108,11 +108,12 @@ test('the conversation keeps execution steps while the right rail is reserved fo
  assert.equal(messages[1].children[1].textContent.includes('Cannot read'),false);
 });
 test('an assistant turn reads as steps: duration, prose, then what it ran',async()=>{
- const f=fixture();
+ const now=1700000000000;
+ const f=fixture('',{now});
  f.state.projects=[project({status:'generating',busy:true,version:1,
    transcript:[
      {role:'user',text:'做一个文本预览'},
-     {role:'assistant',text:'先读规范，然后写文件。',streaming:true,startedAt:Math.round(Date.now()/1000)-38,endedAt:0,
+     {role:'assistant',text:'先读规范，然后写文件。',streaming:true,startedAt:now/1000-38,endedAt:0,
       events:[
         {kind:'text',text:'先读规范，然后写文件。'},
         {kind:'tool',tool:'read_file',path:'sdk.md',detail:'2048 字符'},

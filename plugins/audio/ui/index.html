@@ -1,0 +1,27 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8" /><link rel="stylesheet" href="./sdk-ui.css" /><link rel="stylesheet" href="./style.css" /></head>
+<body>
+  <main id="viewer">
+    <article id="player">
+      <header><div><h1 id="title"></h1></div><span id="format"></span></header>
+      <section id="track-area">
+        <span id="wave-note" role="status"></span>
+        <div id="ruler" aria-hidden="true"></div>
+        <div id="waveform">
+          <div id="wave-renderer" aria-hidden="true"></div>
+          <input id="timeline" type="range" min="0" max="1" step="any" value="0" disabled />
+          <output id="seek-preview" aria-hidden="true"></output>
+        </div>
+        <section id="transport">
+          <div id="times"><span id="current">0:00</span><span class="separator">/</span><span id="duration">—</span></div>
+          <div id="playback-buttons"><button id="back" class="ui-icon-button" type="button" disabled></button><button id="play" class="ui-icon-button" type="button" disabled></button><button id="forward" class="ui-icon-button" type="button" disabled></button></div>
+        </section>
+      </section>
+      <p id="message" role="status"></p>
+    </article>
+    <audio preload="metadata"></audio>
+  </main>
+  <script type="module" src="./view.js"></script>
+</body>
+</html>

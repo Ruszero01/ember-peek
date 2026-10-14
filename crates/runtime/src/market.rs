@@ -607,6 +607,55 @@ impl Market {
         }
         Ok(())
     }
+
+    /// Update only installed releases from their recorded catalog, even when another
+    /// configured source offers a higher version of the same id.
+    pub async fn auto_update_installed(&self, runtime: &Arc<Runtime>) -> Vec<String> {
+        if !runtime.auto_update_plugins().await {
+            return Vec::new();
+        }
+        self.remote.lock().await.at = None;
+        let (_, mut warnings) = self.offerings().await;
+        let catalogs = self.remote.lock().await.fetched.clone();
+        let snapshot = runtime.snapshot().await;
+        let mut updated = false;
+        for installed in snapshot.plugins {
+            if !runtime.auto_update_plugins().await {
+                break;
+            }
+            let Some(source) = installed.source.as_deref() else {
+                continue;
+            };
+            let matching: Vec<_> = catalogs
+                .iter()
+                .filter(|catalog| catalog.source.catalog == source)
+                .cloned()
+                .collect();
+            let offerings = offerings_of(&matching, &|source| self.label(source));
+            let Some(offering) = offerings.into_iter().find(|offering| {
+                offering.id == installed.manifest.id
+                    && runs_here(&offering.targets)
+                    && newer_version(&offering.version, &installed.manifest.version)
+            }) else {
+                continue;
+            };
+            let result = async {
+                let directory = self.materialize(&offering).await?;
+                runtime.update_automatically(&directory, source).await
+            }
+            .await;
+            match result {
+                Ok(changed) => updated |= changed,
+                Err(error) => warnings.push(format!("{}: {error}", installed.manifest.id)),
+            }
+        }
+        if updated {
+            if let Err(error) = self.prune_cache(runtime).await {
+                warnings.push(error);
+            }
+        }
+        warnings
+    }
 }
 
 fn parse_catalog(bytes: &[u8]) -> Result<Catalog, String> {
@@ -866,7 +915,7 @@ fn runs_here(targets: &[String]) -> bool {
     targets.is_empty() || targets.iter().any(|target| target == HOST_TARGET)
 }
 
-fn newer_version(candidate: &str, installed: &str) -> bool {
+pub(crate) fn newer_version(candidate: &str, installed: &str) -> bool {
     match (
         semver::Version::parse(candidate),
         semver::Version::parse(installed),

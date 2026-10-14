@@ -31,7 +31,7 @@ function publishControls() {
   if (publishedZoom === zoom) return;
   publishedZoom = zoom;
   controls([
-    { id: "zoom", kind: "scrub", label: say("zoom"), value: zoom * 100,
+    { id: "zoom", kind: "scrub", label: say("zoom"), value: zoom * 100, defaultValue:100,
       min: Math.min(2, zoom * 100), max: 2000, suffix: "%",
       run: value => { if (typeof value === "number" && Number.isFinite(value)) scaleTo(value / 100); } },
     { id: "fit", kind: "button", label: say("fit"), icon: "maximize-2", run() { touched = true; fit(); } },

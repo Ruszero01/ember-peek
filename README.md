@@ -6,7 +6,7 @@
   A fast, lightweight, plugin-driven file previewer for Windows.
 
   Select a file in File Explorer and press `Space` to preview text, source code,
-  Markdown, images, PSD/PSB files, PDFs, videos, metadata, and formats supported by installed plugins.
+  Markdown, images, PSD/PSB files, PDFs, videos, audio, metadata, and formats supported by installed plugins.
 
   [![Windows](https://img.shields.io/badge/Windows-2f6fed?style=flat-square&logo=windows11&logoColor=white)](https://github.com/Ruszero01/ember-peek/releases)
   [![Release](https://img.shields.io/github/v/release/Ruszero01/ember-peek?display_name=tag&style=flat-square&color=b7572f)](https://github.com/Ruszero01/ember-peek/releases/latest)
@@ -37,6 +37,7 @@ More plugins will extend support to additional file formats in the future.
 | Model preview | GLB/glTF, OBJ, FBX, STL, PLY, DAE, 3DS, 3MF, C4D, Blender | Basic saved geometry and materials, rotate, zoom, pan; no Blender installation required |
 | PDF preview | PDF documents | Page navigation, zoom, fill window, rotation |
 | PDF editor (Beta) | PDF documents | Edit text fragments, replace/resize images, add/delete pages, undo, save |
+| Audio preview | MP3, FLAC, WAV, AAC/M4A, Ogg/Opus, AIFF, CAF and more | Audio waveform, interactive playback timeline, volume, loop, speed; built-in decoder fallback |
 | Video preview | Common video files | Playback, seeking, volume, frame export, codec compatibility |
 | Text editing | Writable text and source files | Search, save, external-change protection |
 | File information | Any local file | Path, size, and basic metadata |

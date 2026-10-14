@@ -5,6 +5,7 @@ let pointerTracking = false;
 let pointerBottom = null;
 let sequence = 0;
 let settings = {};
+let settingsIdentity;
 let sessionId = "";
 /** The window size the host recorded, handed over when the view connects. */
 let recordedWindow = { width: 0, height: 0 };
@@ -98,6 +99,9 @@ export function onMessage(fn) {
 
 function applySettings(next) {
   if (!next || typeof next !== "object") return;
+  const identity = JSON.stringify(Object.keys(next).sort().map(key => [key, next[key]]));
+  if (identity === settingsIdentity) return;
+  settingsIdentity = identity;
   settings = next;
   settingsListeners.forEach((fn) => {
     try {

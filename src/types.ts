@@ -106,6 +106,7 @@ export type Snapshot = {
   pluginDirectory: string;
   /** False until the first-run plugin chooser has been answered. */
   onboarded: boolean;
+  autoUpdatePlugins: boolean;
 };
 /** Where a plugin comes from: a configured source, and the package behind the entry. */
 export type MarketSource = {
@@ -140,6 +141,8 @@ export type Control = {
   min?: number;
   max?: number;
   suffix?: string;
+  step?: number;
+  defaultValue?: number;
   direction?: "up" | "down";
   label: string;
   icon?: string;

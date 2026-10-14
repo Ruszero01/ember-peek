@@ -33,6 +33,10 @@ export function validateControls(value, say = (key) => key) {
     )) throw new Error(say("protocol.invalidScrubRange"));
     if (item.kind === "scrub" && item.direction !== undefined && !["up", "down"].includes(item.direction))
       throw new Error(say("protocol.invalidScrubRange"));
+    if (item.kind === "scrub" && item.step !== undefined && (!Number.isFinite(item.step) || item.step <= 0))
+      throw new Error(say("protocol.invalidScrubRange"));
+    if (item.kind === "scrub" && item.defaultValue !== undefined && (!Number.isFinite(item.defaultValue) || item.defaultValue < item.min || item.defaultValue > item.max))
+      throw new Error(say("protocol.invalidScrubRange"));
     ids.add(item.id);
     return {
       id: item.id,
@@ -43,7 +47,7 @@ export function validateControls(value, say = (key) => key) {
       active: item.active === true,
       ...(item.kind === "scrub" ? { value: item.value, min: item.min, max: item.max,
         suffix: typeof item.suffix === "string" ? item.suffix.slice(0, 8) : "",
-        direction: item.direction ?? "up" } : {}),
+        direction: item.direction ?? "up", ...(item.step !== undefined ? {step:item.step} : {}), ...(item.defaultValue !== undefined ? {defaultValue:item.defaultValue} : {}) } : {}),
     };
   });
 }
@@ -55,6 +59,30 @@ export function scrubPosition(value, min, max, direction = "up") {
 
 export function scrubDragValue(value, deltaY, direction = "up") {
   return value * Math.exp((direction === "down" ? deltaY : -deltaY) / 40);
+}
+
+export function scrubDisplayValue(value, step, min = 0, max = 0) {
+  if (step === undefined) return String(Math.round(value));
+  const digits = Math.max(...[step, min, max].map(number => {
+    const [coefficient, exponent = '0'] = String(number).split('e');
+    return Math.max(0, (coefficient.split('.')[1]?.length || 0) - Number(exponent));
+  }));
+  if (digits > 12) return String(value);
+  return String(Number(value.toFixed(digits)));
+}
+
+export function scrubClampValue(value, min, max, step) {
+  const bounded = Math.max(min, Math.min(max, value));
+  if (step === undefined || bounded === min || bounded === max) return bounded;
+  return Math.max(min, Math.min(max, Number((min + Math.round((bounded - min) / step) * step).toPrecision(12))));
+}
+
+export function scrubWheelValue(value, ticks, min, max, step, direction = 'up') {
+  const change = direction === 'down' ? ticks : -ticks;
+  let next = step === undefined ? value * Math.pow(1.1, change) : value + step * change;
+  // Integer readouts must still advance near their minimum after plugin rounding.
+  if (step === undefined && Math.abs(next - value) < Math.abs(change)) next = value + change;
+  return scrubClampValue(next, min, max, step);
 }
 
 /** Generated plugins are created against the current SDK and therefore use its full
