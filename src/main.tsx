@@ -100,6 +100,7 @@ const initial: Snapshot = {
   pluginDirectory: "",
   // Nothing is shown until the host answers, and the chooser is the host's decision.
   onboarded: true,
+  autoUpdatePlugins: false,
 };
 type Settings = {
   theme: "light" | "dark" | "system";
@@ -1866,6 +1867,14 @@ function App() {
                     <div className="setting-row">
                       <div><strong>{t("previewDots.label")}</strong><p>{t("previewDots.note")}</p></div>
                       <Toggle checked={settings.previewDots} label={t("previewDots.label")} onChange={previewDots => setSettings({ ...settings, previewDots })} />
+                    </div>
+                    <div className="setting-row">
+                      <div><strong>{t("autoUpdatePlugins.label")}</strong><p>{t("autoUpdatePlugins.note")}</p></div>
+                      <Toggle checked={snapshot.autoUpdatePlugins === true} label={t("autoUpdatePlugins.label")} disabled={busy} onChange={enabled => void guard(async () => {
+                        setBusy(true);
+                        try { await call("set_auto_update_plugins", {enabled}); await refresh(); }
+                        finally { setBusy(false); }
+                      })} />
                     </div>
                   </section>
                 </>

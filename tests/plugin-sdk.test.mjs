@@ -17,6 +17,25 @@ async function sdkPage(label) {
  return {sdk,browserListeners,parentWindow,pageListeners};
 }
 
+test('unchanged settings snapshots do not reset local edits or invoke listeners again',async()=>{
+ const {sdk,browserListeners,parentWindow}=await sdkPage('settings-dedup');
+ const {port1,port2}=new MessageChannel();
+ let calls=0;
+ sdk.onSettings(()=>calls++);
+ port1.onmessage=event=>{if(event.data.type==='connected')port1.postMessage({type:'init',session:'test',theme:{},settings:{volume:0.91,loop:false}});};
+ port1.start();
+ browserListeners.get('message')({source:parentWindow,data:{type:'ember:connect'},ports:[port2]});
+ try{
+  await sdk.ready;assert.equal(calls,1);
+  port1.postMessage({type:'settings',settings:{loop:false,volume:0.91}});
+  await new Promise(resolve=>setTimeout(resolve,20));assert.equal(calls,1);
+  port1.postMessage({type:'settings',settings:{volume:0.5,loop:false}});
+  await new Promise(resolve=>setTimeout(resolve,20));assert.equal(calls,2);assert.equal(sdk.configuration().volume,0.5);
+  port1.postMessage({type:'settings',settings:{volume:0.5,loop:false}});
+  await new Promise(resolve=>setTimeout(resolve,20));assert.equal(calls,2);
+ }finally{port1.close();port2.close();}
+});
+
 test('file and related-resource helpers use the initialized session safely',async()=>{
  const {sdk,browserListeners,parentWindow}=await sdkPage('file-resources');
  const {port1,port2}=new MessageChannel();

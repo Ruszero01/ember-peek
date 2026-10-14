@@ -96,6 +96,8 @@ export const zhCN: Catalog = {
   "immersive.note":
     "关闭时视口位于标题栏与功能栏之间；开启后视口铺满窗口，操作栏浮在内容上方。",
   "autoHideChrome.label": "自动隐藏功能栏",
+  "autoUpdatePlugins.label": "自动更新插件",
+  "autoUpdatePlugins.note": "启动时及每小时检查已安装插件的新版本；有未保存内容时跳过，后续检查再尝试。",
   "autoHideChrome.note": "鼠标离开操作区时自动收起两条栏；关闭后操作栏始终显示。",
 
   "plugins.market": "插件市场",
@@ -188,8 +190,9 @@ export const zhCN: Catalog = {
   "stage.dragHint": "拖动调整位置，双击恢复默认位置",
   "stage.loading": "加载中…",
 
-  "scrub.hint": "{label} · 按住向上放大、向下缩小",
-  "scrub.hintDown": "{label} · 按住向下增大、向上减小",
+  "scrub.hint": "{label} · 拖动或滚轮向上增大、向下减小",
+  "scrub.hintDown": "{label} · 拖动或滚轮向下增大、向上减小",
+  "scrub.resetHint": "双击或按 Backspace 重置",
 
   "view.disconnected": "插件视图未建立连接，请检查插件入口和脚本",
   "view.panelNoControls": "浮层不能声明工具栏控件，控件属于插件视图",

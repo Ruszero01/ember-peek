@@ -235,10 +235,12 @@ pub struct Snapshot {
     pub plugin_directory: String,
     /// Whether the first-run plugin chooser still has to be shown.
     pub onboarded: bool,
+    pub auto_update_plugins: bool,
 }
 
 #[derive(Default)]
 struct Inner {
+    auto_update_plugins: bool,
     sources: BTreeMap<String, String>,
     origins: BTreeMap<String, String>,
     updating: bool,
@@ -278,6 +280,7 @@ pub struct Runtime {
 #[derive(Default, Deserialize)]
 #[serde(default)]
 struct StoredState {
+    auto_update_plugins: bool,
     sources: BTreeMap<String, String>,
     origins: BTreeMap<String, String>,
     disabled: HashSet<String>,
@@ -334,6 +337,7 @@ impl Runtime {
         // otherwise.
         i18n::set_locale(locale);
         let inner = Inner {
+            auto_update_plugins: state.auto_update_plugins,
             sources: state.sources,
             origins: state.origins,
             disabled: state.disabled,
@@ -357,6 +361,7 @@ impl Runtime {
 
     fn persist(&self, inner: &Inner) -> Result<(), String> {
         let bytes = serde_json::to_vec(&json!({
+            "auto_update_plugins": inner.auto_update_plugins,
             "sources": inner.sources,
             "origins": inner.origins,
             "disabled": inner.disabled,
@@ -609,6 +614,7 @@ impl Runtime {
                 }
             });
         Snapshot {
+            auto_update_plugins: inner.auto_update_plugins,
             plugins,
             sessions,
             active,
@@ -627,6 +633,57 @@ impl Runtime {
         }
         inner.onboarded = true;
         self.persist(&inner)
+    }
+
+    pub async fn auto_update_plugins(&self) -> bool {
+        self.inner.lock().await.auto_update_plugins
+    }
+
+    pub async fn set_auto_update_plugins(&self, enabled: bool) -> Result<(), String> {
+        let mut inner = self.inner.lock().await;
+        let previous = inner.auto_update_plugins;
+        inner.auto_update_plugins = enabled;
+        if let Err(error) = self.persist(&inner) {
+            inner.auto_update_plugins = previous;
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    /// Recheck opt-in, installation and provenance under the installation lock after download.
+    pub async fn update_automatically(
+        self: &Arc<Self>,
+        source: &Path,
+        catalog: &str,
+    ) -> Result<bool, String> {
+        let _installation = self.installation.lock().await;
+        let incoming = Package::load(source)?;
+        let installed = {
+            let inner = self.inner.lock().await;
+            if !inner.auto_update_plugins
+                || inner.sources.get(&incoming.manifest.id).map(String::as_str) != Some(catalog)
+            {
+                return Ok(false);
+            }
+            let Some(installed) = inner.packages.get(&incoming.manifest.id) else {
+                return Ok(false);
+            };
+            if !market::newer_version(&incoming.manifest.version, &installed.manifest.version) {
+                return Ok(false);
+            }
+            installed.clone()
+        };
+        if !incoming.manifest.targets.is_empty()
+            && !incoming
+                .manifest
+                .targets
+                .iter()
+                .any(|target| target == manifest::HOST_TARGET)
+        {
+            return Err("Plugin target does not match this host".into());
+        }
+        self.replace_package(source, &installed).await?;
+        Ok(true)
     }
 
     /// Put this installation back to what a first launch looks like: nothing installed and

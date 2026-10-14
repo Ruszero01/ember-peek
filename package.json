@@ -28,7 +28,7 @@
     "lint": "cargo clippy --workspace --all-targets --all-features --locked -- -D warnings",
     "check": "npm run format:check && npm run build && npm run lint && npm run plugins:build",
     "test:js": "node --test tests/*.test.mjs",
-    "test:rust": "cargo test -p ember-file-store -p ember-text-document -p ember-image-plugin -p ember-psd-plugin -p ember-model-plugin -p ember-office-document -p ember-word-plugin -p ember-powerpoint-plugin -p ember-excel-plugin -p ember-pdf-plugin -p ember-pdf-editor-plugin -p ember-runtime -p ember-plugin-sdk -p ember-text-editor-plugin -p ember-text-plugin -p ember-video-plugin --features ember-runtime/test-worker && cargo test -p ember-peek --bin ember-peek",
+    "test:rust": "cargo test -p ember-file-store -p ember-text-document -p ember-image-plugin -p ember-psd-plugin -p ember-model-plugin -p ember-office-document -p ember-word-plugin -p ember-powerpoint-plugin -p ember-excel-plugin -p ember-pdf-plugin -p ember-pdf-editor-plugin -p ember-runtime -p ember-plugin-sdk -p ember-text-editor-plugin -p ember-text-plugin -p ember-audio-plugin -p ember-video-plugin --features ember-runtime/test-worker && cargo test -p ember-peek --bin ember-peek",
     "test": "npm run plugins:build && npm run test:js && npm run test:rust",
     "ci": "npm run version:check && npm run release:notes && npm run format:check && npm run build && npm run lint && npm test",
     "model:sdk": "node scripts/setup-cineware.mjs",
@@ -53,7 +53,8 @@
     "react-dom": "^19.2.0",
     "three": "0.186.1",
     "three-bvh-csg": "0.0.18",
-    "three-mesh-bvh": "0.9.7"
+    "three-mesh-bvh": "0.9.7",
+    "wavesurfer.js": "7.12.12"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.10.0",

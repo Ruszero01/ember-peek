@@ -69,5 +69,16 @@ mod tests {
     fn common_uppercase_resource_extensions_have_media_types() {
         assert_eq!(crate::mime(Path::new("Cover.JPG")), "image/jpeg");
         assert_eq!(crate::mime(Path::new("sound.M4A")), "audio/mp4");
+        for (name, mime) in [
+            ("song.MP2", "audio/mpeg"),
+            ("book.M4B", "audio/mp4"),
+            ("sound.WAVE", "audio/wav"),
+            ("sound.AIFF", "audio/aiff"),
+            ("sound.CAF", "audio/x-caf"),
+            ("sound.OPUS", "audio/ogg"),
+            ("sound.WEBA", "audio/webm"),
+        ] {
+            assert_eq!(crate::mime(Path::new(name)), mime);
+        }
     }
 }

@@ -13,9 +13,9 @@ function fail(error){status(String(error?.message??error));}
 function publish(){const current=sheets[sheet];if(!current)return;
   controls([
     {id:'previous',kind:'button',label:say('previous'),icon:'chevron-left',run:()=>select(sheet)},
-    ...(sheets.length>1?[{id:'sheet',kind:'scrub',label:say('sheet'),value:sheet+1,min:1,max:sheets.length,direction:'down',run:select}]:[]),
+    ...(sheets.length>1?[{id:'sheet',kind:'scrub', defaultValue:1,label:say('sheet'),value:sheet+1,min:1,max:sheets.length,direction:'down',run:select}]:[]),
     {id:'next',kind:'button',label:say('next'),icon:'chevron-right',run:()=>select(sheet+2)},
-    {id:'zoom',kind:'scrub',label:say('zoom'),value:zoom*100,min:25,max:200,suffix:'%',run:value=>resize(Math.max(.25,Math.min(2,zoomFactor(value))))},
+    {id:'zoom',kind:'scrub', defaultValue:100,label:say('zoom'),value:zoom*100,min:25,max:200,suffix:'%',run:value=>resize(Math.max(.25,Math.min(2,zoomFactor(value))))},
     {id:'actual',kind:'button',label:say('actual'),icon:'scan',run:()=>resize(1)},
   ]);status(say('info',{name:current.name,sheet:sheet+1,count:sheets.length,rows:current.rows,columns:current.columns,zoom:Math.round(zoom*100)})+(current.truncated?say('limited'):''));
 }

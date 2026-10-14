@@ -385,6 +385,7 @@ if (initial.role === "panel") {
       {
         id: "volume",
         kind: "scrub",
+        defaultValue:100,
         label: say("volume"),
         icon: "volume-2",
         value: Math.max(1, Math.round(video.volume * 100)),

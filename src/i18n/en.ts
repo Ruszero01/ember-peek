@@ -104,6 +104,8 @@ export const en = {
   "immersive.label": "Immersive mode",
   "immersive.note": "When enabled, the preview fills the window and the bars float above it. Otherwise, the preview sits between the bars.",
   "autoHideChrome.label": "Auto-hide action bars",
+  "autoUpdatePlugins.label": "Automatically update plugins",
+  "autoUpdatePlugins.note": "Check at startup and hourly for new releases of installed plugins. Updates with unsaved changes wait until a later check.",
   "autoHideChrome.note": "Hide both bars when the pointer leaves the action areas. Turn off to keep them visible.",
 
   "plugins.market": "Plugin marketplace",
@@ -208,8 +210,9 @@ export const en = {
   "stage.dragHint": "Drag to move, double-click to reset",
   "stage.loading": "Loading…",
 
-  "scrub.hint": "{label} · drag up to enlarge, down to shrink",
-  "scrub.hintDown": "{label} · drag down to increase, up to decrease",
+  "scrub.hint": "{label} · drag or scroll up to increase, down to decrease",
+  "scrub.hintDown": "{label} · drag or scroll down to increase, up to decrease",
+  "scrub.resetHint": "Double-click or press Backspace to reset",
 
   "view.disconnected":
     "The plugin view never connected; check its entry page and scripts",

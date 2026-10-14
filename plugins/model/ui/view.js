@@ -33,7 +33,7 @@ function publish(){
   const zoom=Math.round(baseDistance/camera.position.distanceTo(orbit.target)*100);
   if(zoomPublished===zoom)return;zoomPublished=zoom;
   controls([
-    {id:'zoom',kind:'scrub',label:say('zoom'),value:zoom,min:10,max:1000,suffix:'%',run:value=>{
+    {id:'zoom',kind:'scrub', defaultValue:100,label:say('zoom'),value:zoom,min:10,max:1000,suffix:'%',run:value=>{
       if(typeof value!=='number'||!Number.isFinite(value))return;
       const direction=camera.position.clone().sub(orbit.target).normalize();camera.position.copy(orbit.target).addScaledVector(direction,baseDistance/(Math.max(10,Math.min(1000,value))/100));orbit.update();paint();
     }},

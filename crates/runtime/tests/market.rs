@@ -20,6 +20,132 @@ fn package(path: &Path, id: &str, extension: &str) {
     std::fs::write(path.join("plugin.json"), json!({"api":1,"id":id,"name":id,"version":"1.0.0","extensions":[extension],"icon":"file-text","executable":"worker.exe","entry":"ui/index.html","capabilities":["view"],"permissions":["readFile"]}).to_string()).unwrap();
 }
 
+#[tokio::test]
+async fn automatic_updates_are_opt_in_persisted_and_only_follow_new_releases() {
+    let temp = tempfile::tempdir().unwrap();
+    let source = build(temp.path(), "first");
+    let mirror = temp.path().join("mirror");
+    publish(&mirror, &source, "test.one", "first", &[]);
+    let market = test_market(temp.path(), &mirror);
+    let root = temp.path().join("installed");
+    let runtime = Runtime::new(root.clone()).unwrap();
+    assert!(!runtime.auto_update_plugins().await);
+    market.install(&runtime, "test.one").await.unwrap();
+    set_build_id(&source, "rebuilt");
+    publish(&mirror, &source, "test.one", "rebuilt", &[]);
+    assert!(market.auto_update_installed(&runtime).await.is_empty());
+    runtime.set_auto_update_plugins(true).await.unwrap();
+    assert!(Runtime::new(root).unwrap().auto_update_plugins().await);
+    assert!(market.auto_update_installed(&runtime).await.is_empty());
+    assert_eq!(
+        runtime.snapshot().await.plugins[0].manifest.build_id,
+        "first"
+    );
+    runtime.enabled("test.one", false).await.unwrap();
+    set_version(&source, "1.1.0");
+    publish_version(&mirror, &source, "test.one", "rebuilt", "1.1.0", &[], false);
+    assert!(market.auto_update_installed(&runtime).await.is_empty());
+    let snapshot = runtime.snapshot().await;
+    assert_eq!(snapshot.plugins[0].manifest.version, "1.1.0");
+    assert!(!snapshot.plugins[0].enabled);
+    runtime.uninstall("test.one").await.unwrap();
+    assert!(market.auto_update_installed(&runtime).await.is_empty());
+    assert!(runtime.snapshot().await.plugins.is_empty());
+    runtime.shutdown().await;
+}
+
+#[tokio::test]
+async fn automatic_updates_preserve_pending_changes_and_recheck_before_replacing() {
+    let temp = tempfile::tempdir().unwrap();
+    let source = build(temp.path(), "first");
+    let mirror = temp.path().join("mirror");
+    publish(&mirror, &source, "test.one", "first", &[]);
+    let market = test_market(temp.path(), &mirror);
+    let runtime = Runtime::new(temp.path().join("installed")).unwrap();
+    market.install(&runtime, "test.one").await.unwrap();
+    runtime.set_auto_update_plugins(true).await.unwrap();
+    let file = temp.path().join("draft.one");
+    std::fs::write(&file, "draft").unwrap();
+    let session = runtime.open(file).await.unwrap();
+    runtime
+        .set_pending(&session.id, true, Some("Draft".into()))
+        .await
+        .unwrap();
+    set_version(&source, "1.1.0");
+    set_build_id(&source, "next");
+    publish_version(&mirror, &source, "test.one", "next", "1.1.0", &[], false);
+    assert!(!market.auto_update_installed(&runtime).await.is_empty());
+    assert_eq!(
+        runtime.snapshot().await.plugins[0].manifest.version,
+        "1.0.0"
+    );
+    assert!(runtime
+        .snapshot()
+        .await
+        .sessions
+        .iter()
+        .any(|item| item.id == session.id && item.pending));
+    runtime.set_pending(&session.id, false, None).await.unwrap();
+    assert!(market.auto_update_installed(&runtime).await.is_empty());
+    assert_eq!(
+        runtime.snapshot().await.plugins[0].manifest.version,
+        "1.1.0"
+    );
+    let directory = market.prepare("test.one").await.unwrap();
+    runtime.set_auto_update_plugins(false).await.unwrap();
+    assert!(!runtime
+        .update_automatically(&directory, &mirror.join("catalog.json").to_string_lossy())
+        .await
+        .unwrap());
+    runtime.set_auto_update_plugins(true).await.unwrap();
+    runtime.uninstall("test.one").await.unwrap();
+    assert!(!runtime
+        .update_automatically(&directory, &mirror.join("catalog.json").to_string_lossy())
+        .await
+        .unwrap());
+    assert!(runtime.snapshot().await.plugins.is_empty());
+    runtime.shutdown().await;
+}
+
+#[tokio::test]
+async fn automatic_updates_use_the_original_catalog_even_if_another_has_a_higher_version() {
+    let temp = tempfile::tempdir().unwrap();
+    let source = build(temp.path(), "first");
+    let original = temp.path().join("original");
+    let other = temp.path().join("other");
+    publish(&original, &source, "test.one", "first", &[]);
+    let runtime = Runtime::new(temp.path().join("installed")).unwrap();
+    test_market(temp.path(), &original)
+        .install(&runtime, "test.one")
+        .await
+        .unwrap();
+    set_version(&source, "2.0.0");
+    set_build_id(&source, "foreign");
+    publish_version(&other, &source, "test.one", "foreign", "2.0.0", &[], false);
+    set_version(&source, "1.1.0");
+    set_build_id(&source, "original-next");
+    publish_version(
+        &original,
+        &source,
+        "test.one",
+        "original-next",
+        "1.1.0",
+        &[],
+        false,
+    );
+    let mut configured = sources(temp.path(), &other).unwrap();
+    configured.extend(sources(temp.path(), &original).unwrap());
+    let market = Market::new(Ok(configured), temp.path().join("cache")).unwrap();
+    runtime.set_auto_update_plugins(true).await.unwrap();
+    let warnings = market.auto_update_installed(&runtime).await;
+    assert_eq!(
+        runtime.snapshot().await.plugins[0].manifest.version,
+        "1.1.0",
+        "{warnings:?}"
+    );
+    runtime.shutdown().await;
+}
+
 /// A built package whose manifest carries the build id the catalog will index.
 fn build(root: &Path, build_id: &str) -> std::path::PathBuf {
     let path = root.join("built/one");

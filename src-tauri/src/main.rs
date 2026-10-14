@@ -482,6 +482,11 @@ async fn complete_onboarding(host: Host<'_>) -> Result<(), String> {
 }
 
 #[tauri::command]
+async fn set_auto_update_plugins(host: Host<'_>, enabled: bool) -> Result<(), String> {
+    host.set_auto_update_plugins(enabled).await
+}
+
+#[tauri::command]
 async fn refresh_plugins(host: Host<'_>) -> Result<(), String> {
     host.scan().await
 }
@@ -770,11 +775,15 @@ fn mime(path: &std::path::Path) -> &'static str {
         "bmp" => "image/bmp",
         "avif" => "image/avif",
         "ico" => "image/x-icon",
-        "mp3" => "audio/mpeg",
-        "m4a" => "audio/mp4",
-        "aac" => "audio/aac",
-        "wav" => "audio/wav",
-        "ogg" | "oga" => "audio/ogg",
+        "mp3" | "mp2" | "mp1" | "mpa" => "audio/mpeg",
+        "m4a" | "m4b" | "m4r" => "audio/mp4",
+        "aac" | "adts" => "audio/aac",
+        "wav" | "wave" => "audio/wav",
+        "aif" | "aiff" | "aifc" => "audio/aiff",
+        "caf" => "audio/x-caf",
+        "mka" => "audio/x-matroska",
+        "weba" => "audio/webm",
+        "ogg" | "oga" | "opus" => "audio/ogg",
         "flac" => "audio/flac",
         "mp4" | "m4v" => "video/mp4",
         "mov" => "video/quicktime",
@@ -986,6 +995,27 @@ fn main() {
             };
             let market = market.with_official_sources(trusted_catalogs);
             app.manage(market.clone());
+            let update_market = market.clone();
+            let update_runtime = runtime.clone();
+            tauri::async_runtime::spawn(async move {
+                let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
+                interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                let mut checked: Option<std::time::Instant> = None;
+                loop {
+                    interval.tick().await;
+                    if !update_runtime.auto_update_plugins().await {
+                        checked = None;
+                        continue;
+                    }
+                    if checked.is_some_and(|at| at.elapsed() < std::time::Duration::from_secs(3600)) {
+                        continue;
+                    }
+                    checked = Some(std::time::Instant::now());
+                    for error in update_market.auto_update_installed(&update_runtime).await {
+                        eprintln!("Plugin automatic update: {error}");
+                    }
+                }
+            });
             let migration_market = market.clone();
             let migration_runtime = runtime.clone();
             tauri::async_runtime::spawn(async move { migration_market.recover_legacy_origins(&migration_runtime).await; });
@@ -1041,7 +1071,7 @@ fn main() {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![updates::check_update, updates::open_update, open_workshop, icon_data, tool_call, view_state, market_list, market_refresh, market_prepare, market_install, snapshot, refresh_plugins, open_file, desktop::select_preview, desktop::return_view, desktop::desktop_snapshot, desktop::show_settings, desktop::open_in_default_app, desktop::window_basis, prepare_view, session_data, source_data, source_call, set_pending, plugin_mutate, authorize_clipboard, open_link, file_changed, set_view_visibility, complete_view, complete_onboarding, plugin_call, read_file, set_enabled, set_activation, reorder_plugins, uninstall_plugin, plugin_settings, set_plugin_setting, pick_path, prepare_plugin, install_plugin, set_locale])
+        .invoke_handler(tauri::generate_handler![updates::check_update, updates::open_update, open_workshop, icon_data, tool_call, view_state, market_list, market_refresh, market_prepare, market_install, snapshot, refresh_plugins, open_file, desktop::select_preview, desktop::return_view, desktop::desktop_snapshot, desktop::show_settings, desktop::open_in_default_app, desktop::window_basis, prepare_view, session_data, source_data, source_call, set_pending, plugin_mutate, authorize_clipboard, open_link, file_changed, set_view_visibility, complete_view, complete_onboarding, set_auto_update_plugins, plugin_call, read_file, set_enabled, set_activation, reorder_plugins, uninstall_plugin, plugin_settings, set_plugin_setting, pick_path, prepare_plugin, install_plugin, set_locale])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();

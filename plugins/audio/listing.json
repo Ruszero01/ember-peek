@@ -1,0 +1,10 @@
+{
+  "summary": "剪辑软件式音频波形与交互进度，支持音量、循环与倍速；常见格式直读，兼容编码由内置解码器分块播放。",
+  "i18n": {
+    "en": {
+      "summary": "Editor-style audio waveform and interactive timeline, volume, loop and speed. Native streaming with built-in chunked decoding."
+    }
+  },
+  "publisher": "Ember Peek",
+  "recommended": true
+}

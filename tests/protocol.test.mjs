@@ -4,6 +4,9 @@ import {
   validateControls,
   scrubPosition,
   scrubDragValue,
+  scrubDisplayValue,
+  scrubClampValue,
+  scrubWheelValue,
   validateWorkshopControls,
   validateDialog,
   isSessionOwning,
@@ -12,6 +15,38 @@ import {
   pluginPath,
   isContributionCurrent,
 } from "../src/protocol.mjs";
+
+test('fractional scrub steps survive transport and never label quarter speed as zero', () => {
+  const raw = {id:'speed',kind:'scrub',label:'Playback speed',min:0.25,max:4,value:0.25,step:0.25,suffix:'×'};
+  const [control] = validateControls([raw]);
+  assert.equal(control.step,0.25);
+  for (const value of [0.25,0.5,0.75,1,1.25,1.5,2,4]) assert.equal(scrubDisplayValue(value,control.step),String(value));
+  assert.equal(scrubDisplayValue(99.6), '100');
+  assert.equal(scrubDisplayValue(0.00001,1e-5),'0.00001');
+  assert.equal(scrubDisplayValue(1e-15,1e-15),'1e-15');
+  assert.equal(scrubDisplayValue(0.25,0.5,0.25,4),'0.25');
+  assert.equal(scrubDisplayValue(1.25,1,1,1.25),'1.25');
+  assert.equal(scrubClampValue(0.38,0.25,4,0.25),0.5);
+  assert.equal(scrubClampValue(-1,0.25,4,0.25),0.25);
+  assert.equal(scrubClampValue(5,0.25,4,0.25),4);
+  assert.equal(scrubClampValue(0.38,0.25,4),0.38);
+  for(const step of [0,-1,NaN,Infinity,'0.25']) assert.throws(()=>validateControls([{...raw,step}]));
+});
+
+test('scrub defaults remain plugin-owned and wheel adjustments respect steps, direction and bounds', () => {
+  const raw = {id:'speed',kind:'scrub',label:'Speed',min:0.25,max:4,value:2,step:0.25,defaultValue:1};
+  assert.equal(validateControls([raw])[0].defaultValue,1);
+  for(const defaultValue of [0,5,NaN,Infinity,'1']) assert.throws(()=>validateControls([{...raw,defaultValue}]));
+  assert.equal(validateControls([{...raw,defaultValue:undefined}])[0].defaultValue,undefined);
+  assert.equal(scrubWheelValue(1,-1,0.25,4,0.25),1.25);
+  assert.equal(scrubWheelValue(1,1,0.25,4,0.25),0.75);
+  assert.equal(scrubWheelValue(1,1,0.25,4,0.25,'down'),1.25);
+  assert.equal(scrubWheelValue(4,-1,0.25,4,0.25),4);
+  assert.equal(scrubWheelValue(0.25,1,0.25,4,0.25),0.25);
+  assert.ok(Math.abs(scrubWheelValue(100,-1,1,200)-110)<1e-9);
+  assert.equal(scrubWheelValue(1,-1,1,100),2);
+  assert.equal(scrubWheelValue(2,1,1,100),1);
+});
 
 test("only the most recent selection may present a completed request", () => {
   const selection = new Selection();
