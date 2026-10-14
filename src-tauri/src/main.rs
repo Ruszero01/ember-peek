@@ -14,6 +14,7 @@ mod network;
 mod public_http;
 mod resource;
 mod updates;
+mod webview_memory;
 mod workshop;
 
 use base64::Engine;

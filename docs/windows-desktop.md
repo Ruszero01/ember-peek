@@ -37,6 +37,8 @@ OSS 需允许匿名读取 `channels/*` 和 `desktop/*`；发布身份需能读�
 
 ## 闲置回收
 
+窗口隐藏后立即请求 WebView2 的低内存目标；最小化状态由两秒维护周期检测，恢复显示时回到正常目标。准备中的隐藏预览保持正常目标，以免首次显示受缓存回收影响。此模式只提示浏览器释放缓存，不暂停脚本、IPC、后台加载或未保存草稿；不支持该接口的旧运行时保持原行为。120 秒窗口销毁规则不变，实际节省量由运行时与当前内容决定。
+
 每个窗口隐藏时记录 `Instant`，原生两秒维护周期检查是否达到 120 秒。再次显示取消该窗口的回收计时。窗口可见时即使用户没有操作也不回收；最小化仍属于可见窗口。
 
 到期调用 Tauri `WebviewWindow::destroy()`，关闭该窗口对应的 WebView2 controller，不按进程名称终止 `msedgewebview2.exe`。当本应用最后一个 WebView 被关闭，WebView2 自行释放共享浏览器实例；若设置仍然打开，共享浏览器仍会存在，属于正常行为。实际进程退出时刻由 WebView2 管理，不保证恰好在第 120 秒消失。
@@ -94,3 +96,5 @@ Windows 上动态创建 WebView 使用独立阻塞线程，并以创建锁避免
 - [IShellWindows](https://learn.microsoft.com/en-us/windows/win32/api/exdisp/nn-exdisp-ishellwindows)
 - [IFolderView2::GetSelection](https://learn.microsoft.com/en-us/windows/win32/api/shobjidl_core/nf-shobjidl_core-ifolderview2-getselection)
 - [WebView2 进程模型](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/process-model)
+
+设置侧栏的拼音搜索模块按设置页面加载，预览窗口不加载搜索字典，减少两个窗口同时打开时的重复脚本开销。

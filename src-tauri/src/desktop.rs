@@ -411,6 +411,9 @@ fn queue_show(app: &AppHandle, label: &'static str, revision: u64) {
                 .entry(label.into())
                 .or_insert_with(Instant::now);
         }
+        if let Some(window) = handle.get_webview_window(label) {
+            crate::webview_memory::set_reduced(&window, false);
+        }
         if label == "preview" {
             if let Some(window) = handle.get_webview_window(label) {
                 // A hidden controller may still have the last plugin's temporary size. Start
@@ -616,6 +619,7 @@ fn show_window(app: &AppHandle, label: &'static str, revision: u64) {
         };
         let result = (|| -> tauri::Result<()> {
             let _ = window.emit("desktop-changed", ());
+            crate::webview_memory::set_reduced(&window, false);
             window.unminimize()?;
             window.show()?;
             {
@@ -1194,6 +1198,7 @@ pub fn show_settings(app: AppHandle, page: Option<String>) -> Result<(), String>
         .filter(|v| {
             matches!(v.as_str(), "general" | "plugins" | "about" | "welcome")
                 || v.starts_with("tool:")
+                || v.starts_with("plugin:")
         })
         .unwrap_or_else(|| "general".into());
     let revision = {
@@ -1211,6 +1216,7 @@ pub fn hide(app: &AppHandle, label: &str) {
         if window.hide().is_err() {
             return;
         }
+        crate::webview_memory::set_reduced(&window, true);
         let desktop = app.state::<Desktop>();
         desktop
             .inner
@@ -1242,6 +1248,23 @@ pub fn hide(app: &AppHandle, label: &str) {
 pub fn reap(app: &AppHandle, pending: bool) {
     let handle = app.clone();
     let _ = app.run_on_main_thread(move || {
+        let preparing = handle
+            .state::<Desktop>()
+            .inner
+            .lock()
+            .unwrap()
+            .holding
+            .is_some();
+        for label in WINDOWS {
+            if let Some(window) = handle.get_webview_window(label) {
+                let reduced = crate::webview_memory::should_reduce(
+                    window.is_visible().unwrap_or(true),
+                    window.is_minimized().unwrap_or(false),
+                    label == "preview" && preparing,
+                );
+                crate::webview_memory::set_reduced(&window, reduced);
+            }
+        }
         let expired: Vec<_> = handle
             .state::<Desktop>()
             .inner

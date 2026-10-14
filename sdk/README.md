@@ -325,3 +325,9 @@ Markdown outline navigation uses the sidebar role and peer transport: the primar
 Paged document surfaces clip pre-transform overflow. Renderers must receive a nested container so their style changes cannot replace surface positioning. Viewport resize notifications are coalesced and only changed usable dimensions trigger layout.
 
 Fill sizing uses the viewport border-box height minus borders and padding, so horizontal scrollbar visibility cannot feed back into the fit scale. Whole-page fitting continues to use the available client height.
+
+The preview host settings button and settings shortcut open the current viewport plugin’s settings, independent of file extension or shared source selection. Missing plugins fall back to general settings. Existing settings windows switch to the requested page and clear sidebar search; the tray settings entry still opens general settings. No SDK or manifest change is required.
+
+On Windows, hidden or minimized host windows request WebView2’s low memory usage target; reopening restores the normal target. Preparing previews retain the normal target. This cache hint does not suspend plugin scripts, IPC, background work, or pending edits. Older runtimes without the optional interface retain existing behavior; the 120-second window recycling policy and SDK remain unchanged.
+
+The host loads the settings sidebar search module only for settings pages; preview windows do not load the pinyin dictionary. Search matching and plugin metadata contracts are unchanged.

@@ -3,7 +3,8 @@ import { LoadingIndicator } from './LoadingIndicator';
 import { toolbarMinimumWidth, toolbarWheelPosition, toolbarRowWidth, toolbarNeedsResize, toolbarScrollSpacing } from "./toolbar-layout";
 import { LogicalSize } from "@tauri-apps/api/window";
 import { autoHideChromeSetting, shouldShowChrome } from "./chrome-visibility";
-import { searchPluginSettings } from "./plugin-settings-search";
+import { previewSettingsPage, settingsDestination } from "./settings-navigation";
+import type { searchPluginSettings } from "./plugin-settings-search";
 import { AboutUpdates } from "./AboutUpdates";
 import { PluginCategories } from './PluginCategories';
 import { pluginCategory, matchesCategory, PLUGIN_CATEGORIES, type CategoryFilter } from './plugin-categories';
@@ -930,15 +931,12 @@ function App() {
           ) {
             seenSettingsRevision = status.settingsRevision;
             if (status.settingsPage.startsWith("tool:")) { setPluginTab(status.settingsPage.slice(5)); setToolPageRevision(status.settingsRevision); }
-            setPage(
-              status.settingsPage === "plugins" || status.settingsPage.startsWith("tool:")
-                ? "plugins"
-                : status.settingsPage === "about"
-                  ? "about"
-                  : status.settingsPage === "welcome"
-                    ? "welcome"
-                    : "general",
-            );
+            const destination = settingsDestination(status.settingsPage, next.plugins);
+            if (destination.pluginId) {
+              setPluginPage(destination.pluginId);
+              setSettingsSearch("");
+            }
+            setPage(destination.page);
           }
         }
       } catch (e) {
@@ -1051,9 +1049,16 @@ function App() {
     setLocale(language);
     if (desktop) void guard(() => call("set_locale", { locale: language }));
   }, [language]);
-  function settingsPage(page: "general" | "plugins") {
+  function settingsPage(page: string) {
     if (desktop) void guard(() => call("show_settings", { page }));
-    else setPage(page);
+    else {
+      const destination = settingsDestination(page, snapshot.plugins);
+      if (destination.pluginId) {
+        setPluginPage(destination.pluginId);
+        setSettingsSearch("");
+      }
+      setPage(destination.page);
+    }
   }
   async function guard(action: () => Promise<unknown>) {
     setError("");
@@ -1097,7 +1102,7 @@ function App() {
   const shortcutRef = useRef<(key: string) => void>(() => {});
   shortcutRef.current = (key) => {
     if (key === "open") void pick();
-    if (key === "settings") settingsPage("general");
+    if (key === "settings") settingsPage(settingsWindow ? "general" : previewSettingsPage(current, snapshot.plugins));
     if (key === "toggle" && !settingsWindow) void windowAction("close");
     if (key === "escape") {
       void windowAction("close");
@@ -1273,7 +1278,20 @@ function App() {
     (a, b) =>
       pendingOrder ? pendingOrder.indexOf(a.id) - pendingOrder.indexOf(b.id) : b.activation.priority - a.activation.priority || a.id.localeCompare(b.id),
   );
-  const settingsResults = searchPluginSettings(orderedPlugins, settingsSearch);
+  const [searchSettings, setSearchSettings] = useState<typeof searchPluginSettings | null>(null);
+  useEffect(() => {
+    if (page === "preview") return;
+    let disposed = false;
+    void import("./plugin-settings-search").then(module => {
+      if (!disposed) setSearchSettings(() => module.searchPluginSettings);
+    }).catch(error => {
+      if (!disposed) setError(String(error));
+    });
+    return () => { disposed = true; };
+  }, [page === "preview"]);
+  const settingsResults = searchSettings
+    ? searchSettings(orderedPlugins, settingsSearch)
+    : orderedPlugins.map((plugin, index) => ({ plugin, index }));
   async function reorderPlugin(target: string, after: boolean, keyboardSource?: string) {
     const source = keyboardSource ?? dragPlugin;
     setDragPlugin(null);
@@ -1589,7 +1607,7 @@ function App() {
                 <button title={t("footer.openFile")} onClick={() => void pick()}>
                   <FolderOpen size={16} />
                 </button>
-                <button title={t("footer.settings")} onClick={() => settingsPage("general")}>
+                <button title={t("footer.settings")} onClick={() => settingsPage(previewSettingsPage(current, snapshot.plugins))}>
                   <Settings2 size={16} />
                 </button>
               </div>
