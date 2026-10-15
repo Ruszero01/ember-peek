@@ -108,6 +108,11 @@ export const en = {
   "autoUpdatePlugins.note": "Check at startup and hourly for new releases of installed plugins. Updates with unsaved changes wait until a later check.",
   "autoHideChrome.note": "Hide both bars when the pointer leaves the action areas. Turn off to keep them visible.",
 
+  "startup.title": "Startup",
+  "startup.subtitle": "What the app does on its own",
+  "autostart.label": "Start with Windows",
+  "autostart.note": "After you sign in, Ember Peek starts in the tray and waits there. No preview window opens by itself.",
+
   "plugins.market": "Plugin marketplace",
   "plugins.openToolSettings": "Open settings ↗",
   "plugins.manage": "Plugin manager",

@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod autostart;
 mod capture;
 mod credentials;
 mod desktop;
@@ -484,6 +485,19 @@ async fn complete_onboarding(host: Host<'_>) -> Result<(), String> {
 #[tauri::command]
 async fn set_auto_update_plugins(host: Host<'_>, enabled: bool) -> Result<(), String> {
     host.set_auto_update_plugins(enabled).await
+}
+
+/// Read the "start with Windows" entry from the registry rather than from anything this app
+/// remembers: Task Manager, another install or the user can change it outside the app, and the
+/// switch has to show what Windows will actually do.
+#[tauri::command]
+fn autostart_enabled() -> Result<bool, String> {
+    autostart::enabled()
+}
+
+#[tauri::command]
+fn set_autostart(enabled: bool) -> Result<(), String> {
+    autostart::set(enabled)
 }
 
 #[tauri::command]
@@ -1071,7 +1085,7 @@ fn main() {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![updates::check_update, updates::open_update, open_workshop, icon_data, tool_call, view_state, market_list, market_refresh, market_prepare, market_install, snapshot, refresh_plugins, open_file, desktop::select_preview, desktop::return_view, desktop::desktop_snapshot, desktop::show_settings, desktop::open_in_default_app, desktop::window_basis, prepare_view, session_data, source_data, source_call, set_pending, plugin_mutate, authorize_clipboard, open_link, file_changed, set_view_visibility, complete_view, complete_onboarding, set_auto_update_plugins, plugin_call, read_file, set_enabled, set_activation, reorder_plugins, uninstall_plugin, plugin_settings, set_plugin_setting, pick_path, prepare_plugin, install_plugin, set_locale])
+        .invoke_handler(tauri::generate_handler![updates::check_update, updates::open_update, open_workshop, icon_data, tool_call, view_state, market_list, market_refresh, market_prepare, market_install, snapshot, refresh_plugins, open_file, desktop::select_preview, desktop::return_view, desktop::desktop_snapshot, desktop::show_settings, desktop::open_in_default_app, desktop::window_basis, prepare_view, session_data, source_data, source_call, set_pending, plugin_mutate, authorize_clipboard, open_link, file_changed, set_view_visibility, complete_view, complete_onboarding, set_auto_update_plugins, autostart_enabled, set_autostart, plugin_call, read_file, set_enabled, set_activation, reorder_plugins, uninstall_plugin, plugin_settings, set_plugin_setting, pick_path, prepare_plugin, install_plugin, set_locale])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();

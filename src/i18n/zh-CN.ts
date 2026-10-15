@@ -100,6 +100,11 @@ export const zhCN: Catalog = {
   "autoUpdatePlugins.note": "启动时及每小时检查已安装插件的新版本；有未保存内容时跳过，后续检查再尝试。",
   "autoHideChrome.note": "鼠标离开操作区时自动收起两条栏；关闭后操作栏始终显示。",
 
+  "startup.title": "启动",
+  "startup.subtitle": "应用自己做的事",
+  "autostart.label": "开机自启",
+  "autostart.note": "登录 Windows 后在托盘中自动启动并待命，不会自己打开预览窗口。",
+
   "plugins.market": "插件市场",
   "plugins.openToolSettings": "前往设置 ↗",
   "plugins.manage": "插件管理",

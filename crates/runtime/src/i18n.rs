@@ -149,6 +149,8 @@ text! {
     dialog_pick_package: "选择插件包", "Choose a plugin package";
     dialog_pick_file: "打开文件", "Open file";
     dev_source_name: "开发镜像", "Development mirror";
+    autostart_failed: "无法更改开机自启：Windows 错误 {error}", "Could not change the start-with-Windows setting: Windows error {error}";
+    autostart_unsupported: "此系统不支持开机自启", "Starting with the system is not supported here";
 
     // Plugin activation and settings.
     pending_fallback: "尚未提交的变更", "unsaved changes";

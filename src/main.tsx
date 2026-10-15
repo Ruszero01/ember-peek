@@ -53,6 +53,7 @@ import {
   Code,
   GripVertical,
   Languages,
+  Power,
 } from "lucide-react";
 import { BrandMark } from "./BrandMark";
 import { ScrubControl } from "./ScrubControl";
@@ -582,6 +583,9 @@ function App() {
   }, []);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  // Whether Windows will start this app at sign-in. `null` until the host has read the
+  // registry: the switch must not claim a state before it knows one.
+  const [autostart, setAutostart] = useState<boolean | null>(null);
   const [filter, setFilter] = useState("");
   const [settingsSearch, setSettingsSearch] = useState("");
   const [category, setCategory] = useState<CategoryFilter>("all");
@@ -1293,6 +1297,18 @@ function App() {
     });
     return () => { disposed = true; };
   }, [page === "preview"]);
+  // "Start with Windows" is one value in the current user's Run key, which Task Manager and
+  // other tools can also change, so the switch asks the host for the entry as it stands every
+  // time the general page is shown instead of trusting a remembered copy.
+  useEffect(() => {
+    if (!desktop || page !== "general") return;
+    let disposed = false;
+    void guard(async () => {
+      const enabled = await call<boolean>("autostart_enabled");
+      if (!disposed) setAutostart(enabled);
+    });
+    return () => { disposed = true; };
+  }, [page]);
   const settingsResults = searchSettings
     ? searchSettings(orderedPlugins, settingsSearch)
     : orderedPlugins.map((plugin, index) => ({ plugin, index }));
@@ -1870,6 +1886,36 @@ function App() {
                     <div className="setting-row">
                       <div><strong>{t("previewDots.label")}</strong><p>{t("previewDots.note")}</p></div>
                       <Toggle checked={settings.previewDots} label={t("previewDots.label")} onChange={previewDots => setSettings({ ...settings, previewDots })} />
+                    </div>
+                  </section>
+                  <section className="card">
+                    <div className="section-heading">
+                      <span className="section-icon">
+                        <Power size={18} />
+                      </span>
+                      <div>
+                        <h2>{t("startup.title")}</h2>
+                        <p>{t("startup.subtitle")}</p>
+                      </div>
+                    </div>
+                    <div className="setting-row">
+                      <div><strong>{t("autostart.label")}</strong><p>{t("autostart.note")}</p></div>
+                      {/* The switch shows what the registry holds, so it stays disabled until
+                          the host has answered and follows the answer after every write
+                          instead of the click: a refused write must snap back. */}
+                      <Toggle
+                        checked={autostart === true}
+                        label={t("autostart.label")}
+                        disabled={autostart === null}
+                        busy={busy}
+                        onChange={enabled => void guard(async () => {
+                          setBusy(true);
+                          try {
+                            await call("set_autostart", {enabled});
+                            setAutostart(await call<boolean>("autostart_enabled"));
+                          } finally { setBusy(false); }
+                        })}
+                      />
                     </div>
                     <div className="setting-row">
                       <div><strong>{t("autoUpdatePlugins.label")}</strong><p>{t("autoUpdatePlugins.note")}</p></div>
