@@ -1,0 +1,493 @@
+/*
+ * Archive preview.
+ *
+ * One document serves three mounts, so this file is written in that order: the shell the
+ * three share, the sidebar's list, the content a chosen entry gets, and the information
+ * panel. Everything is drawn from the host's tokens — no colour, radius or type size is
+ * invented here, and the only place a size of its own appears is the row height of the list,
+ * which has to be a number the virtualised renderer can multiply.
+ *
+ * The design is an inspector, not a gallery: dense rows, a right-aligned monospaced size
+ * column as the thing the eye lands on, and one memorable device — the compression bar on
+ * the summary — with everything around it quiet.
+ */
+
+:root {
+  --row: 24px;
+  --indent: 14px;
+  --size-column: 66px;
+}
+
+/* sdk-text.css styles the page as if it were only a text surface. This page has three
+   roles and a layout of its own, so the shell is restated rather than inherited. */
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font-ui, "Segoe UI", "Microsoft YaHei UI", sans-serif);
+  font-size: 13px;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  gap: 0;
+}
+
+#content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---------------------------------------------------------------- sidebar: the file list */
+
+.role-list .list-head {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2, 8px);
+  /* The host's own bar floats over the top of a sidebar when immersive mode hides it, so the
+     header starts below the safe distance rather than under the bar. */
+  padding: calc(var(--safe-top, 0px) + var(--space-2, 8px)) var(--space-2, 8px) var(--space-2, 8px)
+    var(--space-3, 12px);
+  border-bottom: 1px solid var(--border);
+}
+
+.list-head .ui-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.list-head .ui-select {
+  flex-shrink: 0;
+}
+
+.close-button {
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 15px;
+  line-height: 1;
+  padding: 4px 2px;
+  border-radius: var(--radius-control, 6px);
+  cursor: pointer;
+}
+
+.close-button:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.list-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  position: relative;
+  outline: none;
+  scrollbar-gutter: stable;
+  padding-bottom: var(--safe-bottom, 0px);
+}
+
+.list-note {
+  padding: var(--space-3, 12px) var(--space-3, 12px) calc(var(--space-3, 12px) + var(--safe-bottom, 0px));
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.list-progress {
+  padding: 0 var(--space-3, 12px) var(--space-2, 8px);
+  color: var(--faint);
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+}
+.list-space {
+  position: relative;
+  width: 100%;
+}
+
+.row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: var(--row);
+  display: grid;
+  grid-template-columns: 16px 16px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px;
+  padding-right: var(--space-2, 8px);
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: default;
+  box-shadow: inset 2px 0 transparent;
+}
+
+.row:hover {
+  background: var(--hover);
+}
+
+.row.selected {
+  background: var(--accent-bg);
+  box-shadow: inset 2px 0 var(--accent);
+}
+
+.row:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.row .caret {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--faint);
+  cursor: pointer;
+}
+
+.row .caret::before {
+  content: "";
+  border-left: 4px solid currentColor;
+  border-top: 3.5px solid transparent;
+  border-bottom: 3.5px solid transparent;
+  transition: transform 120ms ease-out;
+}
+
+.row .caret.open::before {
+  transform: rotate(90deg);
+}
+
+.row .caret.leaf::before {
+  border: none;
+}
+
+.row .glyph {
+  display: flex;
+  align-items: center;
+  color: var(--faint);
+}
+
+.row .glyph svg {
+  width: 13px;
+  height: 13px;
+}
+
+.row.selected .glyph {
+  color: var(--accent);
+}
+
+.row .label {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.row .label svg {
+  width: 11px;
+  height: 11px;
+  flex-shrink: 0;
+  color: var(--warning);
+}
+
+.row .size {
+  font-family: var(--font-mono, monospace);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  text-align: right;
+  min-width: var(--size-column);
+}
+
+.row.folder .size {
+  color: var(--faint);
+}
+
+/* --------------------------------------------------------------- content: one entry */
+
+.stage {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  animation: settle 120ms ease-out;
+}
+
+@keyframes settle {
+  from {
+    opacity: 0;
+  }
+}
+
+/* Content that scrolls or sits in a corner pays the host's safe distance: in immersive mode
+   the two floating bars cover the top and bottom of the viewport, and nothing a reader has to
+   reach should end up underneath them. */
+.stage.center {
+  align-items: center;
+  justify-content: center;
+  padding: calc(var(--space-4, 16px) + var(--safe-top, 0px)) var(--space-4, 16px)
+    calc(var(--space-4, 16px) + var(--safe-bottom, 0px));
+  overflow: auto;
+}
+
+.stage.pane {
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+}
+
+.stage.actual {
+  align-items: flex-start;
+  justify-content: flex-start;
+  padding: calc(var(--space-4, 16px) + var(--safe-top, 0px)) var(--space-4, 16px)
+    calc(var(--space-4, 16px) + var(--safe-bottom, 0px));
+}
+
+.stage.pane img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.stage.actual img {
+  max-width: none;
+  max-height: none;
+}
+
+.stage.sheet {
+  flex-direction: column;
+  overflow: auto;
+  padding: calc(var(--space-4, 16px) + var(--safe-top, 0px)) var(--space-4, 16px)
+    calc(var(--space-4, 16px) + var(--safe-bottom, 0px));
+  gap: var(--space-3, 12px);
+}
+
+/* The shared text shell writes its one-line notice above the surface; in immersive mode that
+   line would sit under the host's floating bar, so this page puts it below the text and pays
+   the bottom inset here instead. */
+#notice {
+  padding-bottom: calc(var(--safe-bottom, 0px) + 2px);
+}
+
+/* The manifest is what an archive shows before anything is picked: the container's name,
+   what it holds, and how much of it is actually stored. */
+.manifest {
+  width: min(420px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3, 12px);
+  padding: var(--space-4, 16px);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card, 10px);
+}
+
+.manifest-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3, 12px);
+}
+
+.manifest-format {
+  font-family: var(--font-mono, monospace);
+  font-size: 26px;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  color: var(--text);
+}
+
+.manifest-count {
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.manifest-facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px var(--space-3, 12px);
+  margin: 0;
+  font-size: 12px;
+}
+
+/* Two pairs to a row on the summary card, which has the width for it and is read at a glance. */
+.manifest-facts.pair {
+  grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1fr);
+  column-gap: var(--space-4, 16px);
+  row-gap: var(--space-2, 8px);
+}
+
+.manifest-facts dt {
+  color: var(--muted);
+}
+
+.manifest-facts dd {
+  margin: 0;
+  text-align: right;
+  font-family: var(--font-mono, monospace);
+  font-variant-numeric: tabular-nums;
+}
+
+/* One bar, one meaning: the filled part is what the container actually stores. */
+.manifest-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.bar-track {
+  height: 6px;
+  border-radius: var(--radius-pill, 999px);
+  background: var(--raised, var(--hover));
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.bar-fill {
+  height: 100%;
+  background: var(--accent);
+}
+
+.bar-caption {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+/* Facts about the entry in front of the reader, in the kit's own field list. */
+.facts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2, 8px);
+}
+
+.facts-path {
+  font-family: var(--font-mono, monospace);
+  font-size: 12.5px;
+  color: var(--text);
+  word-break: break-all;
+  user-select: text;
+}
+
+.facts .ui-fields {
+  font-size: 12px;
+}
+
+.note {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--muted);
+  border-left: 2px solid var(--border);
+  padding-left: var(--space-3, 12px);
+}
+
+.note.warning {
+  border-left-color: var(--warning);
+}
+
+.note.error {
+  border-left-color: var(--danger);
+  color: var(--text);
+}
+
+.hex {
+  font-family: var(--font-mono, monospace);
+  font-size: 11.5px;
+  line-height: 1.6;
+  overflow: auto;
+  user-select: text;
+}
+
+.hex-row {
+  display: flex;
+  gap: var(--space-3, 12px);
+  white-space: pre;
+}
+
+.hex-row .offset {
+  color: var(--faint);
+}
+
+.hex-row .bytes {
+  color: var(--text);
+}
+
+.hex-row .readable {
+  color: var(--muted);
+}
+
+/* ------------------------------------------------------------------- overlay: the facts */
+
+.role-panel .panel-head {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2, 8px);
+  padding: var(--space-2, 8px) var(--space-2, 8px) var(--space-2, 8px) var(--space-3, 12px);
+  border-bottom: 1px solid var(--border);
+}
+
+.panel-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.role-panel .panel-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--space-3, 12px);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3, 12px);
+}
+
+.role-panel .panel-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2, 8px);
+}
+
+.panel-heading {
+  font-size: 11.5px;
+  color: var(--faint);
+}
+
+.panel-selected {
+  border-top: 1px solid var(--border);
+  padding-top: var(--space-3, 12px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stage,
+  .row .caret::before {
+    animation: none;
+    transition: none;
+  }
+}

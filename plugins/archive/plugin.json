@@ -1,0 +1,158 @@
+{
+  "api": 1,
+  "category": "tools",
+  "id": "ember.archive",
+  "name": "压缩包预览",
+  "i18n": {
+    "en": {
+      "name": "Archive Preview",
+      "settings": {
+        "showList": {
+          "label": "Show the file list by default",
+          "help": "Lists the archive's files and folders in a sidebar when it opens. Changes apply immediately."
+        },
+        "sort": {
+          "label": "Sort entries by",
+          "help": "How the list orders files and folders. The sidebar offers the same choice.",
+          "options": {
+            "name": "Name",
+            "size": "Size",
+            "packed": "Stored size",
+            "modified": "Modified"
+          }
+        },
+        "foldersFirst": {
+          "label": "Folders before files",
+          "help": "Keeps folders at the top of each level. Off, folders sort together with files."
+        },
+        "wrap": {
+          "label": "Wrap long text lines",
+          "help": "Off, a long line in a text entry scrolls sideways instead of folding."
+        },
+        "textLimit": {
+          "label": "Text preview limit",
+          "help": "How much of a text entry is read for the preview. Larger files show their beginning only; the file list and the reported sizes are not affected."
+        },
+        "mediaLimit": {
+          "label": "Image limit",
+          "help": "How much of an image entry is read to draw a preview. The file list and the reported sizes are not affected."
+        }
+      }
+    }
+  },
+  "version": "0.1.0",
+  "extensions": [
+    "zip",
+    "zipx",
+    "jar",
+    "war",
+    "ear",
+    "aar",
+    "apk",
+    "xpi",
+    "crx",
+    "vsix",
+    "nupkg",
+    "whl",
+    "epub",
+    "cbz",
+    "ipa",
+    "kmz",
+    "7z",
+    "rar",
+    "cbr",
+    "tar",
+    "gz",
+    "tgz",
+    "taz",
+    "bz2",
+    "tbz",
+    "tbz2",
+    "tb2",
+    "xz",
+    "txz",
+    "zst",
+    "tzst",
+    "lz4",
+    "tlz4",
+    "cab"
+  ],
+  "icon": "archive",
+  "executable": "bin/ember-archive-plugin.exe",
+  "entry": "ui/index.html",
+  "capabilities": [
+    "view",
+    "controls",
+    "overlay"
+  ],
+  "overlay": {
+    "width": 300,
+    "height": 272,
+    "anchor": "bottomRight"
+  },
+  "permissions": [
+    "clipboard"
+  ],
+  "activation": {
+    "mode": "auto",
+    "priority": 100
+  },
+  "settings": [
+    {
+      "key": "showList",
+      "type": "bool",
+      "label": "默认显示文件列表",
+      "help": "打开压缩包时在侧栏列出内部文件与文件夹；修改立即生效。",
+      "default": true
+    },
+    {
+      "key": "sort",
+      "type": "select",
+      "label": "列表排序方式",
+      "help": "文件与文件夹的排列顺序。侧栏提供同一个选择。",
+      "default": "name",
+      "options": [
+        { "value": "name", "label": "名称" },
+        { "value": "size", "label": "大小" },
+        { "value": "packed", "label": "压缩后大小" },
+        { "value": "modified", "label": "修改时间" }
+      ]
+    },
+    {
+      "key": "foldersFirst",
+      "type": "bool",
+      "label": "文件夹排在前面",
+      "help": "每一层先列文件夹。关闭后文件夹与文件一起排序。",
+      "default": true
+    },
+    {
+      "key": "wrap",
+      "type": "bool",
+      "label": "文本自动换行",
+      "help": "关闭后文本条目中的长行横向滚动，不折断。",
+      "default": true
+    },
+    {
+      "key": "textLimit",
+      "type": "number",
+      "label": "文本预览上限",
+      "help": "预览文本条目时最多读取多少内容；更大的文件只显示开头。文件列表与大小不受此项限制。",
+      "default": 512,
+      "min": 4,
+      "max": 4096,
+      "step": 4,
+      "suffix": " KiB"
+    },
+    {
+      "key": "mediaLimit",
+      "type": "number",
+      "label": "图片上限",
+      "help": "预览图片条目时最多读取多少内容。文件列表与大小不受此项限制。",
+      "default": 48,
+      "min": 4,
+      "max": 96,
+      "step": 4,
+      "suffix": " MiB"
+    }
+  ]
+}

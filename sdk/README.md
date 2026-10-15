@@ -278,6 +278,22 @@ Workshop polling preserves model-menu DOM nodes when the catalog and search quer
 
 The official PSD/PSB plugin uses existing native calls without extending the SDK. Open returns only header metadata; render caches a bounded RGBA composite and pixels transfers at most 512 KiB per call. Release removes the session cache. The view uses existing controls for zoom percentage, fit and actual size, with wheel zoom and pointer panning. Zoom is relative to document dimensions and reuses the sampled bitmap without further native reads; enlarging it does not add detail. The view background matches the image preview dot pattern. Pointer dragging uses bounded elastic overflow and a 280 ms return to the pan bounds; reduced-motion users return immediately. See [the PSD preview contract](../docs/specs/psd-preview.md) for supported formats and display limits.
 
+## Archive preview
+
+The official archive plugin lists zip (and the flavours built on it: `jar`, `apk`, `epub`, `whl`,
+`nupkg` and friends), 7z, rar, tar and the gz/bz2/xz/zst/lz4 containers — alone or wrapping a tar —
+plus cab. It adds no SDK export, manifest field or host command: the directory arrives through the
+ordinary native session, the file list is a `sidebar` mount that talks to the view over `postTo`,
+and an entry is decoded in bounded ranges only when it is selected. The format is decided from the
+file's own header and the name only filters candidates, so a renamed archive is read as what it is.
+
+A video entry is decoded to a single canvas frame rather than played, and a flat first frame is
+retried a little further into the stream; entries that are audio, another archive, or a kind the
+name does not settle get a facts card or a hex dump. Decoder failures travel as a plugin-internal
+token (`archive-corrupt:…`, `entry-too-large:…`, `password-protected`) that the plugin's own view
+words in the interface language, while an `open` failure stays a plain sentence because the host is
+the one showing it. See [the archive preview contract](../docs/specs/archive-preview.md).
+
 ## Read-only document helpers
 
 `web/document.js` and `web/document.css` are optional plugin-side assets copied as `sdk-document.js` and `sdk-document.css`. `readDocument(read, size)` reads a validated document in 1 MiB chunks with a 64 MiB cap; `pageIndex`, `zoomFactor`, `fitDocument`, `rowWindow` and `lockDocumentLinks` support navigation, bounded virtual rows and read-only links. These helpers do not introduce a host command or protocol change. Native office plugins statically link `ember-office-document` for bounded OOXML validation; shared library updates ship with rebuilt plugins. Word page-background compatibility stays inside the Word plugin and does not add SDK exports or host commands. See [office preview contract](../docs/specs/office-plugins.md).

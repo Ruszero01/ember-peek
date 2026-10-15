@@ -30,7 +30,7 @@ test('scope filtering composes with a text search and includes fallback plugins'
  assert.equal(plugins.filter(p=>matchesCategory(p,'other'))[0].name,'Custom');
 });
 test('official manifests declare scopes for market and installed lists',()=>{
- for(const [plugin,category] of [['image','media'],['video','media'],['word','office'],['excel','office'],['powerpoint','office'],['pdf','office'],['pdf-editor','office'],['psd','design'],['text','text'],['code','text'],['markdown','text'],['text-editor','text'],['metadata','tools'],['workshop','tools']]){
+ for(const [plugin,category] of [['image','media'],['video','media'],['word','office'],['excel','office'],['powerpoint','office'],['pdf','office'],['pdf-editor','office'],['psd','design'],['text','text'],['code','text'],['markdown','text'],['text-editor','text'],['metadata','tools'],['archive','tools'],['workshop','tools']]){
   const manifest=JSON.parse(readFileSync(new URL('../plugins/'+plugin+'/plugin.json',import.meta.url),'utf8'));assert.equal(manifest.category,category);
  }
 });
