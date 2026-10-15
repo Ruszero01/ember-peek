@@ -6,13 +6,18 @@
 
 ### 开发记录
 
+#### 2026-10-15 压缩包预览撤掉视频首帧
+
+- 压缩包内的视频不再解码：`<video>` 解码器、canvas 取帧、候选时间点与整帧同色判定、隐藏的 `#media-holder` 槽位，以及为退出系统合成平面写的 `video` 样式一并删除；`model.js` 里的 `videoFrameOffsets` 与 `isBlankFrame` 随之移除。视频条目改为与音频相同的「事实卡 + 一句说明」，指引用默认应用或解压工具去看，因此不再有解码等待、空白帧重试或编码不受支持的失败提示。
+- `mediaLimit` 收窄为图片专用（key 不变，用户已保存的值照旧生效），设置页文案与 `listing.json` 摘要里的「视频首帧」一并去掉。`tests/archive-preview.test.mjs` 的取帧用例换成一条回归：视频条目只给事实卡，页面不创建 `<video>`。
+
 #### 2026-10-14 压缩包预览
 
 - 新增 `ember.archive`（0.1.0，尚未首次发布）：匹配 zip 及其派生、7z、rar、tar 与 gz／bz2／xz／zst／lz4（含 tar 组合）、cab，格式先看文件头再看后缀。目录取容器索引，条目按范围解码，两者都不落地。上限只约束一次读取：单次请求 4 MiB，文本／图片读取由设置决定；目录不受上限约束（仅在头部谎报上百万条目时于 1 000 000 条处停止并置 `truncated`）。zip、cab、tar、7z 只解码到所需位置；rar 的参考解码器整条目交出数据，因此该格式下超过 96 MiB 的条目不预览，目录与大小不受影响。原生方法 `open`／`page`／`read-entry`／`release`，`open` 首页 1000 条、`page` 每页 2000 条。
 - 界面：文件列表用宿主侧栏角色（同一 entry 二次挂载，peer 消息按 ≤24 KiB／≤512 项分批，条目名截断 512 字节），主视口只放条目内容，压缩包与条目事实进 300×272 浮层，一行状态与工具按钮归宿主；设置项 `showList`、`sort`、`foldersFirst`、`wrap`、`textLimit`、`mediaLimit`。
-- 条目呈现：图片与动图按图片（不做播放器），文本复用共享文本视图并遵守 `wrap`，视频只取首帧（候选时间点 0／0.1／0.5／1／2 秒、跳过整帧同色的空白帧、canvas 最长边 ≤1280、不支持编码给提示），音频／嵌套压缩包／目录／未知类型给事实卡或十六进制片段；加密条目只列目录。
+- 条目呈现：图片与动图按图片（不做播放器），文本复用共享文本视图并遵守 `wrap`，视频只给事实卡与说明，音频／嵌套压缩包／目录／未知类型给事实卡或十六进制片段；加密条目只列目录。
 - 失败措辞分工：`open` 返回整句（宿主直接显示），读取失败返回 `token[:detail]` 由视图按界面语言成句；两份词汇表由 `tests/archive-preview.test.mjs` 双向对齐，同一测试还钉住原生方法与视图调用、JS 读取的设置项与清单声明、以及侧栏排序选项与 `plugin.json` 的 `i18n` 文案。
-- 验证：`cargo test -p ember-archive-plugin` 28 项（含生成的 zip／7z／tar／tar.gz／gzip 夹具）；`node --test tests/archive-preview.test.mjs` 22 项；`npm run plugins:build` 打包通过。WebView2 内的图片、文本与视频首帧仍需在共享窗口手工确认。
+- 验证：`cargo test -p ember-archive-plugin` 28 项（含生成的 zip／7z／tar／tar.gz／gzip 夹具）；`node --test tests/archive-preview.test.mjs` 22 项；`npm run plugins:build` 打包通过。WebView2 内的图片与文本仍需在共享窗口手工确认。
 
 #### 2026-10-14 歧义扩展名识别
 

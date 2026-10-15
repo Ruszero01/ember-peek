@@ -39,13 +39,11 @@ import {
   formatDate,
   hexDump,
   humanBytes,
-  isBlankFrame,
   kindOf,
   looksLikeText,
   mimeOf,
   packedShare,
   sortTree,
-  videoFrameOffsets,
 } from "./model.js";
 import { mountList } from "./list.js";
 import { mountPanel } from "./panel.js";
@@ -55,8 +53,6 @@ const say = translate(ARCHIVE_TEXT);
 const CHUNK = 4 * 1024 * 1024;
 /** How many entries one directory page carries. */
 const PAGE = 2000;
-/** The widest a captured video frame is drawn before it reaches the canvas. */
-const FRAME_SIDE = 1280;
 
 function element(tag, className, text) {
   const node = document.createElement(tag);
@@ -76,10 +72,7 @@ function mountView(initial) {
 
   const content = element("div");
   content.id = "content";
-  const holder = element("div");
-  holder.id = "media-holder";
-  holder.hidden = true;
-  document.body.append(content, holder);
+  document.body.append(content);
 
   let records = [];
   let tree = buildTree([]);
@@ -91,7 +84,6 @@ function mountView(initial) {
   let fit = true;
   let frame;
   let textView = null;
-  let video = null;
   let urls = [];
   let stage = null;
   let lastWrap = configuration().wrap !== false;
@@ -146,14 +138,6 @@ function mountView(initial) {
     if (textView) {
       textView.view.destroy();
       textView = null;
-    }
-    if (video) {
-      video.pause();
-      video.removeAttribute("src");
-      video.load?.();
-      video.remove();
-      video = null;
-      holder.hidden = true;
     }
     stage = null;
   }
@@ -352,7 +336,7 @@ function mountView(initial) {
       },
     ];
     const kind = selected && !selected.dir ? kindOf(selected.name) : "";
-    if (kind === "image" || kind === "video") {
+    if (kind === "image") {
       items.push({
         id: "fit",
         kind: "toggle",
@@ -563,111 +547,6 @@ function mountView(initial) {
     updateStatus([entry.path, humanBytes(entry.size), entry.method, truncated].filter(Boolean).join(" · "));
   }
 
-  /** Wait for one of a media element's events, or give up: a codec the browser cannot decode
-   *  never fires anything at all, and a preview must not hang on it. */
-  function whenReady(target, events, timeout) {
-    return new Promise((resolve, reject) => {
-      let timer;
-      const cleanup = () => {
-        clearTimeout(timer);
-        for (const event of events) target.removeEventListener(event, done);
-        target.removeEventListener("error", failed);
-      };
-      const done = () => {
-        cleanup();
-        resolve();
-      };
-      const failed = () => {
-        cleanup();
-        reject(new Error(say("videoUndecodable")));
-      };
-      timer = setTimeout(failed, timeout);
-      for (const event of events) target.addEventListener(event, done, { once: true });
-      target.addEventListener("error", failed, { once: true });
-    });
-  }
-
-  /** Put the player on one moment of the stream: a seek when it is elsewhere, otherwise the
-   *  first decoded frame is enough — and seeking to the position it already has fires no
-   *  event at all, which is what a naive `currentTime = 0` would wait for forever. */
-  async function frameAt(player, time) {
-    if (Math.abs(player.currentTime - time) > 0.01) {
-      const seeked = whenReady(player, ["seeked"], 6000);
-      player.currentTime = time;
-      await seeked;
-      return;
-    }
-    if (player.readyState < 2) await whenReady(player, ["loadeddata", "canplay"], 8000);
-  }
-
-  async function captureFrame(url) {
-    const player = document.createElement("video");
-    player.muted = true;
-    player.playsInline = true;
-    player.preload = "auto";
-    player.src = url;
-    holder.hidden = false;
-    holder.append(player);
-    video = player;
-    try {
-      await whenReady(player, ["loadedmetadata"], 8000);
-      const width = player.videoWidth;
-      const height = player.videoHeight;
-      if (!width || !height) throw new Error(say("videoUndecodable"));
-      const scale = Math.min(1, FRAME_SIDE / Math.max(width, height));
-      const canvas = document.createElement("canvas");
-      canvas.width = Math.max(1, Math.round(width * scale));
-      canvas.height = Math.max(1, Math.round(height * scale));
-      const context = canvas.getContext("2d", { willReadFrequently: true });
-      const draw = () => {
-        context.drawImage(player, 0, 0, canvas.width, canvas.height);
-        return isBlankFrame(context.getImageData(0, 0, canvas.width, canvas.height).data);
-      };
-      // Encoders often open on a flat frame, so a blank result is retried a little further in.
-      for (const time of videoFrameOffsets(player.duration)) {
-        try {
-          await frameAt(player, time);
-        } catch {
-          continue;
-        }
-        if (!draw()) return canvas;
-      }
-      return canvas;
-    } finally {
-      player.pause();
-      player.removeAttribute("src");
-      player.load?.();
-    }
-  }
-
-  async function showVideo(entry, current) {
-    const bytes = await readEntry(entry, limitFor(entry, configuration().mediaLimit || 48));
-    if (current !== generation) return;
-    if (!bytes.length) {
-      content.replaceChildren(sheet(factsCard(entry, say("emptyEntry"))));
-      return;
-    }
-    const url = URL.createObjectURL(new Blob([bytes], { type: mimeOf(entry.name) || "video/mp4" }));
-    urls.push(url);
-    const canvas = await captureFrame(url);
-    if (current !== generation) return;
-    const node = stageFor("pane");
-    node.append(canvas);
-    content.replaceChildren(node);
-    applyFit();
-    updateStatus(
-      [
-        entry.path,
-        `${canvas.width}×${canvas.height}`,
-        say("firstFrame"),
-        humanBytes(entry.size),
-        entry.size > bytes.length ? say("truncMedia", { size: humanBytes(bytes.length) }) : "",
-      ]
-        .filter(Boolean)
-        .join(" · "),
-    );
-  }
-
   async function showUnknown(entry, current) {
     const prefix = await readEntry(entry, 4096);
     if (current !== generation) return;
@@ -695,8 +574,8 @@ function mountView(initial) {
     const kind = kindOf(entry.name);
     try {
       if (kind === "image") await showImage(entry, current);
-      else if (kind === "video") await showVideo(entry, current);
       else if (kind === "text" || kind === "code") await showText(entry, current);
+      else if (kind === "video") content.replaceChildren(sheet(factsCard(entry, say("videoNote"))));
       else if (kind === "audio") content.replaceChildren(sheet(factsCard(entry, say("audioNote"))));
       else if (kind === "archive") content.replaceChildren(sheet(factsCard(entry, say("nestedNote"))));
       else await showUnknown(entry, current);

@@ -17,13 +17,11 @@ import {
   firstPreviewable,
   hexDump,
   humanBytes,
-  isBlankFrame,
   kindOf,
   looksLikeText,
   mimeOf,
   packedShare,
   sortTree,
-  videoFrameOffsets,
   visibleRows,
 } from "../plugins/archive/ui/model.js";
 import { ARCHIVE_TEXT } from "../plugins/archive/ui/text.js";
@@ -227,19 +225,22 @@ test("text is recognised by its bytes, not only by its name", () => {
   assert.equal(decodeText(Uint8Array.from([0x61, 0x62])), "ab");
 });
 
-test("a video is probed at a few moments, and a flat frame is not accepted", () => {
-  assert.deepEqual(videoFrameOffsets(10), [0, 0.1, 0.5, 1, 2]);
-  assert.deepEqual(videoFrameOffsets(0.2), [0, 0.1]);
-  assert.deepEqual(videoFrameOffsets(0), [0]);
-  assert.deepEqual(videoFrameOffsets(Number.NaN), [0, 0.1, 0.5, 1, 2]);
-  const flat = new Uint8ClampedArray(4 * 400).fill(0);
-  for (let index = 3; index < flat.length; index += 4) flat[index] = 255;
-  assert.equal(isBlankFrame(flat), true);
-  const varied = Uint8ClampedArray.from(flat);
-  varied[40] = 200;
-  assert.equal(isBlankFrame(varied), false);
-  const transparent = new Uint8ClampedArray(4 * 40);
-  assert.equal(isBlankFrame(transparent), true);
+test("a video entry is facts, never a decoded frame", async () => {
+  // A video inside an archive is not decoded at all: the facts card is the whole preview, so
+  // no decoder element and no frame-picking rule may come back into the package.
+  const view = await read("plugins/archive/ui/view.js");
+  const model = await read("plugins/archive/ui/model.js");
+  assert.equal(/createElement\(\s*["']video["']\s*\)/.test(view), false, "the view creates no decoder");
+  assert.equal(/canvas/i.test(view), false, "the view draws no frame");
+  assert.equal(/videoFrameOffsets|isBlankFrame/.test(model), false, "no frame rule is left in the model");
+  // The kind still comes from the extension: the list glyph and the kind field name it, and
+  // the note says why nothing is played here.
+  assert.equal(kindOf("clip.mp4"), "video");
+  assert.equal(kindOf("clip.m2ts"), "video");
+  for (const tag of Object.keys(ARCHIVE_TEXT)) {
+    assert.ok(ARCHIVE_TEXT[tag].videoNote, `${tag} words the video entry`);
+    assert.equal(ARCHIVE_TEXT[tag].videoUndecodable, undefined, `${tag} keeps no decode failure`);
+  }
 });
 
 test("the summary bar uses stored over unpacked, bounded", () => {

@@ -34,8 +34,8 @@
           "help": "How much of a text entry is read for the preview. Larger files show their beginning only; the file list and the reported sizes are not affected."
         },
         "mediaLimit": {
-          "label": "Image and video limit",
-          "help": "How much of an image or video entry is read to draw a preview. A video shows its first frame only; the file list and the reported sizes are not affected."
+          "label": "Image limit",
+          "help": "How much of an image entry is read to draw a preview. The file list and the reported sizes are not affected."
         }
       }
     }
@@ -146,8 +146,8 @@
     {
       "key": "mediaLimit",
       "type": "number",
-      "label": "图片与视频上限",
-      "help": "预览图片或视频条目时最多读取多少内容；视频只取首帧。文件列表与大小不受此项限制。",
+      "label": "图片上限",
+      "help": "预览图片条目时最多读取多少内容。文件列表与大小不受此项限制。",
       "default": 48,
       "min": 4,
       "max": 96,

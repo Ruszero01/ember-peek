@@ -375,46 +375,6 @@ export function decodeText(bytes) {
   return new TextDecoder("utf-8").decode(marked ? bytes.subarray(3) : bytes);
 }
 
-/**
- * Where to look for a usable first frame. Encoders routinely open on a black or empty frame,
- * so a flat result is retried a little further in before it is accepted.
- */
-export function videoFrameOffsets(duration) {
-  // A stream that reports no duration at all is a still or a broken file: only its first
-  // frame is worth asking for.
-  if (Number.isFinite(duration) && duration <= 0) return [0];
-  const limit = Number.isFinite(duration) && duration > 0 ? duration : Infinity;
-  const offsets = [0, 0.1, 0.5, 1, 2].filter((offset) => offset <= Math.max(0, limit - 0.05));
-  return offsets.length ? offsets : [0];
-}
-
-/**
- * A frame that is one flat colour is not a picture of anything worth showing. A whole frame
- * is millions of pixels, so a bounded number of them is sampled across it: enough to see a
- * picture, few enough that the check does not cost more than the decode.
- */
-export function isBlankFrame(pixels, stride) {
-  const count = Math.floor(pixels.length / 4);
-  const step = stride ?? Math.max(1, Math.floor(count / 4096));
-  let reference = null;
-  for (let index = 0; index < pixels.length; index += 4 * step) {
-    if (pixels[index + 3] === 0) continue;
-    const pixel = [pixels[index], pixels[index + 1], pixels[index + 2]];
-    if (!reference) {
-      reference = pixel;
-      continue;
-    }
-    if (
-      Math.abs(pixel[0] - reference[0]) > 12 ||
-      Math.abs(pixel[1] - reference[1]) > 12 ||
-      Math.abs(pixel[2] - reference[2]) > 12
-    ) {
-      return false;
-    }
-  }
-  return true;
-}
-
 /** The share of an archive's content that is actually stored, for the summary bar. */
 export function packedShare(packed, bytes) {
   const stored = Number(packed) || 0;
