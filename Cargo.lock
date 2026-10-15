@@ -1304,7 +1304,7 @@ dependencies = [
 
 [[package]]
 name = "ember-file-store"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "tempfile",
  "windows-sys 0.61.2",
@@ -1368,7 +1368,7 @@ dependencies = [
 
 [[package]]
 name = "ember-office-document"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde_json",
  "tempfile",
@@ -1400,7 +1400,7 @@ dependencies = [
 
 [[package]]
 name = "ember-peek"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "base64 0.22.1",
  "ember-file-store",
@@ -1430,7 +1430,7 @@ dependencies = [
 
 [[package]]
 name = "ember-plugin-sdk"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -1457,7 +1457,7 @@ dependencies = [
 
 [[package]]
 name = "ember-runtime"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "ember-file-store",
  "reqwest",
@@ -1472,7 +1472,7 @@ dependencies = [
 
 [[package]]
 name = "ember-text-document"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde_json",
  "sha2 0.10.9",
