@@ -1,0 +1,80 @@
+{
+  "api": 1,
+  "category": "design",
+  "id": "ember.font",
+  "name": "字体预览",
+  "i18n": {
+    "en": {
+      "name": "Font Preview",
+      "settings": {
+        "library": {
+          "label": "Show the glyph library when a font opens",
+          "help": "The docked sidebar lists every character the font encodes. It is read a page at a time, as far as you scroll."
+        },
+        "guides": {
+          "label": "Show metric guides",
+          "help": "Ruled lines for the font's own ascender, cap height, x-height and descender."
+        },
+        "sample": {
+          "label": "Specimen text",
+          "help": "Left empty, the sample is picked from what the font covers."
+        },
+        "typeSize": {
+          "label": "Type size",
+          "help": "The size the specimen line is drawn at."
+        }
+      }
+    }
+  },
+  "version": "0.1.0",
+  "extensions": ["ttf", "ttc", "otc", "otf", "woff", "woff2", "dfont"],
+  "icon": "file-type",
+  "executable": "bin/ember-font-plugin.exe",
+  "entry": "ui/index.html",
+  "capabilities": ["view", "controls", "overlay"],
+  "overlay": {
+    "width": 320,
+    "height": 440,
+    "anchor": "bottomLeft"
+  },
+  "permissions": ["readFile", "readResources", "clipboard"],
+  "provides": "ember.font/1",
+  "activation": {
+    "mode": "auto",
+    "priority": 60
+  },
+  "settings": [
+    {
+      "key": "library",
+      "type": "bool",
+      "label": "打开时显示字库侧栏",
+      "help": "侧栏按 Unicode 区块列出字体编码的全部字符，打开后才按页读取，滚动到哪读到哪。",
+      "default": false
+    },
+    {
+      "key": "guides",
+      "type": "bool",
+      "label": "显示度量参考线",
+      "help": "按字体自己的上伸、大写高、x 高与下伸数值画出的标线。",
+      "default": true
+    },
+    {
+      "key": "sample",
+      "type": "text",
+      "label": "示例文本",
+      "help": "留空时按字体覆盖的字符自动挑选。",
+      "default": ""
+    },
+    {
+      "key": "typeSize",
+      "type": "number",
+      "label": "字号",
+      "help": "打字样本那一行的字号。",
+      "default": 64,
+      "min": 12,
+      "max": 200,
+      "step": 1,
+      "hidden": true
+    }
+  ]
+}

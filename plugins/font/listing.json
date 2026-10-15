@@ -1,0 +1,9 @@
+{
+  "summary": "字体预览：打字试排、完整字库与字形检视。",
+  "i18n": {
+    "en": {
+      "summary": "Preview fonts: type a specimen, browse the whole character set, inspect a glyph."
+    }
+  },
+  "publisher": "Ember Peek"
+}

@@ -264,9 +264,12 @@ function SettingField({
       <SettingLabel setting={setting} />
       <div className="setting-control">
         <span className={`setting-input${numeric && setting.suffix ? " has-suffix" : ""}`}>
+          {/* Left enabled while a save is in flight: this control holds a draft, and disabling
+              it mid-edit takes the caret away — a text setting that saves per keystroke would
+              then lose focus after every character. `busy` still guards the controls that act
+              instead of holding a draft (the toggle, the select, the folder button). */}
           <input
           aria-label={setting.label}
-          disabled={busy}
           type={setting.type === "number" ? "number" : "text"}
           {...(setting.type === "number"
             ? {

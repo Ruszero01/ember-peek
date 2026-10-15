@@ -1,0 +1,575 @@
+/* A type gauge: the font is the only loud thing on screen, and every rule on it carries a fact.
+   Colours, radii, spacing and fonts come from the host's tokens, so both themes follow. */
+
+/* The `hidden` attribute has to win: half of these elements set a display of their own, and a
+   hidden one would otherwise keep taking space. */
+[hidden] {
+  display: none !important;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+  color: var(--text, #e6e6e9);
+  font: 12px/1.5 var(--font-ui, system-ui, sans-serif);
+}
+
+/* The sheet scrolls as one: the ruled line at the top, the size ladder under it. */
+#view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: auto;
+}
+
+/* ---------------------------------------------------------------- specimen band */
+
+#specimen {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  padding-top: var(--safe-top, 0);
+  background: var(--raised, #23242780);
+  border-bottom: 1px solid var(--border, #ffffff1f);
+}
+
+.faces {
+  display: flex;
+  gap: 4px;
+  padding: 6px 12px 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.faces::-webkit-scrollbar {
+  display: none;
+}
+
+.stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.paper {
+  position: relative;
+  min-height: 132px;
+}
+
+.typing {
+  display: block;
+  box-sizing: border-box;
+  min-height: 100%;
+  padding: 18px 26px 20px 64px;
+  margin: 0;
+  outline: none;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--text, #e6e6e9);
+  caret-color: var(--accent, #f4a477);
+  user-select: text;
+}
+
+.typing:empty::before {
+  content: attr(data-placeholder);
+  color: var(--faint, #6b6b75);
+}
+
+#probe {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 40px;
+  height: auto;
+  visibility: hidden;
+  pointer-events: none;
+  white-space: pre;
+  overflow: visible;
+  z-index: -1;
+}
+
+.probe-mark {
+  display: inline-block;
+  width: 0;
+  height: 0;
+  vertical-align: baseline;
+}
+
+.guides,
+.ruler {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.ruler {
+  width: 56px;
+  right: auto;
+  border-right: 1px solid var(--border, #ffffff1f);
+}
+
+.guide {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 0;
+  border-top: 1px dotted color-mix(in oklab, var(--muted, #9a9aa2) 34%, transparent);
+}
+
+.guide.cap,
+.guide.x {
+  border-top-style: dotted;
+}
+
+.guide.ascender,
+.guide.descender {
+  border-top-style: dashed;
+  border-top-color: color-mix(in oklab, var(--muted, #9a9aa2) 46%, transparent);
+}
+
+.guide.baseline {
+  border-top-style: solid;
+  border-top-color: color-mix(in oklab, var(--accent, #f4a477) 62%, transparent);
+}
+
+.tick {
+  position: absolute;
+  right: 6px;
+  transform: translateY(-50%);
+  font: 9px/1 var(--font-mono, ui-monospace, monospace);
+  font-variant-numeric: tabular-nums;
+  color: var(--faint, #6b6b75);
+}
+
+.tick.baseline {
+  color: var(--muted, #9a9aa2);
+}
+
+.colophon {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin: 0;
+  padding: 0 14px 8px 14px;
+  color: var(--muted, #9a9aa2);
+  font-size: 11px;
+}
+
+.colophon #identity {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.colophon #reading,
+.colophon #notice {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.colophon .warning {
+  color: var(--warning, #e0b062);
+}
+
+/* --------------------------------------------------------------- size ladder */
+
+#ladder {
+  flex: 0 0 auto;
+  padding: 10px 0 18px;
+}
+
+.rung {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 0 14px 0 0;
+}
+
+.rung-size {
+  flex: 0 0 56px;
+  padding-right: 8px;
+  text-align: right;
+  color: var(--faint, #6b6b75);
+  font: 9px/1 var(--font-mono, ui-monospace, monospace);
+  font-variant-numeric: tabular-nums;
+}
+
+.rung-line {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  line-height: 1.35;
+  color: var(--text, #e6e6e9);
+}
+
+/* -------------------------------------------------------------- glyph library */
+
+#sidebar {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+#sidebar-head,
+#case-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 26px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--border, #ffffff1f);
+  color: var(--muted, #9a9aa2);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+/* The picked character, kept visible here so the floating inspector never has to be in the way. */
+#case-head #current {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#case-head #selected {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: var(--text, #e6e6e9);
+  font-weight: 600;
+}
+
+#scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  outline: none;
+  padding-bottom: var(--safe-bottom, 0);
+}
+
+#scroll:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--accent, #f4a477);
+}
+
+#sheet {
+  position: relative;
+}
+
+.case-head {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 12px 14px 4px;
+  color: var(--text, #e6e6e9);
+}
+
+.case-head.first {
+  padding-top: 8px;
+}
+
+.case-name {
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.case-range,
+.case-count {
+  font: 10px/1 var(--font-mono, ui-monospace, monospace);
+  font-variant-numeric: tabular-nums;
+  color: var(--faint, #6b6b75);
+}
+
+.case-count {
+  margin-left: auto;
+}
+
+.case-row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: flex;
+  flex-wrap: nowrap;
+  padding: 0 6px;
+  box-sizing: border-box;
+}
+
+.case-row.chips {
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px 14px;
+}
+
+.cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text, #e6e6e9);
+  border-radius: var(--radius-control, 7px);
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.cell:hover {
+  background: var(--hover, #ffffff14);
+}
+
+.cell:focus-visible {
+  outline: 2px solid var(--accent, #f4a477);
+  outline-offset: -2px;
+}
+
+.cell[aria-selected="true"] {
+  background: var(--accent-bg, #f4a47733);
+  box-shadow: inset 0 0 0 1px var(--accent, #f4a477);
+}
+
+.cell .ink {
+  line-height: 1;
+  position: relative;
+}
+
+.cell i {
+  font: 9px/1 var(--font-mono, ui-monospace, monospace);
+  font-variant-numeric: tabular-nums;
+  color: var(--faint, #6b6b75);
+}
+
+/* An encoded character that draws nothing is a fact about the font, not a broken cell. */
+.cell.hollow .ink::after {
+  content: "";
+  position: absolute;
+  inset: -4px -6px;
+  border: 1px dotted color-mix(in oklab, var(--muted, #9a9aa2) 55%, transparent);
+  border-radius: 3px;
+}
+
+/* The engine refused the font: the character list stays, the drawing does not pretend. */
+#sidebar.unrenderable .cell .ink {
+  color: transparent;
+}
+
+#sidebar.unrenderable .cell {
+  cursor: default;
+}
+
+/* What has not been read yet still takes up its room, and says so where it can be seen. */
+.case-tail {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 18px;
+  color: var(--faint, #6b6b75);
+  font-size: 11px;
+}
+
+.chip {
+  padding: 2px 8px;
+  border: 1px solid var(--border, #ffffff1f);
+  border-radius: var(--radius-pill, 999px);
+  background: transparent;
+  color: var(--muted, #9a9aa2);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.chip:hover {
+  background: var(--hover, #ffffff14);
+  color: var(--text, #e6e6e9);
+}
+
+.chip.on,
+.chip[aria-pressed="true"] {
+  background: var(--accent-bg, #f4a47733);
+  border-color: var(--accent, #f4a477);
+  color: var(--text, #e6e6e9);
+}
+
+.chip.gid {
+  display: inline-flex;
+  gap: 6px;
+  align-items: baseline;
+  cursor: default;
+  border-radius: var(--radius-control, 7px);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10px;
+}
+
+.chip.gid b {
+  color: var(--faint, #6b6b75);
+  font-weight: 400;
+}
+
+/* ---------------------------------------------------------------------- notice */
+
+#view .notice {
+  margin: auto;
+  max-width: 34em;
+  padding: 18px 20px;
+  border: 1px solid var(--border, #ffffff1f);
+  border-radius: var(--radius-card, 12px);
+  background: var(--card, #1d1e22);
+  color: var(--muted, #9a9aa2);
+  text-align: start;
+}
+
+#view .notice p {
+  margin: 0;
+}
+
+/* ----------------------------------------------------------------------- panel */
+
+#panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-sizing: border-box;
+  height: 100%;
+  padding: 10px 12px 14px;
+  overflow: auto;
+}
+
+#panel .card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border, #ffffff1f);
+  border-radius: var(--radius-card, 12px);
+  background: var(--card, #1d1e22);
+}
+
+/* The shared bar is built to be over a panel on its own — it pins itself to the whole surface.
+   This panel composes it above other sections, so it takes one row instead. */
+#panel > .search-bar {
+  position: static;
+  inset: auto;
+  flex: 0 0 auto;
+  min-height: var(--control-h, 30px);
+}
+
+#panel .card h2 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.glyph-picture {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 116px;
+  border-radius: var(--radius-control, 7px);
+  background: var(--raised, #23242780);
+}
+
+.glyph-picture img {
+  width: 112px;
+  height: 112px;
+}
+
+.glyph-empty {
+  color: var(--faint, #6b6b75);
+  font-size: 11px;
+  padding: 0 12px;
+  text-align: center;
+}
+
+.glyph-code {
+  margin: 0;
+  color: var(--muted, #9a9aa2);
+  font: 11px/1 var(--font-mono, ui-monospace, monospace);
+  font-variant-numeric: tabular-nums;
+}
+
+#panel .ui-fields dt {
+  font-size: 11px;
+}
+
+#panel .ui-fields dd {
+  overflow-wrap: anywhere;
+}
+
+/* A licence and a description are pages of prose; four lines of them is a fact, the rest is a
+   wall. The whole value stays in the tooltip. */
+#panel .facts dd {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  overflow: hidden;
+}
+
+#panel .same {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+#panel .same .chip {
+  min-width: 22px;
+  text-align: center;
+}
+
+.copy-row {
+  display: flex;
+  gap: 6px;
+}
+
+.copy-row .ui-button {
+  flex: 1 1 auto;
+}
+
+.axis {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.axis-name {
+  flex: 0 0 auto;
+  color: var(--muted, #9a9aa2);
+  font: 10px/1 var(--font-mono, ui-monospace, monospace);
+}
+
+.axis input[type="range"] {
+  flex: 1 1 auto;
+  min-width: 0;
+  accent-color: var(--accent, #f4a477);
+}
+
+.axis output {
+  flex: 0 0 auto;
+  min-width: 3ch;
+  text-align: right;
+  font: 10px/1 var(--font-mono, ui-monospace, monospace);
+  font-variant-numeric: tabular-nums;
+  color: var(--muted, #9a9aa2);
+}
+
+/* The highlight the typing uses for characters this font does not have. */
+::highlight(font-missing) {
+  text-decoration: underline dotted var(--warning, #e0b062);
+  text-underline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+  }
+}

@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="./sdk-ui.css" />
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <!-- One entry, mounted three times: role "view" is the specimen sheet, role "sidebar" is the
+         glyph library, role "panel" is the glyph viewer. The other two stay hidden. -->
+    <div id="view" hidden>
+      <section id="specimen" class="band">
+        <div id="faces" class="faces" hidden></div>
+        <div class="stage">
+          <div class="paper">
+            <div
+              id="typing"
+              class="typing"
+              contenteditable="plaintext-only"
+              spellcheck="false"
+              role="textbox"
+              aria-multiline="true"
+            ></div>
+            <div id="guides" class="guides" aria-hidden="true"></div>
+            <div id="ruler" class="ruler" aria-hidden="true"></div>
+          </div>
+          <!-- Measured, never seen: an inline block of no height sits on the first line's
+               baseline, which is where the guides are drawn from. -->
+          <div id="probe" class="typing probe" aria-hidden="true"><span class="probe-mark"></span></div>
+        </div>
+        <p class="colophon">
+          <span id="identity"></span>
+          <span id="notice" hidden></span>
+          <span id="reading"></span>
+        </p>
+      </section>
+      <!-- The same text at the sizes a specimen sheet would show it at. -->
+      <section id="ladder" class="band" aria-hidden="true"></section>
+    </div>
+    <div id="sidebar" hidden>
+      <div id="case-head"><span id="current"></span><b id="selected"></b></div>
+      <div id="scroll" tabindex="0"><div id="sheet"></div></div>
+    </div>
+    <div id="panel" hidden></div>
+    <script type="module" src="./view.js"></script>
+  </body>
+</html>

@@ -1,0 +1,19 @@
+[package]
+name = "ember-font-plugin"
+# A plugin's version is its own: it ships independently of the host's version, and the
+# packaging step refuses a crate that disagrees with the package's plugin.json.
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+base64 = "0.22"
+brotli-decompressor = "5"
+ember-plugin-sdk = { path = "../../../sdk/native" }
+flate2 = "1"
+serde_json.workspace = true
+ttf-parser = { version = "0.25", features = ["glyph-names"] }
+
+[dev-dependencies]
+brotli = "8"
+tempfile = "3"
