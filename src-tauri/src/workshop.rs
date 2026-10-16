@@ -2982,13 +2982,14 @@ mod tests {
     fn live_tool(directory: &Path) -> Package {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
         let market = root.join(".marketplace");
+        let manifest: Value =
+            serde_json::from_str(include_str!("../../plugins/workshop/plugin.json")).unwrap();
+        let prefix = format!("ember.workshop-{}-", manifest["version"].as_str().unwrap());
         let mut packages: Vec<_> = std::fs::read_dir(&market)
             .expect("Run npm run plugins:build first")
             .flatten()
             .filter(|e| {
-                e.file_name()
-                    .to_string_lossy()
-                    .starts_with("ember.workshop-0.1.0-")
+                e.file_name().to_string_lossy().starts_with(&prefix)
                     && e.path().extension().is_some_and(|v| v == "zip")
             })
             .collect();

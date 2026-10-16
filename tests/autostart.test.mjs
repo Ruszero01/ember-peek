@@ -92,3 +92,23 @@ test("one module owns the entry, and the window keeps no copy of it", async () =
   assert.ok(saved.length > 0, "savedSettings should still be one function");
   assert.doesNotMatch(saved, /autostart/i, "the window must not cache the entry locally");
 });
+
+test("uninstall clears Explorer state while updates preserve it", async () => {
+  const config = JSON.parse(await readFile(join(root, "src-tauri", "tauri.conf.json"), "utf8"));
+  const hooks = await readFile(join(root, "src-tauri", config.bundle.windows.nsis.installerHooks), "utf8");
+  assert.match(hooks, /!macro NSIS_HOOK_POSTUNINSTALL/);
+  assert.match(hooks, /\$\{If\} \$UpdateMode <> 1\s+DeleteRegValue HKCU/);
+  assert.ok(hooks.includes(`"${constant("APPROVAL_KEY")}" "${constant("VALUE")}"`));
+  assert.doesNotMatch(hooks, /DeleteRegKey/);
+});
+
+test("a refused approval reset is reported before changing the Run entry", () => {
+  const set = native.slice(native.indexOf("pub fn set("), native.indexOf("#[cfg(test)]"));
+  assert.equal((set.match(/registry::clear_approval\(VALUE\)\?/g) ?? []).length, 2);
+  assert.ok(set.indexOf("registry::clear_approval(VALUE)?") < set.indexOf("registry::write("));
+  const off = set.slice(set.indexOf("} else {"));
+  assert.ok(off.indexOf("registry::clear_approval(VALUE)?") < off.indexOf("registry::remove("));
+  const clear = native.slice(native.indexOf("pub(super) fn clear_approval"), native.indexOf("/// Whether this app"));
+  assert.match(clear, /Result<\(\), String>/);
+  assert.match(clear, /other => Err\(code\(other\)\)/);
+});

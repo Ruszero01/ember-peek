@@ -194,23 +194,17 @@ mod registry {
         }
     }
 
-    /// Forget the "disabled" state Task Manager keeps beside the entry, so an entry this app
-    /// just turned on is one Windows will actually run. Best effort: no approval value means
-    /// nobody ever disabled it, and a machine that refuses the write still has a usable entry.
-    pub(super) fn clear_approval(name: &str) {
-        let result = (|| -> Result<(), String> {
-            let Some(key) = open(APPROVAL_KEY, KEY_SET_VALUE)? else {
-                return Ok(());
-            };
-            let name = wide(name);
-            let status = unsafe { RegDeleteValueW(key.0, PCWSTR(name.as_ptr())) };
-            match status {
-                ERROR_SUCCESS | ERROR_FILE_NOT_FOUND => Ok(()),
-                other => Err(code(other)),
-            }
-        })();
-        if let Err(error) = result {
-            eprintln!("Startup approval state: {error}");
+    /// Forget Task Manager's state. A refusal must reach the caller: a Run value alone
+    /// does not guarantee Windows will launch an entry that Explorer has disabled.
+    pub(super) fn clear_approval(name: &str) -> Result<(), String> {
+        let Some(key) = open(APPROVAL_KEY, KEY_SET_VALUE)? else {
+            return Ok(());
+        };
+        let name = wide(name);
+        let status = unsafe { RegDeleteValueW(key.0, PCWSTR(name.as_ptr())) };
+        match status {
+            ERROR_SUCCESS | ERROR_FILE_NOT_FOUND => Ok(()),
+            other => Err(code(other)),
         }
     }
 }
@@ -239,9 +233,11 @@ pub fn set(enabled: bool) -> Result<(), String> {
     #[cfg(windows)]
     {
         if enabled {
-            registry::write(VALUE, &command(&executable()?))?;
-            registry::clear_approval(VALUE);
+            let command = command(&executable()?);
+            registry::clear_approval(VALUE)?;
+            registry::write(VALUE, &command)?;
         } else {
+            registry::clear_approval(VALUE)?;
             registry::remove(VALUE)?;
         }
         Ok(())

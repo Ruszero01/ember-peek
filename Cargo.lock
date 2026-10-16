@@ -1286,7 +1286,7 @@ dependencies = [
 
 [[package]]
 name = "ember-code-plugin"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "ember-plugin-sdk",
  "ember-text-document",
@@ -1326,7 +1326,7 @@ dependencies = [
 
 [[package]]
 name = "ember-image-plugin"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "ember-plugin-sdk",
  "serde_json",
@@ -1335,7 +1335,7 @@ dependencies = [
 
 [[package]]
 name = "ember-markdown-plugin"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "ember-plugin-sdk",
  "ember-text-document",
@@ -1344,7 +1344,7 @@ dependencies = [
 
 [[package]]
 name = "ember-metadata-plugin"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "ember-plugin-sdk",
  "serde_json",
@@ -1377,7 +1377,7 @@ dependencies = [
 
 [[package]]
 name = "ember-pdf-editor-plugin"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "base64 0.22.1",
  "ember-file-store",
@@ -1481,7 +1481,7 @@ dependencies = [
 
 [[package]]
 name = "ember-text-editor-plugin"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "ember-file-store",
  "ember-plugin-sdk",
@@ -1493,7 +1493,7 @@ dependencies = [
 
 [[package]]
 name = "ember-text-plugin"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "ember-plugin-sdk",
  "ember-text-document",
@@ -1520,7 +1520,7 @@ dependencies = [
 
 [[package]]
 name = "ember-workshop-plugin"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "ember-plugin-sdk",
  "serde_json",

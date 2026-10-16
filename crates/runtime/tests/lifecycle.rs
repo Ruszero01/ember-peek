@@ -243,15 +243,11 @@ async fn switching_types_does_not_cancel_loading_and_idle_workers_are_collected(
     runtime.scan().await.unwrap();
     let slow_file = temp.path().join("slow.one");
     let fast_file = temp.path().join("fast.two");
-    std::fs::write(&slow_file, "slow").unwrap();
+    std::fs::write(&slow_file, "held").unwrap();
     std::fs::write(&fast_file, "fast").unwrap();
     let slow = runtime.open(slow_file.clone()).await.unwrap();
     runtime.activate(Some(slow.id.clone())).await.unwrap();
-    // The worker is still sleeping on this one, so the session has a call in flight and an
-    // idle pass must leave it alone even though its TTL is 80ms. Asserting that here rather
-    // than after the sleep below is what keeps this test about the idle pass: on a busy
-    // machine the 110ms wait can outlast the worker's 700ms sleep, and then "it is still
-    // loading" says nothing about the reaper.
+    // Hold the parse until after the idle pass so scheduler delays cannot finish it early.
     assert_eq!(slow.status, "loading");
     let fast = runtime.open(fast_file).await.unwrap();
     runtime.activate(Some(fast.id.clone())).await.unwrap();
@@ -263,6 +259,7 @@ async fn switching_types_does_not_cancel_loading_and_idle_workers_are_collected(
         remaining.sessions.iter().any(|s| s.id == slow.id),
         "the idle pass collected a session that still had a call in flight"
     );
+    std::fs::write(slow_file.with_extension("go"), "release").unwrap();
     ready(&runtime, &slow.id).await;
     assert_eq!(runtime.snapshot().await.active, Some(fast.id.clone()));
     let reused = runtime.open(slow_file).await.unwrap();
