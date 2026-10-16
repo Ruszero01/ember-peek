@@ -41,6 +41,7 @@ More plugins will extend support to additional file formats in the future.
 | Video preview | Common video files | Playback, seeking, volume, frame export, codec compatibility |
 | Text editing | Writable text and source files | Search, save, external-change protection |
 | File information | Any local file | Path, size, and basic metadata |
+| Database preview | SQLite databases (`.db`, `.sqlite`, `.sqlite3`) | Tables and views, schema, paged rows; read-only, never writes the file |
 | Plugin Workshop (Beta) | Custom file formats | AI-assisted generation, validation, trial preview, and installation |
 
 ## Screenshots

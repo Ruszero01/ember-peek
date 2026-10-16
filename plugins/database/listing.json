@@ -1,0 +1,10 @@
+{
+  "summary": "只读查看 SQLite 数据库的表结构与数据，不修改文件。",
+  "i18n": {
+    "en": {
+      "summary": "Inspect a SQLite database's schema and rows, read-only."
+    }
+  },
+  "publisher": "Ember Peek",
+  "recommended": false
+}

@@ -1,5 +1,5 @@
 [workspace]
-members = ["src-tauri", "crates/runtime", "crates/file-store", "crates/text-document", "crates/office-document", "sdk/native", "plugins/text/native", "plugins/code/native", "plugins/markdown/native", "plugins/image/native", "plugins/psd/native", "plugins/model/native", "plugins/word/native", "plugins/powerpoint/native", "plugins/excel/native", "plugins/video/native", "plugins/audio/native", "plugins/archive/native", "plugins/pdf/native", "plugins/pdf-editor/native", "plugins/text-editor/native", "plugins/metadata/native", "plugins/workshop/native", "plugins/font/native"]
+members = ["src-tauri", "crates/runtime", "crates/file-store", "crates/text-document", "crates/office-document", "sdk/native", "plugins/text/native", "plugins/code/native", "plugins/markdown/native", "plugins/image/native", "plugins/psd/native", "plugins/model/native", "plugins/word/native", "plugins/powerpoint/native", "plugins/excel/native", "plugins/video/native", "plugins/audio/native", "plugins/archive/native", "plugins/pdf/native", "plugins/pdf-editor/native", "plugins/text-editor/native", "plugins/metadata/native", "plugins/workshop/native", "plugins/font/native", "plugins/database/native"]
 resolver = "2"
 
 [workspace.package]
@@ -27,6 +27,11 @@ opt-level = 2
 opt-level = 2
 
 [profile.dev.package.flate2]
+opt-level = 2
+
+# The database preview compiles SQLite itself; an unoptimised amalgamation makes every page
+# of rows noticeably slower in the development app.
+[profile.dev.package.libsqlite3-sys]
 opt-level = 2
 
 # Keep chunked audio decoding responsive in development builds.
