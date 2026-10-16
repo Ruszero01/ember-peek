@@ -36,7 +36,7 @@ More plugins will extend support to additional file formats in the future.
 | PSD/PSB preview | Photoshop documents | Saved final composite image, zoom, pan, fit to window |
 | Model preview | GLB/glTF, OBJ, FBX, STL, PLY, DAE, 3DS, 3MF, C4D, Blender | Basic saved geometry and materials, rotate, zoom, pan; no Blender installation required |
 | PDF preview | PDF documents | Page navigation, zoom, fill window, rotation |
-| PDF editor (Beta) | PDF documents | Edit text fragments, replace/resize images, add/delete pages, undo, save |
+| PDF editor | PDF documents | Edit text fragments, replace/resize images, add/delete pages, undo, save |
 | Audio preview | MP3, FLAC, WAV, AAC/M4A, Ogg/Opus, AIFF, CAF and more | Audio waveform, interactive playback timeline, volume, loop, speed; built-in decoder fallback |
 | Video preview | Common video files | Playback, seeking, volume, frame export, codec compatibility |
 | Text editing | Writable text and source files | Search, save, external-change protection |

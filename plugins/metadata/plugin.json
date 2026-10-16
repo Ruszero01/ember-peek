@@ -1,5 +1,6 @@
 {
   "api": 1,
+  "minHostVersion": "0.1.1",
   "category": "tools",
   "id": "ember.metadata",
   "name": "文件信息",

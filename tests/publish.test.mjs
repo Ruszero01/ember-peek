@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { hashInput } from "../scripts/release-inputs.mjs";
 import { publishRelease, planRelease, sha256, checkCatalog, checkInputs } from "../scripts/publish-plugins.mjs";
-import { ossConfig, sourceConfig, target, catalogKey, packagesKey } from "../scripts/oss-config.mjs";
+import { ossConfig, sourceConfig, target, catalogKey, packagesKey, registryKey, legacyCatalogKey, legacyPackagesKey, legacyRegistryKey, retirementKey } from "../scripts/oss-config.mjs";
 
 const config = ossConfig({ OSS_REGION: "oss-cn-hongkong", OSS_BUCKET: "test-bucket", OSS_PREFIX: "ember-peek", OSS_PUBLIC_BASE_URL: "https://test.invalid/ember-peek" });
 const body = Buffer.from("a verified package");
@@ -14,7 +14,7 @@ test("source fingerprints normalize text newlines but retain binary bytes and bo
   assert.notEqual(digest("native/a.rs", "bc"), digest("native/ab.rs", "c"));
 });
 function entry(version = "0.1.0") {
-  return { id: "ember.text", version, buildId: "b".repeat(64), artifact: `ember.text-${version}-test.zip`, sha256: sha256(body), size: body.length, targets: [target], name: "Text", summary: "text", publisher: "Ember", extensions: ["txt"] };
+  return { id: "ember.text", minHostVersion: "0.1.1", version, buildId: "b".repeat(64), artifact: `ember.text-${version}-test.zip`, sha256: sha256(body), size: body.length, targets: [target], name: "Text", summary: "text", publisher: "Ember", extensions: ["txt"] };
 }
 function fixture(version = "0.1.0") {
   const values = new Map(), writes = [];
@@ -60,8 +60,8 @@ test("publication verifies packages before switching the catalog without retaini
 test('cleanup retains only current packages and records, paginates and respects target boundaries', async () => {
   const f = fixture(); await publishRelease({ ...f, apply: true });
   const oldPackage = config.key(`${packagesKey}/${entry().artifact}`);
-  const oldRecord = config.key(`registry/${target}/ember.text/0.1.0.json`);
-  const history = config.key('catalog-history/old.json');
+  const oldRecord = config.key(`${registryKey}/ember.text/0.1.0.json`);
+  const history = config.key('catalog-history/compatible-v1/old.json');
   const otherTarget = config.key('packages/linux-x86_64/keep.zip');
   f.values.set(history, Buffer.from('{}')); f.values.set(otherTarget, body);
   f.catalog.entries[0] = entry('0.2.0');
@@ -168,7 +168,7 @@ test("explicit 0.1.0 baseline replacement validates new packages before switchin
   assert.ok(f.values.has(oldPackage));
   await publishRelease({ ...f, apply: true, replaceBaseline: true });
   assert.equal(JSON.parse(f.values.get(config.key(catalogKey))).entries[0].artifact, "baseline-rebuilt.zip");
-  assert.equal(JSON.parse(f.values.get(config.key(`registry/${target}/ember.text/0.1.0.json`))).sourceDigest, "e".repeat(64));
+  assert.equal(JSON.parse(f.values.get(config.key(`${registryKey}/ember.text/0.1.0.json`))).sourceDigest, "e".repeat(64));
   assert.ok(!f.values.has(oldPackage));assert.ok(!f.values.has(config.key("publish.lock")));
   assert.equal((await planRelease(f)).packages.length, 0);
 });
@@ -182,4 +182,63 @@ test("baseline replacement cannot downgrade or overwrite versions beyond 0.1.0",
     f.catalog.entries[0] = entry();
     await assert.rejects(planRelease({ ...f, replaceBaseline: true }), /0\.1\.0/);
   }
+});
+
+test('new publication never modifies legacy catalogs, packages or records', async () => {
+  const f = fixture();
+  const oldCatalog = Buffer.from(JSON.stringify({api:1,entries:[]}));
+  const oldPackage = config.key(`${legacyPackagesKey}/old.zip`);
+  const oldRecord = config.key(`${legacyRegistryKey}/old/0.1.0.json`);
+  f.values.set(config.key(legacyCatalogKey), oldCatalog);
+  f.values.set(oldPackage, body); f.values.set(oldRecord, Buffer.from('{}'));
+  await publishRelease({...f,apply:true});
+  assert.deepEqual(f.values.get(config.key(legacyCatalogKey)),oldCatalog);
+  assert.deepEqual(f.values.get(oldPackage),body);
+  assert.ok(f.values.has(oldRecord));
+  // Publishing plugins alone must not expire old users before a stable host exists.
+  assert.ok(!f.values.has(config.key(retirementKey)));
+  await publishRelease({...f,apply:true});
+  assert.ok(!f.values.has(config.key(retirementKey)));
+});
+
+test('publication keeps only the newest release needed by each compatibility range',async()=>{
+ const f=fixture('0.1.1');
+ await publishRelease({...f,apply:true});
+ const first=entry('0.1.1');
+ f.catalog.entries=[{...entry('0.2.0'),minHostVersion:'0.2.0'}];
+ await publishRelease({...f,apply:true});
+ let catalog=JSON.parse(f.values.get(config.key(catalogKey)));
+ assert.deepEqual(catalog.entries.map(e=>e.version).sort(),['0.1.1','0.2.0']);
+ assert.ok(f.values.has(config.key(`${packagesKey}/${first.artifact}`)));
+ f.catalog.entries=[{...entry('0.2.1'),minHostVersion:'0.2.0'}];
+ await publishRelease({...f,apply:true});
+ catalog=JSON.parse(f.values.get(config.key(catalogKey)));
+ assert.deepEqual(catalog.entries.map(e=>e.version).sort(),['0.1.1','0.2.1']);
+ assert.ok(!f.values.has(config.key(`${packagesKey}/${entry('0.2.0').artifact}`)));
+ // A new release usable by the oldest supported host supersedes both branches.
+ f.catalog.entries=[entry('0.3.0')];
+ await publishRelease({...f,apply:true});
+ assert.equal(JSON.parse(f.values.get(config.key(catalogKey))).entries.length,1);
+ assert.ok(!f.values.has(config.key(`${packagesKey}/${first.artifact}`)));
+});
+
+
+test('an older host branch can receive a patch without replacing the newer host branch',async()=>{
+ const f=fixture('0.1.1');await publishRelease({...f,apply:true});
+ f.catalog.entries=[{...entry('0.2.0'),minHostVersion:'0.2.0'}];await publishRelease({...f,apply:true});
+ f.catalog.entries=[entry('0.1.2')];await publishRelease({...f,apply:true});
+ assert.deepEqual(JSON.parse(f.values.get(config.key(catalogKey))).entries.map(e=>e.version).sort(),['0.1.2','0.2.0']);
+ f.catalog.entries=[entry('0.1.1')];await assert.rejects(planRelease(f),/降级/);
+});
+
+
+test('retaining compatibility versions verifies package identity without freezing display wording',async()=>{
+ const f=fixture('0.1.1');await publishRelease({...f,apply:true});
+ const catalog=JSON.parse(f.values.get(config.key(catalogKey)));
+ catalog.entries[0].summary='Updated display wording';
+ f.values.set(config.key(catalogKey),Buffer.from(JSON.stringify(catalog)));
+ f.catalog.entries=[{...entry('0.2.0'),minHostVersion:'0.2.0'}];
+ const plan=await planRelease(f);assert.equal(plan.catalog.entries.length,2);
+ f.values.delete(config.key(`${packagesKey}/${entry('0.1.1').artifact}`));
+ await assert.rejects(planRelease(f),/包校验失败/);
 });

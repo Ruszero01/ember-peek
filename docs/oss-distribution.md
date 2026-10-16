@@ -1,6 +1,6 @@
 # 官方插件发布：GitHub 源码 + OSS 分发
 
-0.1.0 保留同仓库插件源码、SDK 和共享库。OSS 只提供静态目录与插件 ZIP，不部署 API 服务。当前只发布 `stable / api-1 / windows-x86_64`。
+0.1.0 保留同仓库插件源码、SDK 和共享库。OSS 只提供静态目录与插件 ZIP，不部署 API 服务。新版使用同一份 `stable / api-1 / compatible-v1 / windows-x86_64` 目录，宿主按插件的 `minHostVersion` 选择可运行的最新版本。`compatible-v1` 是兼容筛选格式的一次性迁移，不随每次宿主发版变化。
 
 ## 需要准备的配置
 
@@ -16,7 +16,7 @@
 
 示例 Region 不代表必须选香港，按已有资源和用户访问位置选择。初期可以直接用 OSS 公网域名，不要求自有域名、CDN、数据库或服务器。自有域名必须配置有效 HTTPS，公开地址的路径必须与 `OSS_PREFIX` 一致，当前不支持 CDN 路径重写或限时签名 URL。
 
-建议使用**独立、标准存储、从未开启过版本控制**的分发 Bucket。当前脚本拒绝版本控制为 Enabled 或 Suspended 的桶：OSS 对这两种桶会忽略 `x-oss-forbid-overwrite`，无法保证发布锁和版本记录不被覆盖。分发端仅保留最新包，不保留目录历史。已有业务桶开启过版本控制时，新建专用分发桶即可，不要为发布修改业务桶的设置。
+建议使用**独立、标准存储、从未开启过版本控制**的分发 Bucket。当前脚本拒绝版本控制为 Enabled 或 Suspended 的桶：OSS 对这两种桶会忽略 `x-oss-forbid-overwrite`，无法保证发布锁和版本记录不被覆盖。分发端仅保留每个兼容范围仍需要的最新包，不保留所有历史构建。已有业务桶开启过版本控制时，新建专用分发桶即可，不要为发布修改业务桶的设置。
 
 Bucket 保持私有，仅用 Bucket Policy 允许匿名 `GetObject` 访问以下两类对象：
 
@@ -51,12 +51,12 @@ ember-peek/packages/*
       "Effect": "Allow",
       "Action": ["oss:ListObjects"],
       "Resource": ["acs:oss:*:*:YOUR_BUCKET"],
-      "Condition": {"StringLike": {"oss:Prefix": ["ember-peek/packages/windows-x86_64/*", "ember-peek/registry/windows-x86_64/*", "ember-peek/catalog-history/*"]}}
+      "Condition": {"StringLike": {"oss:Prefix": ["ember-peek/packages/compatible-v1/windows-x86_64/*", "ember-peek/registry/compatible-v1/windows-x86_64/*", "ember-peek/packages/windows-x86_64/*", "ember-peek/registry/windows-x86_64/*", "ember-peek/catalog-history/*"]}}
     },
     {
       "Effect": "Allow",
       "Action": ["oss:DeleteObject"],
-      "Resource": ["acs:oss:*:*:YOUR_BUCKET/ember-peek/publish.lock", "acs:oss:*:*:YOUR_BUCKET/ember-peek/packages/windows-x86_64/*", "acs:oss:*:*:YOUR_BUCKET/ember-peek/registry/windows-x86_64/*", "acs:oss:*:*:YOUR_BUCKET/ember-peek/catalog-history/*"]
+      "Resource": ["acs:oss:*:*:YOUR_BUCKET/ember-peek/publish.lock", "acs:oss:*:*:YOUR_BUCKET/ember-peek/packages/compatible-v1/windows-x86_64/*", "acs:oss:*:*:YOUR_BUCKET/ember-peek/registry/compatible-v1/windows-x86_64/*", "acs:oss:*:*:YOUR_BUCKET/ember-peek/packages/windows-x86_64/*", "acs:oss:*:*:YOUR_BUCKET/ember-peek/registry/windows-x86_64/*", "acs:oss:*:*:YOUR_BUCKET/ember-peek/catalog-history/*"]
     }
   ]
 }
@@ -126,15 +126,15 @@ npm run plugins:publish -- --replace-baseline
 
 ```text
 ember-peek/
-  channels/stable/api-1/windows-x86_64/catalog.json
-  packages/windows-x86_64/<id>-<version>-<buildId24>.zip
-  registry/windows-x86_64/<id>/<version>.json
+  channels/stable/api-1/compatible-v1/windows-x86_64/catalog.json
+  packages/compatible-v1/windows-x86_64/<id>-<version>-<buildId24>.zip
+  registry/compatible-v1/windows-x86_64/<id>/<version>.json
   publish.lock
 ```
 
 发布依次执行：获得锁 → 校验完整目录与现有版本登记并列出待清理对象 → 上传缺少的包 → 匿名下载并验证哈希/大小 → 写入不可变版本记录 → 最后切换 stable 目录 → 验证公开目录 → 删除不再引用的包和版本记录、迁移清除旧 catalog-history → 释放锁。
 
-常规发布的 ZIP 和版本记录禁止同名覆盖；显式基线重建只覆盖 0.1.0 的版本记录，ZIP 仍禁止同名覆盖；目录使用 `Cache-Control: no-cache`，内容寻址的包使用一年缓存。每个插件只保留当前目录引用的最新包与对应源码指纹记录；清理仅覆盖当前平台的 packages/registry 和旧 catalog-history，不触及其他平台或业务对象。目录切换失败时不清理，下次成功发布会清理失败任务的残留。源目录格式仍为 `api:1`，新增发布元数据放在私有的版本记录中，不往现有目录塞入客户端不认识的字段。
+常规发布的 ZIP 和版本记录禁止同名覆盖；显式基线重建只覆盖 0.1.0 的版本记录，ZIP 仍禁止同名覆盖；目录使用 `Cache-Control: no-cache`，内容寻址的包使用一年缓存。每个插件只保留各宿主兼容范围需要的最新版本与对应源码指纹记录；例如新包仅支持 0.2.0 时，保留供 0.1.1 使用的最新兼容包。新版本兼容更老宿主时会取代这些包；同一兼容范围的旧构建及时删除。普通清理仅覆盖 compatible-v1 当前平台与该代目录历史，绝不触及 0.1.0 的旧路径。目录切换失败时不清理，下次成功发布会清理失败任务的残留。源目录格式仍为 `api:1`，新增发布元数据放在私有的版本记录中，不往现有目录塞入客户端不认识的字段。
 
 同一份构建产物可从 GitHub Actions artifact 下载归档，但目前不配置第二个下载源。后续做镜像时应复制这份原包，不能让镜像重新编译生成另一份哈希。
 
@@ -143,7 +143,7 @@ ember-peek/
 - 上传、哈希或匿名读取失败：stable 目录不切换。已上传的不可变包可以保留，下次重试复用。
 - 目录写入后的网络校验失败：目录可能已经生效。检查 OSS 与公开 URL 后重试，不能假定发布被回滚。
 - 程序被终止：锁可能保留。确认没有任何发布任务运行后，由运维查看 `publish.lock` 中的 owner、时间和 run，手动删除该锁；脚本不按超时擅自抢锁。
-- 错误版本上线：从 GitHub 源码历史恢复需要的实现，提升插件版本后重新发布；OSS 不提供历史包回滚。正常发布器拒绝目录降级，也拒绝意外移除已上架插件。
+- 错误版本上线：从 GitHub 源码历史恢复需要的实现，提升插件版本后重新发布；OSS 不提供历史包回滚。正常发布器拒绝同一宿主兼容范围内的目录降级，也拒绝意外移除已上架插件。
 - 清理失败：最新目录已生效，命令报错并保留未删除对象；修复列举/删除权限后重跑发布即可。
 - 用户持有十分钟缓存的旧目录时，旧包可能已删除；刷新插件市场后重新安装/更新。已安装插件不受影响。
 - 已安装坏版本的客户端不会因目录回滚自动降级，需要发更高版本的修复包。冻结版本继续禁止同版本更换源码；失败任务的记录可供重试使用，后续成功发布时清理未引用记录。
@@ -162,3 +162,15 @@ ember-peek/
 宿主版本标签先创建 GitHub 预发布。维护者手动转为正式发布后，由 Mirror stable desktop release to OSS 下载已有 Release 附件、校验 SHA-256，再上传安装包与稳定版本指针。复用 plugin-production 环境配置，不重新编译。流程见 [Windows 发布与检查更新](windows-desktop.md#宿主检查更新与正式发布)。
 
 匿名读取策略额外允许 ember-peek/desktop/*（channels/* 已包含检查更新元数据）。发布身份需对 ember-peek/desktop/* 和 ember-peek/channels/* 有 GetObject/PutObject 权限；无需匿名列举或写入。插件发布工作流保持独立。
+
+## 同一市场的版本选择与 0.1.0 退役
+
+插件清单和目录条目声明 `minHostVersion`（完整正式 SemVer，例如 `0.1.1`）。宿主只显示每个插件 ID 的最新兼容版本；插件版本与宿主版本不要求相同。市场安装、自动更新和手动导入都会校验，包内要求必须与目录一致。不存在兼容版本时不显示该条目。同版本不同哈希仍视为冲突，不允许借版本筛选跨源接管插件。
+
+已发行的 0.1.0 不理解新增字段且拒绝未知字段，不能直接读取新目录。其原始 `channels/stable/api-1/windows-x86_64/catalog.json` 和 `packages/windows-x86_64/` 冻结；新宿主升级后，仅将配置所信任的官方来源迁移到新目录，第三方来源不变。最低支持宿主版本是发布政策，不按每个插件版本创建市场。
+
+新版目录、全部插件、兼容的正式宿主元数据及安装包都匿名校验成功后，退役任务在 `channels/maintenance/` 写入一次性退役记录，从该时刻起保留旧市场 30 天，重跑发布不延长。每日 `Retire legacy plugin market` 工作流在期限届满后验证新市场及其全部包可下载，再将旧目录切为 0.1.0 原解析器能读的 `{"api":1,"entries":[]}`；公开读回确认后，仅删除旧路径的 ZIP、登记记录和旧历史。没有记录、未到期或新市场不可用时保留旧包。清理失败可重跑，和发布共用 OSS 锁。已有本地安装继续可用，旧宿主不再下载安装；升级宿主后访问新市场。
+
+本机只读预演：`npm run plugins:retire:plan`；明确执行已到期退役：`npm run plugins:retire`。手动工作流默认只读，定时任务仅在新版正式宿主与插件目录均验证可用后创建一次起始记录；已有记录不延长，期限未到不清理。发布身份的列举／删除权限需同时覆盖文中两代前缀；脚本不自动修改 RAM 权限。
+
+目录顶层与展示元数据忽略未知的可选字段，已知字段的类型、API 与签名检查不放宽；插件清单仍严格拒绝未知字段。插件新增依赖宿主识别的清单字段或新宿主能力时，必须提高 minHostVersion，不能只改插件版本号。

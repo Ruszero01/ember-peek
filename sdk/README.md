@@ -208,6 +208,7 @@ Plugin-list installation, removal, and enablement update automatically without m
 The optional manifest field `beta: true` marks an experimental plugin. It defaults to false and
 is copied into catalog entries. A shared Beta badge follows the version in catalog, recommended,
 installed, and settings titles. It does not alter permissions, installation, or version semantics.
+Among official plugins, only Plugin Workshop currently retains the Beta marker.
 Preview empty, unsupported, and failure states link to plugin management rather than creating
 Workshop tasks directly.
 
@@ -385,3 +386,7 @@ The audio workbench uses a full-width waveform without a track caption or card f
 Waveform analysis yields after a bounded native batch and resumes after 16 ms while visible. Peaks aggregate directly from decoded samples rather than passing through the playback PCM queue. Partial analysis does not reload WaveSurfer; the completed track is rendered once and fades in over 160 ms (immediately with reduced motion). A progress note appears only after 400 ms, while playback and seeking remain available.
 
 Start-with-Windows remains a host-only setting with no plugin API change. Explicit changes report approval-state cleanup failures before modifying the Run entry. NSIS uninstall removes both the Run value and Explorer approval state; update mode preserves them. See [the host contract](../docs/specs/start-with-windows.md).
+
+The optional `minHostVersion` manifest field declares the minimum stable host SemVer. Catalog entries carry the same requirement. A shared catalog may contain multiple versions of a plugin; each host selects the newest compatible version before offering installation or automatic updates. Package loading also enforces the requirement for manual imports, and downloaded manifests must match their catalog requirement. Plugin and host version numbers remain independent. Existing manifests without this field remain accepted. Current official packages require host 0.1.1; the frozen 0.1.0 source is isolated because its shipped parser rejects unknown fields. See [distribution and retirement](../docs/oss-distribution.md).
+
+Catalog envelopes and listing metadata ignore unknown optional fields, while known fields, API versions and signatures remain validated. Package manifests remain strict. A plugin that adds host-dependent manifest fields or requires new host behavior must raise minHostVersion; optional catalog decoration alone must not invalidate an older host.

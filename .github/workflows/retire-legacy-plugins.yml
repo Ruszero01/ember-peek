@@ -1,0 +1,39 @@
+name: Retire legacy plugin market
+on:
+  schedule:
+    - cron: '17 4 * * *'
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: Start a verified grace period or apply an expired retirement
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: official-plugins-stable-windows-x86_64
+  cancel-in-progress: false
+jobs:
+  retire:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: plugin-production
+    env:
+      OSS_REGION: ${{ vars.OSS_REGION }}
+      OSS_BUCKET: ${{ vars.OSS_BUCKET }}
+      OSS_PREFIX: ${{ vars.OSS_PREFIX }}
+      OSS_PUBLIC_BASE_URL: ${{ vars.OSS_PUBLIC_BASE_URL }}
+      OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
+      OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+      OSS_STS_TOKEN: ${{ secrets.OSS_STS_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Preview or apply expired legacy retirement
+        env:
+          APPLY: ${{ github.event_name == 'schedule' || inputs.apply }}
+        run: node scripts/retire-legacy-plugins.mjs --$([ "$APPLY" = true ] && echo apply || echo plan)

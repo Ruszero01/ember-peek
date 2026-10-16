@@ -269,6 +269,7 @@ text! {
     entry_version_invalid: "目录条目 {id} 的 version 无效", "Catalog entry {id} has an invalid version";
     entry_duplicate_hash: "插件 {id} 在来源 {first} 与 {second} 声明的 sha256 不一致，已忽略后者", "Plugin {id} declares different sha256 in {first} and {second}; the latter was ignored";
     target_skipped: "{name} 面向 {targets}，已跳过（当前平台 {host}）", "{name} targets {targets} and was skipped (this platform is {host})";
+    host_version_required: "该插件需要 Ember Peek {minimum} 或更新版本，当前为 {current}；请先升级宿主", "This plugin requires Ember Peek {minimum} or newer (current: {current}); upgrade the host first";
     target_unsupported: "该插件面向 {targets}，无法在当前平台（{host}）运行", "This plugin targets {targets} and cannot run on this platform ({host})";
     package_target_unsupported: "插件包面向 {targets}，无法在当前平台（{host}）运行", "The package targets {targets} and cannot run on this platform ({host})";
 

@@ -3,8 +3,8 @@
   "sources": [
     {
       "name": "Ember Peek",
-      "catalog": "https://rains-ailurus-cn.oss-cn-shanghai.aliyuncs.com/ember-peek/channels/stable/api-1/windows-x86_64/catalog.json",
-      "base": "https://rains-ailurus-cn.oss-cn-shanghai.aliyuncs.com/ember-peek/packages/windows-x86_64/"
+      "catalog": "https://rains-ailurus-cn.oss-cn-shanghai.aliyuncs.com/ember-peek/channels/stable/api-1/compatible-v1/windows-x86_64/catalog.json",
+      "base": "https://rains-ailurus-cn.oss-cn-shanghai.aliyuncs.com/ember-peek/packages/compatible-v1/windows-x86_64/"
     }
   ]
 }

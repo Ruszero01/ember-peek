@@ -1,6 +1,6 @@
 # 办公预览插件
 
-第一版提供三个独立的只读 Beta 插件：Word（DOCX）、PPT（PPTX）、Excel（XLSX）。无需安装 Microsoft Office，不支持旧二进制 DOC/PPT/XLS、加密文件或宏文件；不提供编辑、保存、转换或公式计算。
+第一版提供三个独立的只读插件：Word（DOCX）、PPT（PPTX）、Excel（XLSX）。无需安装 Microsoft Office，不支持旧二进制 DOC/PPT/XLS、加密文件或宏文件；不提供编辑、保存、转换或公式计算。
 
 ## 分层与共享代码
 

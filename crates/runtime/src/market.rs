@@ -115,7 +115,7 @@ struct RemoteCatalog {
 }
 
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 struct Catalog {
     api: u32,
     /// Reserved for catalog signatures. Parsed only to be refused; see `check_signature`
@@ -126,7 +126,7 @@ struct Catalog {
 }
 
 #[derive(Clone, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 struct Listing {
     id: String,
     summary: String,
@@ -139,6 +139,8 @@ struct Listing {
     size: u64,
     version: String,
     build_id: String,
+    #[serde(default)]
+    min_host_version: Option<String>,
     #[serde(default)]
     targets: Vec<String>,
     /// Suggested by the source for a fresh installation, so the first-run chooser can
@@ -164,7 +166,7 @@ struct Listing {
 
 /// The display text one language replaces in a catalog entry.
 #[derive(Clone, Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 struct ListingText {
     #[serde(default)]
     name: Option<String>,
@@ -184,6 +186,7 @@ struct Offering {
     summary: String,
     publisher: String,
     targets: Vec<String>,
+    min_host_version: Option<String>,
     recommended: bool,
     remote: Remote,
 }
@@ -346,6 +349,9 @@ impl Market {
     }
 
     pub async fn list(&self, runtime: &Runtime) -> Result<MarketList, String> {
+        runtime
+            .migrate_official_catalogs(&self.official_sources)
+            .await?;
         let (offerings, mut warnings) = self.offerings().await;
         let snapshot = runtime.snapshot().await;
         let mut entries = Vec::new();
@@ -492,6 +498,9 @@ impl Market {
     }
 
     pub async fn install(&self, runtime: &Arc<Runtime>, id: &str) -> Result<(), String> {
+        runtime
+            .migrate_official_catalogs(&self.official_sources)
+            .await?;
         let (offerings, _) = self.offerings().await;
         let offering = offerings
             .into_iter()
@@ -611,6 +620,12 @@ impl Market {
     /// Update only installed releases from their recorded catalog, even when another
     /// configured source offers a higher version of the same id.
     pub async fn auto_update_installed(&self, runtime: &Arc<Runtime>) -> Vec<String> {
+        if let Err(error) = runtime
+            .migrate_official_catalogs(&self.official_sources)
+            .await
+        {
+            return vec![error];
+        }
         if !runtime.auto_update_plugins().await {
             return Vec::new();
         }
@@ -783,11 +798,36 @@ fn collect(
     catalogs: &[RemoteCatalog],
     label_of: &dyn Fn(&Source) -> String,
 ) -> (Vec<Offering>, Vec<String>) {
+    collect_for_host(catalogs, label_of, env!("CARGO_PKG_VERSION"))
+}
+
+fn collect_for_host(
+    catalogs: &[RemoteCatalog],
+    label_of: &dyn Fn(&Source) -> String,
+    host: &str,
+) -> (Vec<Offering>, Vec<String>) {
     let mut offerings: Vec<Offering> = Vec::new();
     let mut warnings = Vec::new();
+    let host_version = semver::Version::parse(host).expect("validated host version");
     for catalog in catalogs {
         for listing in &catalog.entries {
-            let offering = match resolve(listing, &catalog.source, &label_of(&catalog.source)) {
+            // Valid releases for a newer host are not a warning or an install offer.
+            if listing
+                .min_host_version
+                .as_deref()
+                .and_then(|minimum| semver::Version::parse(minimum).ok())
+                .is_some_and(|required| {
+                    required.pre.is_empty() && required.build.is_empty() && required > host_version
+                })
+            {
+                continue;
+            }
+            let offering = match resolve_for_host(
+                listing,
+                &catalog.source,
+                &label_of(&catalog.source),
+                host,
+            ) {
                 Ok(offering) => offering,
                 // An entry the host cannot read is reported rather than dropped: a market
                 // silently missing a plugin is the failure this path exists to avoid.
@@ -801,7 +841,30 @@ fn collect(
                 }
             };
             match offerings.iter_mut().find(|known| known.id == offering.id) {
-                Some(known) if known.remote.sha256 == offering.remote.sha256 => {
+                Some(known)
+                    if known.remote.catalog == offering.remote.catalog
+                        && runs_here(&known.targets)
+                        && !runs_here(&offering.targets) => {}
+                Some(known)
+                    if known.remote.catalog == offering.remote.catalog
+                        && !runs_here(&known.targets)
+                        && runs_here(&offering.targets) =>
+                {
+                    *known = offering;
+                }
+                Some(known)
+                    if known.remote.catalog == offering.remote.catalog
+                        && newer_version(&offering.version, &known.version) =>
+                {
+                    *known = offering;
+                }
+                Some(known)
+                    if known.remote.catalog == offering.remote.catalog
+                        && newer_version(&known.version, &offering.version) => {}
+                Some(known)
+                    if known.version == offering.version
+                        && known.remote.sha256 == offering.remote.sha256 =>
+                {
                     known.remote.urls.extend(offering.remote.urls)
                 }
                 Some(known) => warnings.push(msg!(
@@ -841,7 +904,17 @@ fn wording(listing: &Listing) -> (String, String) {
     (name, summary)
 }
 
+#[cfg(test)]
 fn resolve(listing: &Listing, source: &Source, label: &str) -> Result<Offering, String> {
+    resolve_for_host(listing, source, label, env!("CARGO_PKG_VERSION"))
+}
+
+fn resolve_for_host(
+    listing: &Listing,
+    source: &Source,
+    label: &str,
+    host: &str,
+) -> Result<Offering, String> {
     if listing.sha256.len() != 64
         || !listing
             .sha256
@@ -866,6 +939,7 @@ fn resolve(listing: &Listing, source: &Source, label: &str) -> Result<Offering, 
     {
         return Err("Invalid plugin category".into());
     }
+    crate::manifest::check_host_version_for(listing.min_host_version.as_deref(), host)?;
     let (name, summary) = wording(listing);
     Ok(Offering {
         id: listing.id.clone(),
@@ -878,6 +952,7 @@ fn resolve(listing: &Listing, source: &Source, label: &str) -> Result<Offering, 
         summary,
         publisher: listing.publisher.clone(),
         targets: listing.targets.clone(),
+        min_host_version: listing.min_host_version.clone(),
         recommended: listing.recommended,
         remote: Remote {
             urls: vec![artifact_url(&source.base, &listing.artifact)?],
@@ -944,6 +1019,9 @@ fn confirm(directory: &Path, offering: &Offering) -> Result<(), String> {
             expected = offering.remote.build_id
         ));
     }
+    if manifest.min_host_version != offering.min_host_version {
+        return Err("Package minHostVersion differs from catalog".into());
+    }
     if manifest.version != offering.version {
         return Err(msg!(
             text().package_version_mismatch,
@@ -1005,6 +1083,66 @@ mod tests {
 
     fn catalog(source: Source, entries: Vec<Listing>) -> RemoteCatalog {
         RemoteCatalog { source, entries }
+    }
+
+    #[test]
+    fn optional_catalog_metadata_does_not_break_existing_hosts() {
+        let bytes = json!({"api":1,"futureMetadata":{"label":"future"},"entries":[{
+            "id":"test.one","version":"1.0.0","buildId":"first","artifact":"one.zip",
+            "sha256":"a".repeat(64),"size":1,"summary":"One","publisher":"Test",
+            "minHostVersion":"0.1.1","futureMetadata":{"anything":true}
+        }]})
+        .to_string();
+        let catalog = parse_catalog(bytes.as_bytes()).unwrap();
+        let (found, warnings) = collect(
+            &[super::RemoteCatalog {
+                source: source(),
+                entries: catalog.entries,
+            }],
+            &|_| "Test".into(),
+        );
+        assert_eq!(found.len(), 1);
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn one_catalog_selects_the_newest_compatible_release_for_each_host() {
+        let mut old = listing("test.one", "old.zip");
+        old.version = "0.1.1".into();
+        old.min_host_version = Some("0.1.1".into());
+        let mut middle = old.clone();
+        middle.version = "0.1.2".into();
+        middle.artifact = "middle.zip".into();
+        let mut latest = middle.clone();
+        latest.version = "0.2.0".into();
+        latest.min_host_version = Some("0.2.0".into());
+        latest.artifact = "latest.zip".into();
+        for entries in [
+            vec![old.clone(), middle.clone(), latest.clone()],
+            vec![latest, middle, old],
+        ] {
+            let catalogs = [catalog(source(), entries)];
+            for (host, expected) in [("0.1.1", "0.1.2"), ("0.1.9", "0.1.2"), ("0.2.0", "0.2.0")] {
+                let (found, _) = collect_for_host(&catalogs, &|_| "Test".into(), host);
+                assert_eq!(found.len(), 1);
+                assert_eq!(found[0].version, expected);
+            }
+            assert!(collect_for_host(&catalogs, &|_| "Test".into(), "0.1.0")
+                .0
+                .is_empty());
+        }
+    }
+
+    #[test]
+    fn a_newer_release_for_another_platform_does_not_hide_a_compatible_version() {
+        let old = listing("test.one", "old.zip");
+        let mut newer = old.clone();
+        newer.version = "2.0.0".into();
+        newer.targets = vec!["unsupported-target".into()];
+        for entries in [vec![old.clone(), newer.clone()], vec![newer, old]] {
+            let (found, _) = collect(&[catalog(source(), entries)], &|_| "Test".into());
+            assert_eq!(found[0].version, "1.0.0");
+        }
     }
 
     #[test]

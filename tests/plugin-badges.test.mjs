@@ -11,3 +11,11 @@ test('built catalog preserves beta markers declared by plugin manifests',()=>{
   assert.equal(entry.beta===true,manifest.beta===true,manifest.id);
  }
 });
+
+test('only the official workshop plugin retains a beta marker',()=>{
+ const marked=readdirSync(new URL('plugins/',root))
+  .map(directory=>JSON.parse(readFileSync(new URL(`plugins/${directory}/plugin.json`,root),'utf8')))
+  .filter(manifest=>manifest.beta===true)
+  .map(manifest=>manifest.id);
+ assert.deepEqual(marked,['ember.workshop']);
+});

@@ -4,13 +4,14 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import semver from "semver";
-import { root, target, catalogKey, packagesKey, ossConfig, releaseDirectory } from "./oss-config.mjs";
+import { root, target, catalogKey, packagesKey, registryKey, minimumHostVersion, ossConfig, releaseDirectory } from "./oss-config.mjs";
 
 export const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const json = (value) => Buffer.from(`${JSON.stringify(value, null, 2)}\n`);
 const immutable = { "Cache-Control": "public, max-age=31536000, immutable", "x-oss-forbid-overwrite": "true" };
 
 function checkEntry(entry) {
+  if (semver.valid(entry.minHostVersion) !== entry.minHostVersion || entry.minHostVersion.length > 64 || semver.prerelease(entry.minHostVersion) || semver.parse(entry.minHostVersion).build.length) throw new Error(`无效的 minHostVersion：${entry.id}`);
   if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/.test(entry.id || "") || !semver.valid(entry.version) || semver.prerelease(entry.version)) throw new Error("stable 目录需要有效插件 ID 和正式 SemVer 版本");
   if (!/^[a-zA-Z0-9][a-zA-Z0-9._+-]*\.zip$/.test(entry.artifact || "") || entry.artifact.length > 200) throw new Error(`非法包名：${entry.id}`);
   if (!/^[a-f0-9]{64}$/.test(entry.sha256 || "") || !Number.isSafeInteger(entry.size) || entry.size <= 0 || entry.size > 64 * 1024 * 1024) throw new Error(`非法包哈希或大小：${entry.id}`);
@@ -22,14 +23,15 @@ export function checkCatalog(catalog) {
   const ids = new Set();
   for (const entry of catalog.entries) {
     checkEntry(entry);
-    if (ids.has(entry.id)) throw new Error(`重复插件 ID：${entry.id}`);
-    ids.add(entry.id);
+    if (ids.has(`${entry.id}@${entry.version}`)) throw new Error(`重复插件 ID：${entry.id}`);
+    ids.add(`${entry.id}@${entry.version}`);
   }
 }
 
 export function checkInputs(inputs, catalog, bytes) {
   if (inputs?.api !== 1 || inputs.target !== target || inputs.catalogSha256 !== sha256(bytes)) throw new Error("release-inputs.json 与目录不匹配，请重新运行 plugins:dist");
   for (const entry of catalog.entries) {
+    if (!semver.valid(entry.minHostVersion) || semver.lt(entry.minHostVersion, minimumHostVersion)) throw new Error(`官方插件必须声明不低于 ${minimumHostVersion} 的 minHostVersion：${entry.id}`);
     if (!/^[a-f0-9]{64}$/.test(inputs.inputs?.[entry.id] || "")) throw new Error(`缺少源码指纹：${entry.id}`);
   }
 }
@@ -71,9 +73,9 @@ export async function planRelease({ store, config, catalog, inputs, readArtifact
   for (const candidate of catalog.entries) {
     const sourceDigest = inputs.inputs?.[candidate.id];
     if (!/^[a-f0-9]{64}$/.test(sourceDigest || "")) throw new Error(`缺少源码指纹：${candidate.id}`);
-    const prior = previous?.entries.find((entry) => entry.id === candidate.id);
+    const prior = previous?.entries.filter((entry) => entry.id === candidate.id && semver.lte(entry.minHostVersion, candidate.minHostVersion)).sort((a, b) => semver.rcompare(a.version, b.version))[0];
     if (prior && semver.lt(candidate.version, prior.version)) throw new Error(`拒绝目录降级：${candidate.id} ${prior.version} → ${candidate.version}`);
-    const recordKey = config.key(`registry/${target}/${candidate.id}/${candidate.version}.json`);
+    const recordKey = config.key(`${registryKey}/${candidate.id}/${candidate.version}.json`);
     const existing = await get(store, recordKey);
     let entry = candidate;
     if (existing) {
@@ -106,13 +108,33 @@ export async function planRelease({ store, config, catalog, inputs, readArtifact
   for (const entry of previous?.entries || []) {
     if (!entries.some((candidate) => candidate.id === entry.id)) throw new Error(`发布目录缺少已上架插件：${entry.id}`);
   }
+  // Keep an older plugin only if it serves hosts that no newer release supports.
+  // A later release with the same/lower minimum replaces it without growing storage.
+  const candidates = [...entries, ...(previous?.entries || []).filter(old =>
+    !entries.some(entry => entry.id === old.id && entry.version === old.version))];
+  const effectiveMinimum = entry => semver.gt(entry.minHostVersion, minimumHostVersion) ? entry.minHostVersion : minimumHostVersion;
+  const supported = candidates.filter(entry => !candidates.some(newer =>
+    newer.id === entry.id && semver.gt(newer.version, entry.version) &&
+    semver.lte(effectiveMinimum(newer), effectiveMinimum(entry))));
+  entries.splice(0, entries.length, ...supported);
+  checkCatalog({ api: 1, entries });
+  for (const retained of entries.filter(entry => !catalog.entries.some(candidate => candidate.id === entry.id && candidate.version === entry.version))) {
+    verify(await get(store, config.key(`${packagesKey}/${retained.artifact}`)), retained);
+    const record = await get(store, config.key(`${registryKey}/${retained.id}/${retained.version}.json`));
+    const recorded = record && JSON.parse(record);
+    if (!recorded || recorded.api !== 1 || !/^[a-f0-9]{64}$/.test(recorded.sourceDigest || "") ||
+        !["id", "version", "artifact", "sha256", "size", "buildId", "minHostVersion"].every(field => recorded.entry?.[field] === retained[field])) {
+      throw new Error(`兼容版本缺少匹配记录：${retained.id} ${retained.version}`);
+    }
+    checkEntry(recorded.entry);
+  }
   const keep = new Set(entries.flatMap((entry) => [
     config.key(`${packagesKey}/${entry.artifact}`),
-    config.key(`registry/${target}/${entry.id}/${entry.version}.json`),
+    config.key(`${registryKey}/${entry.id}/${entry.version}.json`),
   ]));
   const obsolete = [];
   // Only this distribution target and the retired catalog snapshots are managed here.
-  for (const prefix of [config.key(`${packagesKey}/`), config.key(`registry/${target}/`), config.key('catalog-history/')]) {
+  for (const prefix of [config.key(`${packagesKey}/`), config.key(`${registryKey}/`), config.key(`catalog-history/compatible-v1/`)]) {
     let token;
     do {
       const page = await store.listV2({ prefix, 'max-keys': 1000, ...(token ? { 'continuation-token': token } : {}) });

@@ -563,6 +563,7 @@ async function publish(release, { dist = false } = {}) {
       extensions: manifest.extensions,
       ...(manifest.icon ? { icon: manifest.icon } : {}),
       ...(manifest.category ? { category: manifest.category } : {}),
+      ...(manifest.minHostVersion ? { minHostVersion: manifest.minHostVersion } : {}),
       ...(manifest.beta ? { beta: true } : {}),
       targets: [target],
       summary: listing.summary,

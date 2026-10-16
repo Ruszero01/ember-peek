@@ -18,6 +18,8 @@
     "plugins:dist": "node scripts/build-plugins.mjs --dist",
     "plugins:validate": "node scripts/publish-plugins.mjs --validate",
     "plugins:plan": "node --env-file-if-exists=.env scripts/publish-plugins.mjs --plan",
+    "plugins:retire:plan": "node --env-file-if-exists=.env scripts/retire-legacy-plugins.mjs --plan",
+    "plugins:retire": "node --env-file-if-exists=.env scripts/retire-legacy-plugins.mjs --apply",
     "plugins:publish": "node --env-file-if-exists=.env scripts/publish-plugins.mjs --apply",
     "source:configure": "node --env-file-if-exists=.env scripts/configure-plugin-source.mjs",
     "source:check": "node --env-file-if-exists=.env scripts/configure-plugin-source.mjs --check",

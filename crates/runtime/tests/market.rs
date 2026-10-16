@@ -808,3 +808,122 @@ async fn uninstalling_drops_every_revision_and_its_cached_package() {
     );
     runtime.shutdown().await;
 }
+
+#[allow(dead_code)]
+mod shipped_catalog {
+    include!("support/catalog_v010.rs");
+}
+
+#[test]
+fn retired_catalog_remains_readable_by_the_shipped_host() {
+    assert!(shipped_catalog::accepts(br#"{"api":1,"entries":[]}"#));
+    let catalog = json!({"api":1,"entries":[{
+        "id":"test.one","version":"1.0.0","buildId":"first","artifact":"one.zip",
+        "sha256":"a".repeat(64),"size":1,"summary":"One","publisher":"Test",
+        "category":"text","minHostVersion":"0.1.1"
+    }]});
+    assert!(!shipped_catalog::accepts(catalog.to_string().as_bytes()));
+    let mut legacy = catalog;
+    legacy["entries"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("category");
+    legacy["entries"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("minHostVersion");
+    assert!(shipped_catalog::accepts(legacy.to_string().as_bytes()));
+}
+
+#[tokio::test]
+async fn newer_host_requirements_block_market_auto_update_and_manual_install() {
+    let temp = tempfile::tempdir().unwrap();
+    let source = build(temp.path(), "first");
+    let mirror = temp.path().join("mirror");
+    publish(&mirror, &source, "test.one", "first", &[]);
+    let market = test_market(temp.path(), &mirror);
+    let runtime = Runtime::new(temp.path().join("installed")).unwrap();
+    market.install(&runtime, "test.one").await.unwrap();
+    runtime.set_auto_update_plugins(true).await.unwrap();
+    set_version(&source, "1.1.0");
+    let manifest_path = source.join("plugin.json");
+    let mut manifest: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&manifest_path).unwrap()).unwrap();
+    manifest["minHostVersion"] = json!("999.0.0");
+    std::fs::write(&manifest_path, manifest.to_string()).unwrap();
+    publish_version(&mirror, &source, "test.one", "first", "1.1.0", &[], false);
+    let catalog_path = mirror.join("catalog.json");
+    let mut catalog: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&catalog_path).unwrap()).unwrap();
+    catalog["entries"][0]["minHostVersion"] = json!("999.0.0");
+    std::fs::write(&catalog_path, catalog.to_string()).unwrap();
+    let list = market.refresh(&runtime).await.unwrap();
+    assert!(list.entries.is_empty());
+    assert!(list.warnings.is_empty());
+    assert!(market.prepare("test.one").await.is_err());
+    assert!(market.auto_update_installed(&runtime).await.is_empty());
+    assert!(runtime
+        .install(&source)
+        .await
+        .unwrap_err()
+        .contains("999.0.0"));
+    // A lying catalog cannot bypass the package's own requirement after download.
+    catalog["entries"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("minHostVersion");
+    std::fs::write(catalog_path, catalog.to_string()).unwrap();
+    market.refresh(&runtime).await.unwrap();
+    assert!(market.prepare("test.one").await.is_err());
+    assert_eq!(
+        runtime.snapshot().await.plugins[0].manifest.version,
+        "1.0.0"
+    );
+    runtime.shutdown().await;
+}
+
+#[tokio::test]
+async fn upgrading_the_host_migrates_only_its_configured_official_catalog() {
+    for origin in ["official", "market"] {
+        let temp = tempfile::tempdir().unwrap();
+        let source = build(temp.path(), "first");
+        let root = temp.path().join("installed");
+        let runtime = Runtime::new(root.clone()).unwrap();
+        let legacy = "https://example.test/channels/stable/api-1/windows-x86_64/catalog.json";
+        let current =
+            "https://example.test/channels/stable/api-1/compatible-v1/windows-x86_64/catalog.json";
+        runtime
+            .install_from_source(&source, Some(origin.into()), Some(legacy.into()))
+            .await
+            .unwrap();
+        runtime
+            .migrate_official_catalogs(&[current.replace("example.test", "other.test")])
+            .await
+            .unwrap();
+        assert_eq!(
+            runtime.snapshot().await.plugins[0].source.as_deref(),
+            Some(legacy)
+        );
+        runtime
+            .migrate_official_catalogs(&[current.into()])
+            .await
+            .unwrap();
+        let expected = if origin == "official" {
+            current
+        } else {
+            legacy
+        };
+        assert_eq!(
+            runtime.snapshot().await.plugins[0].source.as_deref(),
+            Some(expected)
+        );
+        runtime.shutdown().await;
+        let reopened = Runtime::new(root).unwrap();
+        reopened.scan().await.unwrap();
+        assert_eq!(
+            reopened.snapshot().await.plugins[0].source.as_deref(),
+            Some(expected)
+        );
+        reopened.shutdown().await;
+    }
+}

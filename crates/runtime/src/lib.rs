@@ -651,6 +651,38 @@ impl Runtime {
         Ok(())
     }
 
+    /// Move only configured official sources off the frozen 0.1.0 catalog. No package can
+    /// claim this authority, and custom catalogs are never rewritten.
+    pub async fn migrate_official_catalogs(&self, configured: &[String]) -> Result<(), String> {
+        let _installation = self.installation.lock().await;
+        let mut inner = self.inner.lock().await;
+        let previous = inner.sources.clone();
+        let official: Vec<_> = inner
+            .origins
+            .iter()
+            .filter(|(_, origin)| origin.as_str() == "official")
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in official {
+            for current in configured {
+                if !current.contains("/api-1/compatible-v1/") {
+                    continue;
+                }
+                let legacy = current.replace("/api-1/compatible-v1/", "/api-1/");
+                if inner.sources.get(&id) == Some(&legacy) {
+                    inner.sources.insert(id.clone(), current.clone());
+                }
+            }
+        }
+        if inner.sources != previous {
+            if let Err(error) = self.persist(&inner) {
+                inner.sources = previous;
+                return Err(error);
+            }
+        }
+        Ok(())
+    }
+
     /// Recheck opt-in, installation and provenance under the installation lock after download.
     pub async fn update_automatically(
         self: &Arc<Self>,

@@ -3,8 +3,16 @@ import path from "node:path";
 
 export const root = fileURLToPath(new URL("../", import.meta.url));
 export const target = "windows-x86_64";
-export const catalogKey = `channels/stable/api-1/${target}/catalog.json`;
-export const packagesKey = `packages/${target}`;
+// A distribution generation changes only when the oldest supported host changes.
+export const compatibility = "compatible-v1";
+export const minimumHostVersion = "0.1.1";
+export const catalogKey = `channels/stable/api-1/${compatibility}/${target}/catalog.json`;
+export const packagesKey = `packages/${compatibility}/${target}`;
+export const registryKey = `registry/${compatibility}/${target}`;
+export const legacyCatalogKey = `channels/stable/api-1/${target}/catalog.json`;
+export const legacyPackagesKey = `packages/${target}`;
+export const retirementKey = `channels/maintenance/retire-api-1-${target}.json`;
+export const legacyRegistryKey = `registry/${target}`;
 
 export function publicBase(value) {
   const url = new URL(value || "missing:");

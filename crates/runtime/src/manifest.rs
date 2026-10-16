@@ -389,6 +389,8 @@ pub struct OverlaySize {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Manifest {
     pub api: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_host_version: Option<String>,
     pub id: String,
     pub name: String,
     pub version: String,
@@ -614,6 +616,31 @@ pub fn contained(root: &Path, relative: &str) -> Result<PathBuf, String> {
     Ok(target)
 }
 
+/// Reject incompatible packages before they can replace an installed revision.
+pub(crate) fn check_host_version(minimum: Option<&str>) -> Result<(), String> {
+    check_host_version_for(minimum, env!("CARGO_PKG_VERSION"))
+}
+
+pub(crate) fn check_host_version_for(minimum: Option<&str>, host: &str) -> Result<(), String> {
+    let Some(minimum) = minimum else {
+        return Ok(());
+    };
+    let required =
+        semver::Version::parse(minimum).map_err(|_| "Invalid minHostVersion".to_owned())?;
+    if minimum.len() > 64 || !required.pre.is_empty() || !required.build.is_empty() {
+        return Err("Invalid minHostVersion".into());
+    }
+    let current = semver::Version::parse(host).map_err(|_| "Invalid host version")?;
+    if current < required {
+        return Err(msg!(
+            text().host_version_required,
+            minimum = minimum,
+            current = current
+        ));
+    }
+    Ok(())
+}
+
 impl Package {
     pub fn load(directory: &Path) -> Result<Self, String> {
         let raw = std::fs::read(directory.join("plugin.json")).map_err(|e| e.to_string())?;
@@ -621,6 +648,7 @@ impl Package {
             return Err("Manifest is too large".into());
         }
         let manifest: Manifest = serde_json::from_slice(&raw).map_err(|e| e.to_string())?;
+        check_host_version(manifest.min_host_version.as_deref())?;
         if manifest.api != 1 {
             return Err("Unsupported plugin API".into());
         }
@@ -1138,6 +1166,17 @@ mod tests {
         }
         std::fs::write(directory.path().join("plugin.json"), value.to_string()).unwrap();
         Package::load(directory.path()).map(|package| package.manifest)
+    }
+
+    #[test]
+    fn minimum_host_version_is_optional_and_checked_before_loading() {
+        assert!(load_with_field("minHostVersion", None).is_ok());
+        assert!(load_with_field("minHostVersion", Some(json!(env!("CARGO_PKG_VERSION")))).is_ok());
+        for invalid in ["", "no-version", "0.1", "0.1.1-beta.1", "0.1.1+build"] {
+            assert!(load_with_field("minHostVersion", Some(json!(invalid))).is_err());
+        }
+        let error = load_with_field("minHostVersion", Some(json!("999.0.0"))).unwrap_err();
+        assert!(error.contains("999.0.0"));
     }
 
     #[test]

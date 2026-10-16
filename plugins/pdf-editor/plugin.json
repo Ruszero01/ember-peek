@@ -1,12 +1,12 @@
 {
   "api": 1,
+  "minHostVersion": "0.1.1",
   "category": "office",
   "viewStateContract": "ember.pdf-position/1",
   "id": "ember.pdf-editor",
   "name": "PDF 编辑",
   "i18n": { "en": { "name": "PDF Editor" } },
   "version": "0.1.1",
-  "beta": true,
   "extensions": ["pdf"],
   "icon": "file-pen",
   "targets": ["windows-x86_64"],
