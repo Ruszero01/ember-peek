@@ -90,7 +90,7 @@ impl Mesh {
             return Err("Model has no spatial extent".into());
         }
         let mut bytes = Vec::with_capacity(self.positions.len() * 36);
-        for (face_index, face) in self.positions.chunks_exact(3).enumerate() {
+        for (face_index, face) in self.positions.as_chunks::<3>().0.iter().enumerate() {
             let p: [[f32; 3]; 3] = std::array::from_fn(|v| {
                 std::array::from_fn(|i| (face[v][i] - center[i]) * 2.0 / span)
             });
@@ -144,8 +144,10 @@ mod tests {
         let bytes = mesh.bytes().unwrap();
         assert_eq!(bytes.len(), 72);
         let values: Vec<f32> = bytes
-            .chunks_exact(4)
-            .map(|p| f32::from_le_bytes(p.try_into().unwrap()))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|p| f32::from_le_bytes(*p))
             .collect();
         assert_eq!(values[0], -1.);
         assert_eq!(values[9], 1.);
@@ -161,8 +163,10 @@ mod tests {
             .unwrap();
         let bytes = mesh.bytes().unwrap();
         let values: Vec<f32> = bytes
-            .chunks_exact(4)
-            .map(|b| f32::from_le_bytes(b.try_into().unwrap()))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|b| f32::from_le_bytes(*b))
             .collect();
         assert_eq!(&values[..9], &[-1., -1., 0., 0., 0., 1., 1., 0., 0.]);
         assert_eq!(bytes.len(), 108);

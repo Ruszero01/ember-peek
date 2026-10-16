@@ -273,7 +273,9 @@ impl Peaks {
             if self.bins.len() >= PEAK_LIMIT {
                 self.bins = self
                     .bins
-                    .chunks_exact(2)
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
                     .map(|pair| [pair[0][0].min(pair[1][0]), pair[0][1].max(pair[1][1])])
                     .collect();
                 self.step = self.step.saturating_mul(2);
@@ -465,8 +467,10 @@ mod tests {
             assert!(bytes.len() <= MAX_BYTES, "{name}");
             assert!(
                 bytes
-                    .chunks_exact(4)
-                    .any(|sample| f32::from_le_bytes(sample.try_into().unwrap()).abs() > 0.01),
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .any(|sample| f32::from_le_bytes(*sample).abs() > 0.01),
                 "{name}"
             );
             assert_eq!(chunk["sampleRate"], 44100, "{name}");

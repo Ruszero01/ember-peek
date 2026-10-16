@@ -52,7 +52,9 @@ fn encode(value: &str) -> Vec<u8> {
 /// The text of a `REG_SZ` value, from the bytes the registry returned.
 fn decode(data: &[u8]) -> String {
     let units: Vec<u16> = data
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
         .collect();
     let end = units

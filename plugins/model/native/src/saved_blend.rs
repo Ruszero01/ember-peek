@@ -134,10 +134,7 @@ fn positions(mesh: &Instance<'_>, n: usize) -> Result<Vec<[f32; 3]>, String> {
     if data.len() != n * 3 {
         return Err("Invalid saved position count".into());
     }
-    Ok(data
-        .chunks_exact(3)
-        .map(|p| p.try_into().unwrap())
-        .collect())
+    Ok(data.as_chunks::<3>().0.to_vec())
 }
 fn faces(mesh: &Instance<'_>) -> Result<Vec<Vec<usize>>, String> {
     let n = count(mesh, &["faces_num", "totpoly"])?;
@@ -392,7 +389,7 @@ fn parse(bytes: &[u8]) -> Result<Mesh, String> {
                 .collect();
             let triangles = earcutr::earcut(&coordinates, &[], 2)
                 .map_err(|_| "Could not triangulate saved polygon")?;
-            for triangle in triangles.chunks_exact(3) {
+            for triangle in triangles.as_chunks::<3>().0 {
                 out.triangle(
                     [face[triangle[0]], face[triangle[1]], face[triangle[2]]],
                     color,
