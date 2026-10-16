@@ -39,7 +39,19 @@ test('category picker exposes counts, the active scope and accessible native but
  const require=createRequire(import.meta.url),viewModule={exports:{}};
  runInNewContext(transformSync(readFileSync(new URL('../src/PluginCategories.tsx',import.meta.url),'utf8'),{loader:'tsx',format:'cjs',jsx:'automatic'}).code,{module:viewModule,exports:viewModule.exports,require:name=>name==='./i18n'?{useT:()=>key=>key}:name==='./plugin-categories'?module.exports:require(name)});
  const html=renderToStaticMarkup(createElement(viewModule.exports.PluginCategories,{entries:[{category:'office'},{category:'media'},{}],value:'office',onChange:()=>assert.fail()}));
- assert.match(html,/role="group"/);assert.equal((html.match(/type="button"/g)||[]).length,7);
+ assert.match(html,/role="group"/);assert.equal((html.match(/type="button"/g)||[]).length,4);
+ for (const category of ['design','text','tools']) assert.doesNotMatch(html,new RegExp(`plugins.category.${category}`));
  assert.match(html,/aria-pressed="true">plugins.category.office<span>1<\/span>/);
  assert.match(html,/plugins.category.all<span>3<\/span>/);assert.match(html,/plugins.category.other<span>1<\/span>/);
+});
+
+test('category picker hides empty scopes and falls back to All when a scope disappears',()=>{
+ const require=createRequire(import.meta.url),viewModule={exports:{}};
+ runInNewContext(transformSync(readFileSync(new URL('../src/PluginCategories.tsx',import.meta.url),'utf8'),{loader:'tsx',format:'cjs',jsx:'automatic'}).code,{module:viewModule,exports:viewModule.exports,require:name=>name==='./i18n'?{useT:()=>key=>key}:name==='./plugin-categories'?module.exports:require(name)});
+ for (const entries of [[],[{category:'media'}]]) {
+  const html=renderToStaticMarkup(createElement(viewModule.exports.PluginCategories,{entries,value:'office',onChange:()=>assert.fail()}));
+  assert.match(html,/aria-pressed="true">plugins.category.all/);
+  assert.doesNotMatch(html,/plugins.category.office|plugins.category.other/);
+  assert.equal((html.match(/type="button"/g)||[]).length,entries.length+1);
+ }
 });

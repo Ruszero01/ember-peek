@@ -301,6 +301,8 @@ the one showing it. See [the archive preview contract](../docs/specs/archive-pre
 
 ## Plugin discovery categories
 
+Installed plugins and marketplace filters show only categories with results in the current search. All remains available even for an empty list; if the selected category becomes empty, the host returns to All.
+
 The optional manifest `category` field is copied into catalog entries. It is a lowercase ASCII token (letters, digits and hyphens), up to 40 bytes. The host displays `media`, `office`, `design`, `text`, `tools` and `other`; unknown or absent values appear under Other. Categories affect browsing only, never matching, activation, permissions or view priority. Existing uncategorized packages remain valid; packages declaring this field require a host that understands it because older hosts reject unknown manifest fields. See [plugin categories](../docs/plugins.md#插件分类).
 
 The settings sidebar search indexes plugin display names, IDs and visible setting labels, help and option labels from existing manifest metadata. Chinese display metadata also supports toneless pinyin and initials (for example, shipin / spyl), alongside case-insensitive literal search. Content-keyed indexes are bounded and reused across runtime polls. Hidden settings, stored values and plugin-owned tool page content are excluded; no SDK API or manifest change is required.
