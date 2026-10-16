@@ -1,0 +1,59 @@
+{
+  "api": 1,
+  "minHostVersion": "0.1.1",
+  "category": "tools",
+  "id": "ember.database",
+  "name": "数据库预览",
+  "i18n": {
+    "en": {
+      "name": "Database Preview",
+      "settings": {
+        "showList": {
+          "label": "Show the table list by default",
+          "help": "Lists the database's tables and views in a sidebar when it opens. Changes apply immediately."
+        },
+        "pageSize": {
+          "label": "Rows per page",
+          "help": "How many rows one page of the grid holds. Changing it returns to the first page; the reader accepts at most 500."
+        }
+      }
+    }
+  },
+  "version": "0.1.0",
+  "extensions": [
+    "db",
+    "db3",
+    "sqlite",
+    "sqlite3"
+  ],
+  "icon": "database",
+  "executable": "bin/ember-database-plugin.exe",
+  "entry": "ui/index.html",
+  "capabilities": [
+    "view",
+    "controls"
+  ],
+  "activation": {
+    "mode": "auto",
+    "priority": 100
+  },
+  "settings": [
+    {
+      "key": "showList",
+      "type": "bool",
+      "label": "默认显示表列表",
+      "help": "打开数据库时在侧栏列出全部表与视图；修改立即生效。",
+      "default": true
+    },
+    {
+      "key": "pageSize",
+      "type": "number",
+      "label": "每页行数",
+      "help": "数据网格一页显示多少行。修改后回到第一页；每次读取最多 500 行。",
+      "default": 200,
+      "min": 20,
+      "max": 500,
+      "step": 20
+    }
+  ]
+}

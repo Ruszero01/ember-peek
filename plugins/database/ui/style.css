@@ -1,0 +1,334 @@
+/*
+ * Database preview.
+ *
+ * One document serves two mounts, so this file is written in that order: the shell both share,
+ * the sidebar's list of tables and views, then the content of the object in front of the reader
+ * (a grid of rows, or its structure).
+ *
+ * The design is an inspector: a dense grid where the row number is quiet, numbers line up and
+ * NULL is visibly not an empty string, and a structure sheet that reads as a data dictionary.
+ * Every colour, radius and type size comes from the host's tokens; no value is invented here.
+ */
+
+:root {
+  --cell-max: 360px;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font-ui, "Segoe UI", "Microsoft YaHei UI", sans-serif);
+  font-size: 13px;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+}
+
+/* The page's own watchdog writes here when a file the package should carry is missing. */
+#error {
+  position: fixed;
+  inset: auto 12px 12px 12px;
+  z-index: 5;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-card, 10px);
+  background: var(--raised);
+  font-size: 12px;
+}
+
+#error[hidden] {
+  display: none;
+}
+
+.content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.blank {
+  margin: 24px 20px;
+  color: var(--muted);
+}
+
+.failure {
+  margin: 24px 20px;
+  color: var(--danger);
+}
+
+/* ------------------------------------------------------------------------ grid */
+
+.grid-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  /* The host's floating bar sits over the bottom of the viewport; the padding is what lets the
+     last row scroll clear of it. */
+  padding-bottom: var(--safe-bottom, 0px);
+}
+
+table.grid {
+  /* A grid is a surface, not a wash over the host's backdrop: cells sit on the panel colour the
+     way the spreadsheet preview paints its own, so the dot pattern never shows between rows. */
+  background: var(--panel);
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 12px;
+}
+
+table.grid th,
+table.grid td {
+  max-width: var(--cell-max);
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--border);
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+table.grid thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding-top: calc(var(--safe-top, 0px) + 6px);
+  background: var(--canvas);
+  color: var(--muted);
+  font-weight: 600;
+  vertical-align: bottom;
+}
+
+table.grid thead th .grid-name {
+  display: block;
+  color: var(--text);
+}
+
+table.grid thead th .grid-type {
+  display: block;
+  margin-top: 1px;
+  color: var(--faint);
+  font-size: 10px;
+  font-weight: 400;
+}
+
+/* The row number stays put when the grid scrolls sideways: on a wide table it is the only
+   thing that says which row is which. */
+table.grid th.index {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  min-width: 44px;
+  border-right: 1px solid var(--border);
+  background: var(--canvas);
+  color: var(--faint);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--mono-size, 12px);
+  font-weight: 400;
+  text-align: right;
+  user-select: none;
+}
+
+table.grid thead th.index {
+  z-index: 3;
+}
+
+table.grid td {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--mono-size, 12px);
+  line-height: var(--mono-leading, 1.5);
+}
+
+table.grid td.numeric {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* NULL is a value, not an empty cell: it has to be visibly different from ''. */
+table.grid td.null {
+  color: var(--faint);
+  font-style: italic;
+}
+
+table.grid td.blob {
+  color: var(--muted);
+}
+
+table.grid td.blank {
+  padding: 28px 12px;
+  color: var(--muted);
+  font-family: var(--font-ui, "Segoe UI", sans-serif);
+  text-align: center;
+}
+
+table.grid tbody tr:hover th,
+table.grid tbody tr:hover td {
+  background: var(--hover);
+}
+
+/* A column the shape no longer declares, because the file changed under the preview. */
+table.grid td.beyond {
+  color: var(--warning);
+}
+
+/* ------------------------------------------------------------------- structure */
+
+.structure {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3, 12px);
+  overflow: auto;
+  /* The structure sheet is a page of its own, the way the grid is: it paints its surface. */
+  background: var(--panel);
+  padding: calc(var(--safe-top, 0px) + 14px) 20px calc(var(--safe-bottom, 0px) + 24px);
+}
+
+.structure .heading {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.structure .ui-fields {
+  grid-template-columns: 96px minmax(0, 1fr);
+}
+
+.structure table.detail {
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 12px;
+}
+
+.structure table.detail th {
+  padding: 4px 16px 4px 0;
+  border-bottom: 1px solid var(--border);
+  color: var(--faint);
+  font-weight: 500;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.structure table.detail td {
+  padding: 4px 16px 4px 0;
+  border-bottom: 1px solid
+    color-mix(in srgb, var(--muted) 14%, transparent);
+  white-space: nowrap;
+}
+
+.structure table.detail td.name {
+  font-weight: 600;
+}
+
+.structure table.detail td.muted {
+  color: var(--muted);
+}
+
+.structure table.detail td.mono {
+  color: var(--muted);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--mono-size, 12px);
+  white-space: pre-wrap;
+}
+
+.structure .sql {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card, 10px);
+  background: var(--card);
+  color: var(--text);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--mono-size, 12px);
+  line-height: var(--mono-leading, 1.5);
+  overflow-wrap: anywhere;
+  user-select: text;
+  white-space: pre-wrap;
+}
+
+/* --------------------------------------------------------------- object list */
+
+.role-list .list-head {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  /* The host's bar floats over a sidebar in immersive mode, so the header starts below it. */
+  padding: calc(var(--safe-top, 0px) + 10px) 12px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.role-list .list-facts {
+  margin: 0;
+  color: var(--faint);
+  font-size: 11px;
+}
+
+.role-list .list-counts {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.role-list .list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 6px 6px calc(var(--safe-bottom, 0px) + 12px);
+}
+
+.role-list .list-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2, 8px);
+  width: 100%;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: var(--radius-control, 7px);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.role-list .list-row:hover {
+  background: var(--hover);
+}
+
+.role-list .list-row.on,
+.role-list .list-row:focus-visible {
+  background: var(--accent-bg);
+}
+
+.role-list .list-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.role-list .list-kind {
+  flex-shrink: 0;
+  color: var(--faint);
+  font-size: 10px;
+}
+
+.role-list .list-empty {
+  margin: 16px 12px;
+  color: var(--muted);
+  font-size: 12px;
+}
